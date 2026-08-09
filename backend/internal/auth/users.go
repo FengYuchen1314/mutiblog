@@ -23,7 +23,11 @@ type Users struct {
 }
 
 func OpenUsers(dataRoot string) (*Users, error) {
-	u := &Users{dir: filepath.Join(dataRoot, "users"), byID: map[string]*model.User{}, byUsername: map[string]*model.User{}}
+	u := &Users{
+		dir:        filepath.Join(dataRoot, "users"),
+		byID:       map[string]*model.User{},
+		byUsername: map[string]*model.User{},
+	}
 	return u, u.Reload()
 }
 func (u *Users) Reload() error {
@@ -111,7 +115,17 @@ func (u *Users) CreateAdmin(username, email, password, locale string) (*model.Us
 		return nil, err
 	}
 	now := time.Now()
-	user := &model.User{ID: strings.ToLower(username), Username: username, Email: email, DisplayName: username, Role: "admin", PasswordHash: hash, TokenVersion: 1, Locale: model.Locale(locale), CreatedAt: now}
+	user := &model.User{
+		ID:           strings.ToLower(username),
+		Username:     username,
+		Email:        email,
+		DisplayName:  username,
+		Role:         "admin",
+		PasswordHash: hash,
+		TokenVersion: 1,
+		Locale:       model.Locale(locale),
+		CreatedAt:    now,
+	}
 	if err := u.Save(user); err != nil {
 		return nil, err
 	}
@@ -142,7 +156,17 @@ func (u *Users) Create(username, email, password, role, locale string) (*model.U
 	if err != nil {
 		return nil, err
 	}
-	user := &model.User{ID: strings.ToLower(username), Username: username, Email: email, DisplayName: username, Role: role, PasswordHash: hash, TokenVersion: 1, Locale: model.Locale(locale), CreatedAt: time.Now()}
+	user := &model.User{
+		ID:           strings.ToLower(username),
+		Username:     username,
+		Email:        email,
+		DisplayName:  username,
+		Role:         role,
+		PasswordHash: hash,
+		TokenVersion: 1,
+		Locale:       model.Locale(locale),
+		CreatedAt:    time.Now(),
+	}
 	if err = u.Save(user); err != nil {
 		return nil, err
 	}

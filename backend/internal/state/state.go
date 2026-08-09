@@ -31,7 +31,9 @@ func Open(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	dsn := "file:" + filepath.ToSlash(
+		path,
+	) + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	read, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -119,7 +121,8 @@ func (d *DB) Tx(ctx context.Context, fn func(*sql.Tx) error) error {
 	return err
 }
 func busy(err error) bool {
-	return err != nil && (strings.Contains(err.Error(), "SQLITE_BUSY") || strings.Contains(err.Error(), "SQLITE_LOCKED"))
+	return err != nil &&
+		(strings.Contains(err.Error(), "SQLITE_BUSY") || strings.Contains(err.Error(), "SQLITE_LOCKED"))
 }
 func Migrate(d *DB) error {
 	entries, err := migrations.ReadDir("migrations")
@@ -133,7 +136,9 @@ func Migrate(d *DB) error {
 		}
 	}
 	sort.Strings(names)
-	if _, err = d.Write().Exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"); err != nil {
+	migrationsDDL := "CREATE TABLE IF NOT EXISTS schema_migrations " +
+		"(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+	if _, err = d.Write().Exec(migrationsDDL); err != nil {
 		return err
 	}
 	for _, name := range names {
@@ -142,7 +147,8 @@ func Migrate(d *DB) error {
 			return fmt.Errorf("invalid migration %s", name)
 		}
 		var exists int
-		if err := d.Read().QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version=?", version).Scan(&exists); err != nil {
+		row := d.Read().QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version=?", version)
+		if err := row.Scan(&exists); err != nil {
 			return err
 		}
 		if exists > 0 {
@@ -156,7 +162,8 @@ func Migrate(d *DB) error {
 			if _, err := tx.Exec(string(sqlBytes)); err != nil {
 				return fmt.Errorf("migration %s: %w", name, err)
 			}
-			_, err := tx.Exec("INSERT INTO schema_migrations(version, applied_at) VALUES (?,?)", version, time.Now().UTC().Format(time.RFC3339Nano))
+			insert := "INSERT INTO schema_migrations(version, applied_at) VALUES (?,?)"
+			_, err := tx.Exec(insert, version, time.Now().UTC().Format(time.RFC3339Nano))
 			return err
 		}); err != nil {
 			return err

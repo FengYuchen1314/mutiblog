@@ -116,10 +116,12 @@ func (w *Watcher) suppressed(path string) bool {
 }
 func ignore(path string) bool {
 	base := filepath.Base(path)
-	if strings.HasPrefix(base, ".") || base == ".DS_Store" || strings.HasSuffix(base, ".swp") || strings.HasSuffix(base, "~") {
+	if strings.HasPrefix(base, ".") || base == ".DS_Store" || strings.HasSuffix(base, ".swp") ||
+		strings.HasSuffix(base, "~") {
 		return true
 	}
-	return strings.Contains(filepath.ToSlash(path), "/.drafts/") || strings.Contains(filepath.ToSlash(path), "/.revisions/")
+	return strings.Contains(filepath.ToSlash(path), "/.drafts/") ||
+		strings.Contains(filepath.ToSlash(path), "/.revisions/")
 }
 func (w *Watcher) queue(path string, op fsnotify.Op) {
 	event, key := w.classify(path, op)
@@ -134,7 +136,8 @@ func (w *Watcher) queue(path string, op fsnotify.Op) {
 func (w *Watcher) classify(path string, op fsnotify.Op) (events.Event, string) {
 	slash := filepath.ToSlash(path)
 	if w.contentRoot != "" {
-		if rel, err := filepath.Rel(w.contentRoot, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if rel, err := filepath.Rel(w.contentRoot, path); err == nil && rel != ".." &&
+			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			parts := strings.Split(filepath.ToSlash(rel), "/")
 			var bundle string
 			if len(parts) >= 3 && parts[0] == "posts" {

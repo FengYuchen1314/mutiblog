@@ -202,7 +202,16 @@ func (s *Store) LoadBundle(bundleDir string) (*model.Article, error) {
 	if meta.ID == "" || meta.SourceLocale == "" || meta.Type == "" {
 		return nil, fmt.Errorf("invalid metadata in %s", bundleDir)
 	}
-	a := &model.Article{ID: meta.ID, Type: meta.Type, BundleDir: filepath.ToSlash(bundleDir), Source: meta.SourceLocale, SourceRev: meta.SourceRevision, CreatedAt: meta.CreatedAt, Versions: map[model.Locale]*model.ArticleVersion{}, Trans: meta.Translations}
+	a := &model.Article{
+		ID:        meta.ID,
+		Type:      meta.Type,
+		BundleDir: filepath.ToSlash(bundleDir),
+		Source:    meta.SourceLocale,
+		SourceRev: meta.SourceRevision,
+		CreatedAt: meta.CreatedAt,
+		Versions:  map[model.Locale]*model.ArticleVersion{},
+		Trans:     meta.Translations,
+	}
 	if a.Trans == nil {
 		a.Trans = map[model.Locale]*model.TranslationState{}
 	}
@@ -231,7 +240,14 @@ func (s *Store) LoadBundle(bundleDir string) (*model.Article, error) {
 		front.Locale = loc
 		info, _ := entry.Info()
 		sum := sha256.Sum256([]byte(body))
-		a.Versions[loc] = &model.ArticleVersion{Locale: loc, FilePath: filepath.ToSlash(filepath.Join(bundleDir, entry.Name())), Front: front, Body: body, BodyHash: fmt.Sprintf("%x", sum), FileModTime: info.ModTime()}
+		a.Versions[loc] = &model.ArticleVersion{
+			Locale:      loc,
+			FilePath:    filepath.ToSlash(filepath.Join(bundleDir, entry.Name())),
+			Front:       front,
+			Body:        body,
+			BodyHash:    fmt.Sprintf("%x", sum),
+			FileModTime: info.ModTime(),
+		}
 		if _, ok := a.Trans[loc]; !ok {
 			status := model.TSCompleted
 			if loc == a.Source {
@@ -323,14 +339,28 @@ func (s *Store) ScanAll(ctx context.Context) ([]*model.Article, []ScanError, err
 func (s *Store) SaveMetadata(a *model.Article) error {
 	unlock := s.mu.Lock(a.BundleDir)
 	defer unlock()
-	meta := model.BundleMetadata{ID: a.ID, Type: a.Type, SourceLocale: a.Source, SourceRevision: a.SourceRev, CreatedAt: a.CreatedAt, Translations: a.Trans}
+	meta := model.BundleMetadata{
+		ID:             a.ID,
+		Type:           a.Type,
+		SourceLocale:   a.Source,
+		SourceRevision: a.SourceRev,
+		CreatedAt:      a.CreatedAt,
+		Translations:   a.Trans,
+	}
 	b, err := yaml.Marshal(meta)
 	if err != nil {
 		return err
 	}
 	return fsutil.AtomicWrite(filepath.Join(s.root, filepath.FromSlash(a.BundleDir), "metadata.yaml"), b, 0o644)
 }
-func (s *Store) SaveVersion(a *model.Article, loc model.Locale, front model.FrontMatter, body string, opts SaveOpts) error {
+
+func (s *Store) SaveVersion(
+	a *model.Article,
+	loc model.Locale,
+	front model.FrontMatter,
+	body string,
+	opts SaveOpts,
+) error {
 	unlock := s.mu.Lock(a.BundleDir)
 	defer unlock()
 	if opts.MirrorAuthoritative && loc != a.Source {
@@ -352,7 +382,14 @@ func (s *Store) SaveVersion(a *model.Article, loc model.Locale, front model.Fron
 		a.Versions = map[model.Locale]*model.ArticleVersion{}
 	}
 	sum := sha256.Sum256([]byte(body))
-	a.Versions[loc] = &model.ArticleVersion{Locale: loc, FilePath: filepath.ToSlash(filepath.Join(a.BundleDir, filepath.Base(file))), Front: front, Body: body, BodyHash: fmt.Sprintf("%x", sum), FileModTime: time.Now()}
+	a.Versions[loc] = &model.ArticleVersion{
+		Locale:      loc,
+		FilePath:    filepath.ToSlash(filepath.Join(a.BundleDir, filepath.Base(file))),
+		Front:       front,
+		Body:        body,
+		BodyHash:    fmt.Sprintf("%x", sum),
+		FileModTime: time.Now(),
+	}
 	if opts.BumpSourceRevision && loc == a.Source {
 		a.SourceRev++
 		for target, v := range a.Versions {
@@ -393,14 +430,27 @@ func mirror(src, dst *model.FrontMatter) {
 	dst.Comments = src.Comments
 }
 func (s *Store) saveMetadataLocked(a *model.Article) error {
-	meta := model.BundleMetadata{ID: a.ID, Type: a.Type, SourceLocale: a.Source, SourceRevision: a.SourceRev, CreatedAt: a.CreatedAt, Translations: a.Trans}
+	meta := model.BundleMetadata{
+		ID:             a.ID,
+		Type:           a.Type,
+		SourceLocale:   a.Source,
+		SourceRevision: a.SourceRev,
+		CreatedAt:      a.CreatedAt,
+		Translations:   a.Trans,
+	}
 	b, err := yaml.Marshal(meta)
 	if err != nil {
 		return err
 	}
 	return fsutil.AtomicWrite(filepath.Join(s.root, filepath.FromSlash(a.BundleDir), "metadata.yaml"), b, 0o644)
 }
-func (s *Store) CreateBundle(typ model.ContentType, loc model.Locale, front model.FrontMatter, body string) (*model.Article, error) {
+
+func (s *Store) CreateBundle(
+	typ model.ContentType,
+	loc model.Locale,
+	front model.FrontMatter,
+	body string,
+) (*model.Article, error) {
 	if front.ID == "" {
 		id, err := uuid.NewV7()
 		if err != nil {
@@ -423,7 +473,15 @@ func (s *Store) CreateBundle(typ model.ContentType, loc model.Locale, front mode
 	for n := 2; ; n++ {
 		candidate := filepath.ToSlash(filepath.Join(parent, dirName))
 		if _, err := os.Stat(filepath.Join(s.root, filepath.FromSlash(candidate))); errors.Is(err, os.ErrNotExist) {
-			a := &model.Article{ID: front.ID, Type: typ, BundleDir: candidate, Source: loc, CreatedAt: front.Date, Versions: map[model.Locale]*model.ArticleVersion{}, Trans: map[model.Locale]*model.TranslationState{loc: {Status: model.TSOriginal, Revision: 1}}}
+			a := &model.Article{
+				ID:        front.ID,
+				Type:      typ,
+				BundleDir: candidate,
+				Source:    loc,
+				CreatedAt: front.Date,
+				Versions:  map[model.Locale]*model.ArticleVersion{},
+				Trans:     map[model.Locale]*model.TranslationState{loc: {Status: model.TSOriginal, Revision: 1}},
+			}
 			if err := s.SaveVersion(a, loc, front, body, SaveOpts{}); err != nil {
 				return nil, err
 			}
@@ -450,7 +508,11 @@ func (s *Store) SaveDraft(id model.ArticleID, loc model.Locale, front model.Fron
 	if err != nil {
 		return err
 	}
-	return fsutil.AtomicWrite(filepath.Join(s.root, ".drafts", string(id)+"."+strings.ToLower(string(loc))+".md"), b, 0o600)
+	return fsutil.AtomicWrite(
+		filepath.Join(s.root, ".drafts", string(id)+"."+strings.ToLower(string(loc))+".md"),
+		b,
+		0o600,
+	)
 }
 func (s *Store) LoadDraft(id model.ArticleID, loc model.Locale) (*Draft, error) {
 	raw, err := os.ReadFile(filepath.Join(s.root, ".drafts", string(id)+"."+strings.ToLower(string(loc))+".md"))
@@ -493,7 +555,11 @@ func (s *Store) snapshotLocked(a *model.Article, loc model.Locale) (int, error) 
 	if err != nil {
 		return 0, err
 	}
-	return revision, fsutil.AtomicWrite(filepath.Join(dir, fmt.Sprintf("%04d.%s.md", revision, strings.ToLower(string(loc)))), b, 0o600)
+	return revision, fsutil.AtomicWrite(
+		filepath.Join(dir, fmt.Sprintf("%04d.%s.md", revision, strings.ToLower(string(loc)))),
+		b,
+		0o600,
+	)
 }
 
 func (s *Store) ListRevisions(id model.ArticleID, loc model.Locale) ([]RevisionInfo, error) {
@@ -516,13 +582,26 @@ func (s *Store) ListRevisions(id model.ArticleID, loc model.Locale) ([]RevisionI
 			continue
 		}
 		info, _ := entry.Info()
-		out = append(out, RevisionInfo{Revision: revision, Locale: loc, CreatedAt: info.ModTime(), Path: filepath.ToSlash(filepath.Join(".revisions", string(id), entry.Name()))})
+		out = append(
+			out,
+			RevisionInfo{
+				Revision:  revision,
+				Locale:    loc,
+				CreatedAt: info.ModTime(),
+				Path:      filepath.ToSlash(filepath.Join(".revisions", string(id), entry.Name())),
+			},
+		)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Revision > out[j].Revision })
 	return out, nil
 }
 func (s *Store) ReadRevision(id model.ArticleID, loc model.Locale, rev int) (model.FrontMatter, string, error) {
-	path := filepath.Join(s.root, ".revisions", string(id), fmt.Sprintf("%04d.%s.md", rev, strings.ToLower(string(loc))))
+	path := filepath.Join(
+		s.root,
+		".revisions",
+		string(id),
+		fmt.Sprintf("%04d.%s.md", rev, strings.ToLower(string(loc))),
+	)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return model.FrontMatter{}, "", err

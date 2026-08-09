@@ -25,7 +25,11 @@ type Report struct {
 func Run(ctx context.Context, store *content.Store, from, to int, dryRun bool) (Report, error) {
 	report := Report{From: from, To: to}
 	if from > CurrentContentSchema {
-		return report, fmt.Errorf("content schema %d is newer than this binary (supports %d)", from, CurrentContentSchema)
+		return report, fmt.Errorf(
+			"content schema %d is newer than this binary (supports %d)",
+			from,
+			CurrentContentSchema,
+		)
 	}
 	if to == 0 || to > CurrentContentSchema {
 		to = CurrentContentSchema

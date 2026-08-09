@@ -81,7 +81,20 @@ func New(opts Options) *Index {
 	if opts.BodyResidentLimitBytes == 0 {
 		opts.BodyResidentLimitBytes = 64 << 20
 	}
-	return &Index{options: opts, articles: map[model.ArticleID]*model.Article{}, byTypeLoc: map[typeLocKey][]model.ArticleID{}, slugIdx: map[slugKey]model.ArticleID{}, byCategory: map[string][]model.ArticleID{}, byTag: map[string][]model.ArticleID{}, archive: map[model.Locale]map[int]map[int][]model.ArticleID{}, categories: map[string]*model.Category{}, tags: map[string]*model.Tag{}, links: map[string]*model.Link{}, menus: map[string]*model.Menu{}, users: map[string]*model.User{}}
+	return &Index{
+		options:    opts,
+		articles:   map[model.ArticleID]*model.Article{},
+		byTypeLoc:  map[typeLocKey][]model.ArticleID{},
+		slugIdx:    map[slugKey]model.ArticleID{},
+		byCategory: map[string][]model.ArticleID{},
+		byTag:      map[string][]model.ArticleID{},
+		archive:    map[model.Locale]map[int]map[int][]model.ArticleID{},
+		categories: map[string]*model.Category{},
+		tags:       map[string]*model.Tag{},
+		links:      map[string]*model.Link{},
+		menus:      map[string]*model.Menu{},
+		users:      map[string]*model.User{},
+	}
 }
 func (ix *Index) RebuildAll(ctx context.Context, store *content.Store, tax *taxonomy.Store) error {
 	articles, errs, err := store.ScanAll(ctx)
@@ -181,7 +194,10 @@ func (ix *Index) rebuildViewsLocked() {
 		}
 	}
 	for key, ids := range ix.byTypeLoc {
-		sort.SliceStable(ids, func(i, j int) bool { return newer(ix.articles[ids[i]], ix.articles[ids[j]], key.locale) })
+		sort.SliceStable(
+			ids,
+			func(i, j int) bool { return newer(ix.articles[ids[i]], ix.articles[ids[j]], key.locale) },
+		)
 		ix.byTypeLoc[key] = ids
 	}
 	mode := BodyResident
@@ -204,7 +220,15 @@ func (ix *Index) rebuildViewsLocked() {
 			pages++
 		}
 	}
-	ix.stats = Stats{Articles: len(ix.articles), Posts: posts, Pages: pages, Locales: len(locales), Generation: ix.stats.Generation + 1, BodyMode: mode, BodyBytes: bodyBytes}
+	ix.stats = Stats{
+		Articles:   len(ix.articles),
+		Posts:      posts,
+		Pages:      pages,
+		Locales:    len(locales),
+		Generation: ix.stats.Generation + 1,
+		BodyMode:   mode,
+		BodyBytes:  bodyBytes,
+	}
 }
 func newer(a, b *model.Article, loc model.Locale) bool {
 	av, bv := a.Versions[loc], b.Versions[loc]
@@ -320,7 +344,8 @@ func (ix *Index) List(q ListQuery) ([]*model.Article, int) {
 		if q.TransStatus != "" && (a.Trans[q.Locale] == nil || a.Trans[q.Locale].Status != q.TransStatus) {
 			continue
 		}
-		if q.Search != "" && !strings.Contains(strings.ToLower(v.Front.Title+" "+v.Front.Description), strings.ToLower(q.Search)) {
+		if q.Search != "" &&
+			!strings.Contains(strings.ToLower(v.Front.Title+" "+v.Front.Description), strings.ToLower(q.Search)) {
 			continue
 		}
 		out = append(out, a)

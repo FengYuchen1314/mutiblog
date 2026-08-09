@@ -70,7 +70,10 @@ func (q *Queue) Enqueue(ctx context.Context, j Job) (int64, error) {
 	err := q.db.Tx(ctx, func(tx *sql.Tx) error {
 		if j.DedupeKey != "" {
 			var existing int64
-			err := tx.QueryRow("SELECT id FROM jobs WHERE kind=? AND dedupe_key=? AND status IN ('pending','running') ORDER BY id DESC LIMIT 1", j.Kind, j.DedupeKey).Scan(&existing)
+			selectSQL := "SELECT id FROM jobs WHERE kind=? AND dedupe_key=? " +
+				"AND status IN ('pending','running') ORDER BY id DESC LIMIT 1"
+			err := tx.QueryRow(selectSQL, j.Kind, j.DedupeKey).
+				Scan(&existing)
 			if err == nil {
 				// Workers resolve the current bundle from the index, so a job already
 				// running will render the newest saved content rather than an obsolete
@@ -78,12 +81,30 @@ func (q *Queue) Enqueue(ctx context.Context, j Job) (int64, error) {
 				// run_after slides forward on every arrival so a deferred
 				// re-render (e.g. the hreflang merge window) coalesces bursts
 				// into a single job that runs after the last request.
-				_, err = tx.Exec("UPDATE jobs SET payload=?,priority=MIN(priority,?),run_after=?,updated_at=? WHERE id=?", string(j.Payload), j.Priority, j.RunAfter.UTC().Format(time.RFC3339Nano), now, existing)
+				_, err = tx.Exec(
+					"UPDATE jobs SET payload=?,priority=MIN(priority,?),run_after=?,updated_at=? WHERE id=?",
+					string(j.Payload),
+					j.Priority,
+					j.RunAfter.UTC().Format(time.RFC3339Nano),
+					now,
+					existing,
+				)
 				id = existing
 				return err
 			}
 		}
-		result, err := tx.Exec("INSERT INTO jobs(kind,dedupe_key,payload,priority,status,max_attempts,run_after,created_at,updated_at) VALUES(?,?,?,?, 'pending',?,?,?,?)", j.Kind, dedupe, string(j.Payload), j.Priority, j.MaxAttempts, j.RunAfter.UTC().Format(time.RFC3339Nano), now, now)
+		result, err := tx.Exec(
+			"INSERT INTO jobs(kind,dedupe_key,payload,priority,status,max_attempts,"+
+				"run_after,created_at,updated_at) VALUES(?,?,?,?, 'pending',?,?,?,?)",
+			j.Kind,
+			dedupe,
+			string(j.Payload),
+			j.Priority,
+			j.MaxAttempts,
+			j.RunAfter.UTC().Format(time.RFC3339Nano),
+			now,
+			now,
+		)
 		if err == nil {
 			id, _ = result.LastInsertId()
 		}
@@ -96,13 +117,27 @@ func (q *Queue) Claim(ctx context.Context, kind, worker string) (*Job, error) {
 	var payload, runAfter string
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	err := q.db.Tx(ctx, func(tx *sql.Tx) error {
-		row := tx.QueryRow("SELECT id,kind,COALESCE(dedupe_key,''),payload,priority,attempts,max_attempts,run_after FROM jobs WHERE status='pending' AND kind=? AND run_after<=? ORDER BY priority,id LIMIT 1", kind, now)
-		if err := row.Scan(&job.ID, &job.Kind, &job.DedupeKey, &payload, &job.Priority, &job.Attempts, &job.MaxAttempts, &runAfter); err != nil {
+		row := tx.QueryRow(
+			"SELECT id,kind,COALESCE(dedupe_key,''),payload,priority,attempts,max_attempts,"+
+				"run_after FROM jobs WHERE status='pending' AND kind=? AND run_after<=? ORDER BY priority,id LIMIT 1",
+			kind,
+			now,
+		)
+		if err := row.Scan(
+			&job.ID, &job.Kind, &job.DedupeKey, &payload, &job.Priority,
+			&job.Attempts, &job.MaxAttempts, &runAfter,
+		); err != nil {
 			return err
 		}
 		job.Payload = json.RawMessage(payload)
 		job.RunAfter, _ = time.Parse(time.RFC3339Nano, runAfter)
-		_, err := tx.Exec("UPDATE jobs SET status='running',locked_by=?,locked_at=?,updated_at=? WHERE id=?", worker, now, now, job.ID)
+		_, err := tx.Exec(
+			"UPDATE jobs SET status='running',locked_by=?,locked_at=?,updated_at=? WHERE id=?",
+			worker,
+			now,
+			now,
+			job.ID,
+		)
 		return err
 	})
 	if err == sql.ErrNoRows {
@@ -116,7 +151,12 @@ func (q *Queue) Claim(ctx context.Context, kind, worker string) (*Job, error) {
 // claim another request's queued work.
 func (q *Queue) Start(ctx context.Context, id int64, worker string) (bool, error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	result, err := q.db.Write().ExecContext(ctx, "UPDATE jobs SET status='running',locked_by=?,locked_at=?,updated_at=? WHERE id=? AND status='pending'", worker, now, now, id)
+	result, err := q.db.Write().
+		ExecContext(
+			ctx,
+			"UPDATE jobs SET status='running',locked_by=?,locked_at=?,updated_at=? WHERE id=? AND status='pending'",
+			worker, now, now, id,
+		)
 	if err != nil {
 		return false, err
 	}
@@ -124,7 +164,12 @@ func (q *Queue) Start(ctx context.Context, id int64, worker string) (bool, error
 	return changed == 1, err
 }
 func (q *Queue) Complete(ctx context.Context, id int64) error {
-	_, err := q.db.Write().ExecContext(ctx, "UPDATE jobs SET status='done',updated_at=? WHERE id=?", time.Now().UTC().Format(time.RFC3339Nano), id)
+	_, err := q.db.Write().
+		ExecContext(
+			ctx,
+			"UPDATE jobs SET status='done',updated_at=? WHERE id=?",
+			time.Now().UTC().Format(time.RFC3339Nano), id,
+		)
 	return err
 }
 
@@ -133,7 +178,18 @@ func (q *Queue) Complete(ctx context.Context, id int64) error {
 func (q *Queue) Get(ctx context.Context, id int64) (*Job, error) {
 	var job Job
 	var payload, runAfter, createdAt, updatedAt string
-	err := q.db.Read().QueryRowContext(ctx, "SELECT id,kind,COALESCE(dedupe_key,''),payload,priority,attempts,max_attempts,run_after,status,COALESCE(last_error,''),created_at,updated_at FROM jobs WHERE id=?", id).Scan(&job.ID, &job.Kind, &job.DedupeKey, &payload, &job.Priority, &job.Attempts, &job.MaxAttempts, &runAfter, &job.Status, &job.LastError, &createdAt, &updatedAt)
+	err := q.db.Read().
+		QueryRowContext(
+			ctx,
+			"SELECT id,kind,COALESCE(dedupe_key,''),payload,priority,attempts,max_attempts,"+
+				"run_after,status,COALESCE(last_error,''),created_at,updated_at FROM jobs WHERE id=?",
+			id,
+		).
+		Scan(
+			&job.ID, &job.Kind, &job.DedupeKey, &payload, &job.Priority,
+			&job.Attempts, &job.MaxAttempts, &runAfter, &job.Status,
+			&job.LastError, &createdAt, &updatedAt,
+		)
 	if err != nil {
 		return nil, err
 	}
@@ -149,14 +205,25 @@ func (q *Queue) UpdatePayload(ctx context.Context, id int64, payload any) error 
 	if err != nil {
 		return err
 	}
-	_, err = q.db.Write().ExecContext(ctx, "UPDATE jobs SET payload=?,updated_at=? WHERE id=?", string(encoded), time.Now().UTC().Format(time.RFC3339Nano), id)
+	_, err = q.db.Write().
+		ExecContext(
+			ctx,
+			"UPDATE jobs SET payload=?,updated_at=? WHERE id=?",
+			string(encoded), time.Now().UTC().Format(time.RFC3339Nano), id,
+		)
 	return err
 }
 
 // Touch records real worker progress. It is a heartbeat, not a retry, so it
 // never changes the attempt counter.
 func (q *Queue) Touch(ctx context.Context, id int64, worker string) error {
-	_, err := q.db.Write().ExecContext(ctx, "UPDATE jobs SET locked_at=?,updated_at=? WHERE id=? AND status='running' AND locked_by=?", time.Now().UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano), id, worker)
+	_, err := q.db.Write().
+		ExecContext(
+			ctx,
+			"UPDATE jobs SET locked_at=?,updated_at=? WHERE id=? AND status='running' AND locked_by=?",
+			time.Now().UTC().Format(time.RFC3339Nano),
+			time.Now().UTC().Format(time.RFC3339Nano), id, worker,
+		)
 	return err
 }
 
@@ -164,7 +231,12 @@ func (q *Queue) Touch(ctx context.Context, id int64, worker string) error {
 // process kill is infrastructure failure, not a failed job attempt.
 func (q *Queue) ReclaimStale(ctx context.Context, staleAfter time.Duration) (int64, error) {
 	cutoff := time.Now().UTC().Add(-staleAfter).Format(time.RFC3339Nano)
-	result, err := q.db.Write().ExecContext(ctx, "UPDATE jobs SET status='pending',locked_by=NULL,locked_at=NULL,updated_at=? WHERE status='running' AND locked_at<?", time.Now().UTC().Format(time.RFC3339Nano), cutoff)
+	result, err := q.db.Write().
+		ExecContext(
+			ctx,
+			"UPDATE jobs SET status='pending',locked_by=NULL,locked_at=NULL,updated_at=? WHERE status='running' AND locked_at<?",
+			time.Now().UTC().Format(time.RFC3339Nano), cutoff,
+		)
 	if err != nil {
 		return 0, err
 	}
@@ -174,7 +246,8 @@ func (q *Queue) ReclaimStale(ctx context.Context, staleAfter time.Duration) (int
 func (q *Queue) Fail(ctx context.Context, id int64, cause error) error {
 	return q.db.Tx(ctx, func(tx *sql.Tx) error {
 		var attempts, maxAttempts int
-		if err := tx.QueryRowContext(ctx, "SELECT attempts,max_attempts FROM jobs WHERE id=?", id).Scan(&attempts, &maxAttempts); err != nil {
+		selectAttempts := "SELECT attempts,max_attempts FROM jobs WHERE id=?"
+		if err := tx.QueryRowContext(ctx, selectAttempts, id).Scan(&attempts, &maxAttempts); err != nil {
 			return err
 		}
 		next := attempts + 1
@@ -187,7 +260,16 @@ func (q *Queue) Fail(ctx context.Context, id int64, cause error) error {
 			backoff := time.Second * time.Duration(1<<min(next-1, 6))
 			runAfter = now.Add(backoff)
 		}
-		_, err := tx.ExecContext(ctx, "UPDATE jobs SET status=?,attempts=?,last_error=?,run_after=?,locked_by=NULL,locked_at=NULL,updated_at=? WHERE id=?", status, next, cause.Error(), runAfter.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), id)
+		_, err := tx.ExecContext(
+			ctx,
+			"UPDATE jobs SET status=?,attempts=?,last_error=?,run_after=?,locked_by=NULL,locked_at=NULL,updated_at=? WHERE id=?",
+			status,
+			next,
+			cause.Error(),
+			runAfter.Format(time.RFC3339Nano),
+			now.Format(time.RFC3339Nano),
+			id,
+		)
 		return err
 	})
 }

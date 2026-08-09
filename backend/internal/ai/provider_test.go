@@ -33,16 +33,32 @@ func TestOpenAICompatibleFallsBackFromJSONMode(t *testing.T) {
 			t.Fatal("fallback still sent JSON mode")
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"choices": []any{map[string]any{"message": map[string]any{"content": "```json\n{\"segments\":[\"你好 ⟦P1⟧\"]}\n```"}}},
-			"usage":   map[string]int{"prompt_tokens": 3, "completion_tokens": 4},
+			"choices": []any{
+				map[string]any{"message": map[string]any{"content": "```json\n{\"segments\":[\"你好 ⟦P1⟧\"]}\n```"}},
+			},
+			"usage": map[string]int{"prompt_tokens": 3, "completion_tokens": 4},
 		})
 	}))
 	defer server.Close()
-	p, err := NewOpenAICompatible(config.AIConfig{BaseURL: server.URL, APIKey: "test-key", Model: "fake", Timeout: config.Duration(time.Second), MaxRetries: 1})
+	p, err := NewOpenAICompatible(
+		config.AIConfig{
+			BaseURL:    server.URL,
+			APIKey:     "test-key",
+			Model:      "fake",
+			Timeout:    config.Duration(time.Second),
+			MaxRetries: 1,
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := p.Translate(context.Background(), []Segment{{Text: "Hello ⟦P1⟧"}}, model.Locale("en"), model.Locale("zh-CN"), "title")
+	out, err := p.Translate(
+		context.Background(),
+		[]Segment{{Text: "Hello ⟦P1⟧"}},
+		model.Locale("en"),
+		model.Locale("zh-CN"),
+		"title",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +77,9 @@ func TestBaseURLNormalization(t *testing.T) {
 		"https://api.example.test/v1/chat/completions",
 		"https://api.example.test/v1/chat/completions/",
 	} {
-		p, err := NewOpenAICompatible(config.AIConfig{BaseURL: input, APIKey: "k", Model: "m", Timeout: config.Duration(time.Second)})
+		p, err := NewOpenAICompatible(
+			config.AIConfig{BaseURL: input, APIKey: "k", Model: "m", Timeout: config.Duration(time.Second)},
+		)
 		if err != nil {
 			t.Fatalf("%s: %v", input, err)
 		}
@@ -76,7 +94,9 @@ func TestProviderStatusDiagnostics(t *testing.T) {
 		http.Error(w, `{"error":"nope"}`, http.StatusNotFound)
 	}))
 	defer server.Close()
-	p, err := NewOpenAICompatible(config.AIConfig{BaseURL: server.URL, APIKey: "k", Model: "m", Timeout: config.Duration(time.Second)})
+	p, err := NewOpenAICompatible(
+		config.AIConfig{BaseURL: server.URL, APIKey: "k", Model: "m", Timeout: config.Duration(time.Second)},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

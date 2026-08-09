@@ -87,7 +87,10 @@ func New(s *Server) http.Handler {
 		http.Redirect(w, r, "/admin/", http.StatusPermanentRedirect)
 	})
 	r.Handle("/admin/*", http.FileServer(http.FS(web.Admin)))
-	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { ok(w, http.StatusOK, map[string]bool{"ok": true}) })
+	r.Get(
+		"/healthz",
+		func(w http.ResponseWriter, r *http.Request) { ok(w, http.StatusOK, map[string]bool{"ok": true}) },
+	)
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Get("/status", s.status)
 		r.Post("/setup", s.setup)
@@ -419,7 +422,17 @@ func (s *Server) rootRedirect(registry *blogi18n.Registry) http.HandlerFunc {
 		if maxAge == 0 {
 			maxAge = 365 * 24 * 60 * 60
 		}
-		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: string(locale), Path: "/", MaxAge: maxAge, SameSite: http.SameSiteLaxMode, Secure: s.cookieSecure(r)})
+		http.SetCookie(
+			w,
+			&http.Cookie{
+				Name:     cookieName,
+				Value:    string(locale),
+				Path:     "/",
+				MaxAge:   maxAge,
+				SameSite: http.SameSiteLaxMode,
+				Secure:   s.cookieSecure(r),
+			},
+		)
 		http.Redirect(w, r, "/"+prefix+"/", http.StatusFound)
 	}
 }
@@ -516,7 +529,8 @@ func fail(w http.ResponseWriter, status int, code, message string) {
 func failWithData(w http.ResponseWriter, status int, code, message string, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}, "data": data})
+	_ = json.NewEncoder(w).
+		Encode(map[string]any{"error": map[string]string{"code": code, "message": message}, "data": data})
 }
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	ok(w, http.StatusOK, map[string]bool{"setupRequired": s.Users.Empty()})
@@ -555,7 +569,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	loginKey := "login:" + strings.ToLower(strings.TrimSpace(req.Username)) + ":" + clientIP(r)
 	limit := s.Config.Security.LoginRateLimit
-	if ok, retry := s.limiter.allowLogin(loginKey, limit.Attempts, limit.Window.Duration(), limit.Lockout.Duration()); !ok {
+	allowed, retry := s.limiter.allowLogin(
+		loginKey, limit.Attempts, limit.Window.Duration(), limit.Lockout.Duration(),
+	)
+	if !allowed {
 		w.Header().Set("Retry-After", fmt.Sprint(maxInt(1, int(retry.Seconds()))))
 		fail(w, http.StatusTooManyRequests, "RATE_LIMITED", "too many login attempts; try again later")
 		return
@@ -584,7 +601,13 @@ func (s *Server) recordLogin(r *http.Request, identifier string, success bool) {
 	if s.State == nil {
 		return
 	}
-	_, _ = s.State.Write().ExecContext(r.Context(), "INSERT INTO login_attempts(identifier,ip,success,user_agent,created_at) VALUES(?,?,?,?,?)", identifier, clientIP(r), success, r.UserAgent(), time.Now().UTC().Format(time.RFC3339Nano))
+	_, _ = s.State.Write().
+		ExecContext(
+			r.Context(),
+			"INSERT INTO login_attempts(identifier,ip,success,user_agent,created_at) VALUES(?,?,?,?,?)",
+			identifier, clientIP(r), success, r.UserAgent(),
+			time.Now().UTC().Format(time.RFC3339Nano),
+		)
 }
 
 func (s *Server) audit(r *http.Request, actor, action, targetType, targetID string, detail any) {
@@ -592,17 +615,44 @@ func (s *Server) audit(r *http.Request, actor, action, targetType, targetID stri
 		return
 	}
 	encoded, _ := json.Marshal(detail)
-	_, _ = s.State.Write().ExecContext(r.Context(), "INSERT INTO audit_log(actor,action,target_type,target_id,detail,ip,created_at) VALUES(?,?,?,?,?,?,?)", actor, action, targetType, targetID, string(encoded), clientIP(r), time.Now().UTC().Format(time.RFC3339Nano))
+	_, _ = s.State.Write().
+		ExecContext(
+			r.Context(),
+			"INSERT INTO audit_log(actor,action,target_type,target_id,detail,ip,created_at) VALUES(?,?,?,?,?,?,?)",
+			actor, action, targetType, targetID, string(encoded), clientIP(r),
+			time.Now().UTC().Format(time.RFC3339Nano),
+		)
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: "blog_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.cookieSecure(r)})
+	http.SetCookie(
+		w,
+		&http.Cookie{
+			Name:     "blog_session",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   s.cookieSecure(r),
+		},
+	)
 	w.WriteHeader(http.StatusNoContent)
 }
 func (s *Server) csrf(w http.ResponseWriter, r *http.Request) {
 	token := make([]byte, 32)
 	_, _ = rand.Read(token)
 	value := base64.RawURLEncoding.EncodeToString(token)
-	http.SetCookie(w, &http.Cookie{Name: "csrf_token", Value: value, Path: "/", MaxAge: s.Config.Security.SessionMaxAge, SameSite: http.SameSiteLaxMode, Secure: s.cookieSecure(r)})
+	http.SetCookie(
+		w,
+		&http.Cookie{
+			Name:     "csrf_token",
+			Value:    value,
+			Path:     "/",
+			MaxAge:   s.Config.Security.SessionMaxAge,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   s.cookieSecure(r),
+		},
+	)
 	ok(w, http.StatusOK, map[string]string{"token": value})
 }
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
@@ -610,7 +660,16 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	stats := s.Index.Stats()
-	ok(w, http.StatusOK, map[string]any{"articles": stats.Articles, "posts": stats.Posts, "pages": stats.Pages, "locales": stats.Locales})
+	ok(
+		w,
+		http.StatusOK,
+		map[string]any{
+			"articles": stats.Articles,
+			"posts":    stats.Posts,
+			"pages":    stats.Pages,
+			"locales":  stats.Locales,
+		},
+	)
 }
 
 func (s *Server) systemHealth(w http.ResponseWriter, r *http.Request) {
@@ -622,17 +681,42 @@ func (s *Server) systemHealth(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if stats.Pending > 10_000 {
-			warnings = append(warnings, map[string]string{"severity": "error", "code": "QUEUE_CRITICAL", "message": fmt.Sprintf("%d queued tasks need attention", stats.Pending)})
+			warnings = append(
+				warnings,
+				map[string]string{
+					"severity": "error",
+					"code":     "QUEUE_CRITICAL",
+					"message":  fmt.Sprintf("%d queued tasks need attention", stats.Pending),
+				},
+			)
 		} else if stats.Pending > 1_000 {
-			warnings = append(warnings, map[string]string{"severity": "warning", "code": "QUEUE_BACKLOG", "message": fmt.Sprintf("%d tasks are waiting", stats.Pending)})
+			warnings = append(warnings, map[string]string{
+				"severity": "warning",
+				"code":     "QUEUE_BACKLOG",
+				"message":  fmt.Sprintf("%d tasks are waiting", stats.Pending),
+			})
 		}
 		if stats.Failed > 0 {
-			warnings = append(warnings, map[string]string{"severity": "warning", "code": "FAILED_JOBS", "message": fmt.Sprintf("%d tasks failed", stats.Failed)})
+			warnings = append(
+				warnings,
+				map[string]string{
+					"severity": "warning",
+					"code":     "FAILED_JOBS",
+					"message":  fmt.Sprintf("%d tasks failed", stats.Failed),
+				},
+			)
 		}
 	}
 	if s.Render != nil {
 		if err := s.Render.Health(r.Context()); err != nil {
-			warnings = append(warnings, map[string]string{"severity": "warning", "code": "RENDERER_UNAVAILABLE", "message": "page generation service is unavailable; publishes will retry"})
+			warnings = append(
+				warnings,
+				map[string]string{
+					"severity": "warning",
+					"code":     "RENDERER_UNAVAILABLE",
+					"message":  "page generation service is unavailable; publishes will retry",
+				},
+			)
 		}
 	}
 	ok(w, http.StatusOK, map[string]any{"warnings": warnings})
@@ -655,7 +739,12 @@ func (s *Server) systemLogs(w http.ResponseWriter, r *http.Request) {
 		Detail    string `json:"detail,omitempty"`
 		CreatedAt string `json:"createdAt"`
 	}
-	rows, err := s.State.Read().QueryContext(r.Context(), "SELECT id,level,component,message,COALESCE(detail,''),created_at FROM system_log ORDER BY id DESC LIMIT ?", limit)
+	rows, err := s.State.Read().
+		QueryContext(
+			r.Context(),
+			"SELECT id,level,component,message,COALESCE(detail,''),created_at FROM system_log ORDER BY id DESC LIMIT ?",
+			limit,
+		)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "LOGS_READ_FAILED", "system logs could not be read")
 		return
@@ -664,7 +753,9 @@ func (s *Server) systemLogs(w http.ResponseWriter, r *http.Request) {
 	items := make([]entry, 0)
 	for rows.Next() {
 		var item entry
-		if err := rows.Scan(&item.ID, &item.Level, &item.Component, &item.Message, &item.Detail, &item.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&item.ID, &item.Level, &item.Component, &item.Message, &item.Detail, &item.CreatedAt,
+		); err != nil {
 			fail(w, http.StatusInternalServerError, "LOGS_READ_FAILED", "system logs could not be read")
 			return
 		}
@@ -697,7 +788,14 @@ func (s *Server) systemAudit(w http.ResponseWriter, r *http.Request) {
 		CreatedAt  string `json:"createdAt"`
 	}
 	actor, action := strings.TrimSpace(r.URL.Query().Get("actor")), strings.TrimSpace(r.URL.Query().Get("action"))
-	rows, err := s.State.Read().QueryContext(r.Context(), `SELECT id,actor,action,COALESCE(target_type,''),COALESCE(target_id,''),COALESCE(detail,''),ip,created_at FROM audit_log WHERE (?='' OR actor=?) AND (?='' OR action=?) ORDER BY id DESC LIMIT ?`, actor, actor, action, action, limit)
+	rows, err := s.State.Read().
+		QueryContext(
+			r.Context(),
+			`SELECT id,actor,action,COALESCE(target_type,''),COALESCE(target_id,''),`+
+				`COALESCE(detail,''),ip,created_at FROM audit_log `+
+				`WHERE (?='' OR actor=?) AND (?='' OR action=?) ORDER BY id DESC LIMIT ?`,
+			actor, actor, action, action, limit,
+		)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "AUDIT_READ_FAILED", "audit log could not be read")
 		return
@@ -706,7 +804,10 @@ func (s *Server) systemAudit(w http.ResponseWriter, r *http.Request) {
 	items := make([]entry, 0)
 	for rows.Next() {
 		var item entry
-		if err := rows.Scan(&item.ID, &item.Actor, &item.Action, &item.TargetType, &item.TargetID, &item.Detail, &item.IP, &item.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&item.ID, &item.Actor, &item.Action, &item.TargetType,
+			&item.TargetID, &item.Detail, &item.IP, &item.CreatedAt,
+		); err != nil {
 			fail(w, http.StatusInternalServerError, "AUDIT_READ_FAILED", "audit log could not be read")
 			return
 		}
@@ -730,7 +831,13 @@ func (s *Server) systemStats(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{"rendererRunning": s.Render != nil && s.Render.Running()}
 	if s.Index != nil {
 		stats := s.Index.Stats()
-		data["content"] = map[string]any{"articles": stats.Articles, "posts": stats.Posts, "pages": stats.Pages, "locales": stats.Locales, "parseErrors": len(s.Index.Errors())}
+		data["content"] = map[string]any{
+			"articles":    stats.Articles,
+			"posts":       stats.Posts,
+			"pages":       stats.Pages,
+			"locales":     stats.Locales,
+			"parseErrors": len(s.Index.Errors()),
+		}
 	}
 	if s.Jobs != nil {
 		stats, err := s.Jobs.Stats(r.Context())
@@ -833,7 +940,11 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 	// validated values without a process restart where that is safe.
 	*s.Config = *updated
 	if s.Render != nil {
-		s.Render.SetMarkdownOptions(updated.Markdown.Katex, updated.Markdown.ExternalLinksNewTab, updated.Markdown.HeadingAnchors)
+		s.Render.SetMarkdownOptions(
+			updated.Markdown.Katex,
+			updated.Markdown.ExternalLinksNewTab,
+			updated.Markdown.HeadingAnchors,
+		)
 		prefixes := make(map[model.Locale]string, len(updated.I18n.Locales))
 		for _, locale := range updated.I18n.Locales {
 			if locale.Enabled {
@@ -845,7 +956,8 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 			s.Render.SetOutput(updated.Render.Output)
 		}
 	}
-	if section == "site" || section == "i18n" || section == "markdown" || section == "search" || section == "seo" || section == "comments" {
+	if section == "site" || section == "i18n" || section == "markdown" || section == "search" || section == "seo" ||
+		section == "comments" {
 		s.queueStaticRefresh(r.Context())
 		locales := make([]model.Locale, 0, len(updated.I18n.Locales))
 		for _, locale := range updated.I18n.Locales {
@@ -856,7 +968,14 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 		s.queueLocaleRefresh(r.Context(), locales...)
 	}
 	requiresRestart := section == "render" || section == "storage" || section == "ai" || section == "security"
-	s.audit(r, r.Context().Value(userKey).(*model.User).Username, "settings.update", "config", section, map[string]any{"section": section, "requiresRestart": requiresRestart})
+	s.audit(
+		r,
+		r.Context().Value(userKey).(*model.User).Username,
+		"settings.update",
+		"config",
+		section,
+		map[string]any{"section": section, "requiresRestart": requiresRestart},
+	)
 	ok(w, http.StatusOK, map[string]any{"section": section, "requiresRestart": requiresRestart})
 }
 
@@ -883,7 +1002,9 @@ func stripMaskedSecrets(values map[string]any) {
 
 func secretSettingKey(key string) bool {
 	key = strings.ToLower(key)
-	return strings.Contains(key, "secret") || strings.Contains(key, "password") || strings.Contains(key, "apikey") || strings.Contains(key, "api_key") || strings.Contains(key, "token")
+	return strings.Contains(key, "secret") || strings.Contains(key, "password") || strings.Contains(key, "apikey") ||
+		strings.Contains(key, "api_key") ||
+		strings.Contains(key, "token")
 }
 
 type postInput struct {
@@ -902,11 +1023,28 @@ func (s *Server) posts(w http.ResponseWriter, r *http.Request) {
 	if loc == "" {
 		loc = model.Locale(s.Config.I18n.SourceLocale)
 	}
-	items, total := s.Index.List(index.ListQuery{Type: model.ContentPost, Locale: loc, Page: parseInt(r.URL.Query().Get("page"), 1), PerPage: parseInt(r.URL.Query().Get("perPage"), 20)})
+	items, total := s.Index.List(
+		index.ListQuery{
+			Type:    model.ContentPost,
+			Locale:  loc,
+			Page:    parseInt(r.URL.Query().Get("page"), 1),
+			PerPage: parseInt(r.URL.Query().Get("perPage"), 20),
+		},
+	)
 	out := make([]map[string]any, 0, len(items))
 	for _, article := range items {
 		version := article.Versions[loc]
-		out = append(out, map[string]any{"id": article.ID, "title": version.Front.Title, "slug": version.Front.Slug, "status": version.Front.Status, "date": version.Front.Date, "locale": loc})
+		out = append(
+			out,
+			map[string]any{
+				"id":     article.ID,
+				"title":  version.Front.Title,
+				"slug":   version.Front.Slug,
+				"status": version.Front.Status,
+				"date":   version.Front.Date,
+				"locale": loc,
+			},
+		)
 	}
 	ok(w, http.StatusOK, map[string]any{"items": out, "total": total})
 }
@@ -915,11 +1053,28 @@ func (s *Server) pages(w http.ResponseWriter, r *http.Request) {
 	if loc == "" {
 		loc = model.Locale(s.Config.I18n.SourceLocale)
 	}
-	items, total := s.Index.List(index.ListQuery{Type: model.ContentPage, Locale: loc, Page: parseInt(r.URL.Query().Get("page"), 1), PerPage: parseInt(r.URL.Query().Get("perPage"), 20)})
+	items, total := s.Index.List(
+		index.ListQuery{
+			Type:    model.ContentPage,
+			Locale:  loc,
+			Page:    parseInt(r.URL.Query().Get("page"), 1),
+			PerPage: parseInt(r.URL.Query().Get("perPage"), 20),
+		},
+	)
 	out := make([]map[string]any, 0, len(items))
 	for _, article := range items {
 		version := article.Versions[loc]
-		out = append(out, map[string]any{"id": article.ID, "title": version.Front.Title, "slug": version.Front.Slug, "status": version.Front.Status, "date": version.Front.Date, "locale": loc})
+		out = append(
+			out,
+			map[string]any{
+				"id":     article.ID,
+				"title":  version.Front.Title,
+				"slug":   version.Front.Slug,
+				"status": version.Front.Status,
+				"date":   version.Front.Date,
+				"locale": loc,
+			},
+		)
 	}
 	ok(w, http.StatusOK, map[string]any{"items": out, "total": total})
 }
@@ -943,7 +1098,18 @@ func (s *Server) post(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "CONTENT_READ_FAILED", err.Error())
 		return
 	}
-	ok(w, http.StatusOK, map[string]any{"id": article.ID, "locale": loc, "front": version.Front, "body": body, "baseHash": version.BodyHash, "sourceRevision": article.SourceRev})
+	ok(
+		w,
+		http.StatusOK,
+		map[string]any{
+			"id":             article.ID,
+			"locale":         loc,
+			"front":          version.Front,
+			"body":           body,
+			"baseHash":       version.BodyHash,
+			"sourceRevision": article.SourceRev,
+		},
+	)
 }
 func (s *Server) createPost(w http.ResponseWriter, r *http.Request) {
 	s.createTyped(w, r, model.ContentPost)
@@ -967,7 +1133,16 @@ func (s *Server) createTyped(w http.ResponseWriter, r *http.Request, typ model.C
 		input.Slug = slugify(input.Title)
 	}
 	user := r.Context().Value(userKey).(*model.User)
-	front := model.FrontMatter{Title: input.Title, Slug: input.Slug, Description: input.Description, Status: model.StatusDraft, Author: user.ID, SourceLocale: input.Locale, Categories: input.Categories, Tags: input.Tags}
+	front := model.FrontMatter{
+		Title:        input.Title,
+		Slug:         input.Slug,
+		Description:  input.Description,
+		Status:       model.StatusDraft,
+		Author:       user.ID,
+		SourceLocale: input.Locale,
+		Categories:   input.Categories,
+		Tags:         input.Tags,
+	}
 	article, err := s.Content.CreateBundle(typ, input.Locale, front, input.Body)
 	if err != nil {
 		fail(w, 422, "INVALID_POST", err.Error())
@@ -1035,7 +1210,12 @@ func (s *Server) restoreRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	front.Updated = nowPtr()
-	if err := s.Content.SaveVersion(article, loc, front, body, content.SaveOpts{BumpSourceRevision: loc == article.Source, Snapshot: true, MirrorAuthoritative: loc != article.Source}); err != nil {
+	opts := content.SaveOpts{
+		BumpSourceRevision:  loc == article.Source,
+		Snapshot:            true,
+		MirrorAuthoritative: loc != article.Source,
+	}
+	if err := s.Content.SaveVersion(article, loc, front, body, opts); err != nil {
 		fail(w, http.StatusInternalServerError, "REVISION_RESTORE_FAILED", err.Error())
 		return
 	}
@@ -1103,7 +1283,18 @@ func (s *Server) listMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		out = append(out, map[string]any{"path": item.Path, "name": item.Name, "url": s.Media.PublicURL(item.Path), "mime": item.MIME, "size": item.Size, "isDir": item.IsDir, "modifiedAt": item.ModTime})
+		out = append(
+			out,
+			map[string]any{
+				"path":       item.Path,
+				"name":       item.Name,
+				"url":        s.Media.PublicURL(item.Path),
+				"mime":       item.MIME,
+				"size":       item.Size,
+				"isDir":      item.IsDir,
+				"modifiedAt": item.ModTime,
+			},
+		)
 	}
 	ok(w, http.StatusOK, map[string]any{"items": out})
 }
@@ -1137,11 +1328,26 @@ func (s *Server) uploadMedia(w http.ResponseWriter, r *http.Request) {
 				if _, statErr := s.Media.Stat(r.Context(), target); errors.Is(statErr, os.ErrNotExist) {
 					break
 				}
-				target = filepath.ToSlash(filepath.Join(dir, fmt.Sprintf("%04d/%02d", now.Year(), now.Month()), strings.TrimSuffix(name, filepath.Ext(name))+fmt.Sprintf("-%d", suffix)+filepath.Ext(name)))
+				target = filepath.ToSlash(
+					filepath.Join(
+						dir,
+						fmt.Sprintf("%04d/%02d", now.Year(), now.Month()),
+						strings.TrimSuffix(name, filepath.Ext(name))+fmt.Sprintf("-%d", suffix)+filepath.Ext(name),
+					),
+				)
 			}
 			err = s.Media.Put(r.Context(), target, io.MultiReader(bytes.NewReader(head[:n]), file), header.Size, kind)
 			if err == nil {
-				items = append(items, map[string]any{"ok": true, "path": target, "url": s.Media.PublicURL(target), "size": header.Size, "mime": kind})
+				items = append(
+					items,
+					map[string]any{
+						"ok":   true,
+						"path": target,
+						"url":  s.Media.PublicURL(target),
+						"size": header.Size,
+						"mime": kind,
+					},
+				)
 			} else {
 				items = append(items, map[string]any{"ok": false, "name": header.Filename, "error": err.Error()})
 			}
@@ -1219,7 +1425,11 @@ func (s *Server) updatePost(w http.ResponseWriter, r *http.Request) {
 	front.Categories = input.Categories
 	front.Tags = input.Tags
 	front.Updated = nowPtr()
-	if err := s.Content.SaveVersion(article, input.Locale, front, input.Body, content.SaveOpts{MirrorAuthoritative: input.Locale != article.Source, MarkManualEdit: input.Locale != article.Source}); err != nil {
+	opts := content.SaveOpts{
+		MirrorAuthoritative: input.Locale != article.Source,
+		MarkManualEdit:      input.Locale != article.Source,
+	}
+	if err := s.Content.SaveVersion(article, input.Locale, front, input.Body, opts); err != nil {
 		fail(w, 500, "SAVE_FAILED", err.Error())
 		return
 	}
@@ -1236,26 +1446,44 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		PublishAt string `json:"publishAt"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&input); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&input); err != nil &&
+		!errors.Is(err, io.EOF) {
 		fail(w, http.StatusBadRequest, "INVALID_JSON", "invalid request body")
 		return
 	}
 	if input.PublishAt != "" {
 		at, err := time.Parse(time.RFC3339, input.PublishAt)
 		if err != nil || !at.After(time.Now()) {
-			fail(w, http.StatusUnprocessableEntity, "INVALID_PUBLISH_TIME", "publishAt must be a future RFC3339 timestamp")
+			fail(
+				w,
+				http.StatusUnprocessableEntity,
+				"INVALID_PUBLISH_TIME",
+				"publishAt must be a future RFC3339 timestamp",
+			)
 			return
 		}
 		if s.State == nil {
 			fail(w, http.StatusServiceUnavailable, "SCHEDULER_UNAVAILABLE", "scheduled publishing is unavailable")
 			return
 		}
-		_, err = s.State.Write().ExecContext(r.Context(), "INSERT INTO scheduled_publish(article_id,locale,publish_at,status,created_at) VALUES(?,?,?,'scheduled',?) ON CONFLICT(article_id) DO UPDATE SET locale=excluded.locale,publish_at=excluded.publish_at,status='scheduled'", string(article.ID), string(article.Source), at.UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano))
+		_, err = s.State.Write().
+			ExecContext(
+				r.Context(),
+				"INSERT INTO scheduled_publish(article_id,locale,publish_at,status,created_at) "+
+					"VALUES(?,?,?,'scheduled',?) ON CONFLICT(article_id) DO UPDATE SET "+
+					"locale=excluded.locale,publish_at=excluded.publish_at,status='scheduled'",
+				string(article.ID), string(article.Source), at.UTC().Format(time.RFC3339Nano),
+				time.Now().UTC().Format(time.RFC3339Nano),
+			)
 		if err != nil {
 			fail(w, http.StatusInternalServerError, "SCHEDULE_FAILED", "could not schedule publication")
 			return
 		}
-		ok(w, http.StatusAccepted, map[string]any{"id": article.ID, "scheduled": true, "publishAt": at.UTC().Format(time.RFC3339)})
+		ok(
+			w,
+			http.StatusAccepted,
+			map[string]any{"id": article.ID, "scheduled": true, "publishAt": at.UTC().Format(time.RFC3339)},
+		)
 		return
 	}
 	version := article.Versions[article.Source]
@@ -1263,7 +1491,10 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 	first := front.Status != model.StatusPublished
 	front.Status = model.StatusPublished
 	front.Updated = nowPtr()
-	if err := s.Content.SaveVersion(article, article.Source, front, version.Body, content.SaveOpts{BumpSourceRevision: true, Snapshot: true}); err != nil {
+	if err := s.Content.SaveVersion(
+		article, article.Source, front, version.Body,
+		content.SaveOpts{BumpSourceRevision: true, Snapshot: true},
+	); err != nil {
 		fail(w, 500, "PUBLISH_FAILED", err.Error())
 		return
 	}
@@ -1273,7 +1504,15 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 	jobID := int64(0)
 	if s.Jobs != nil {
 		var err error
-		jobID, err = s.Jobs.Enqueue(r.Context(), jobs.Job{Kind: "render", DedupeKey: string(article.ID) + ":" + string(article.Source), Payload: payload, Priority: 10})
+		jobID, err = s.Jobs.Enqueue(
+			r.Context(),
+			jobs.Job{
+				Kind:      "render",
+				DedupeKey: string(article.ID) + ":" + string(article.Source),
+				Payload:   payload,
+				Priority:  10,
+			},
+		)
 		if err != nil {
 			fail(w, 500, "QUEUE_FAILED", err.Error())
 			return
@@ -1287,7 +1526,11 @@ func (s *Server) publishPost(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	ok(w, http.StatusAccepted, map[string]any{"id": article.ID, "queued": 1, "jobID": jobID, "translationsQueued": translations})
+	ok(
+		w,
+		http.StatusAccepted,
+		map[string]any{"id": article.ID, "queued": 1, "jobID": jobID, "translationsQueued": translations},
+	)
 }
 func (s *Server) translationTargets(source model.Locale) []model.Locale {
 	registry, err := blogi18n.New(s.Config.I18n)
@@ -1359,7 +1602,11 @@ func (s *Server) testTranslationProvider(w http.ResponseWriter, r *http.Request)
 		fail(w, http.StatusBadGateway, "AI_TEST_FAILED", err.Error())
 		return
 	}
-	ok(w, http.StatusOK, map[string]any{"provider": s.AI.Provider.Name(), "latencyMs": time.Since(started).Milliseconds()})
+	ok(
+		w,
+		http.StatusOK,
+		map[string]any{"provider": s.AI.Provider.Name(), "latencyMs": time.Since(started).Milliseconds()},
+	)
 }
 func (s *Server) themes(w http.ResponseWriter, r *http.Request) {
 	if s.Theme == nil {
@@ -1530,7 +1777,8 @@ func (s *Server) createBackup(w http.ResponseWriter, r *http.Request) {
 		IncludeMedia   *bool `json:"includeMedia"`
 		ExcludeSecrets bool  `json:"excludeSecrets"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&input); err != nil && !errors.Is(err, io.EOF) {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&input); err != nil &&
+		!errors.Is(err, io.EOF) {
 		fail(w, 400, "INVALID_JSON", "invalid request body")
 		return
 	}
@@ -1604,7 +1852,12 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !input.Confirm {
-		fail(w, http.StatusUnprocessableEntity, "RESTORE_CONFIRMATION_REQUIRED", "set confirm to true to restore a backup")
+		fail(
+			w,
+			http.StatusUnprocessableEntity,
+			"RESTORE_CONFIRMATION_REQUIRED",
+			"set confirm to true to restore a backup",
+		)
 		return
 	}
 	path, err := s.backupPath(input.Name)
@@ -1667,7 +1920,8 @@ func (s *Server) createImport(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 	name := filepath.Base(header.Filename)
-	if name == "." || (!strings.EqualFold(filepath.Ext(name), ".md") && !strings.EqualFold(filepath.Ext(name), ".zip")) {
+	if name == "." ||
+		(!strings.EqualFold(filepath.Ext(name), ".md") && !strings.EqualFold(filepath.Ext(name), ".zip")) {
 		fail(w, http.StatusUnprocessableEntity, "IMPORT_TYPE_INVALID", "upload a Markdown or ZIP file")
 		return
 	}
@@ -1683,7 +1937,14 @@ func (s *Server) createImport(w http.ResponseWriter, r *http.Request) {
 	}
 	dryRun := r.FormValue("dryRun") == "true"
 	createMissing := r.FormValue("createMissingTaxonomy") != "false"
-	payload := importJobPayload{Name: name, Locale: locale, Status: status, DryRun: dryRun, CreateMissingTaxonomy: createMissing, Phase: "queued"}
+	payload := importJobPayload{
+		Name:                  name,
+		Locale:                locale,
+		Status:                status,
+		DryRun:                dryRun,
+		CreateMissingTaxonomy: createMissing,
+		Phase:                 "queued",
+	}
 	dir := filepath.Join(s.Root, "data", "imports")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fail(w, http.StatusInternalServerError, "IMPORT_STAGING_FAILED", "could not stage import")
@@ -1736,7 +1997,16 @@ func (s *Server) runImport(id int64, path string, payload importJobPayload) {
 		payload.Phase = "writing"
 		_ = s.Jobs.UpdatePayload(ctx, id, payload)
 		var report importer.Report
-		report, err = (importer.Service{Content: s.Content, Index: s.Index, Taxonomy: s.Taxonomy}).Run(ctx, files, importer.Options{Locale: payload.Locale, Status: payload.Status, DryRun: payload.DryRun, CreateMissingTaxonomy: payload.CreateMissingTaxonomy})
+		report, err = (importer.Service{Content: s.Content, Index: s.Index, Taxonomy: s.Taxonomy}).Run(
+			ctx,
+			files,
+			importer.Options{
+				Locale:                payload.Locale,
+				Status:                payload.Status,
+				DryRun:                payload.DryRun,
+				CreateMissingTaxonomy: payload.CreateMissingTaxonomy,
+			},
+		)
 		payload.Report = &report
 	}
 	payload.Phase = "done"
@@ -1780,7 +2050,19 @@ func (s *Server) importStatus(w http.ResponseWriter, r *http.Request) {
 	if job.Status == "failed" && payload.Error == "" {
 		payload.Error = job.LastError
 	}
-	ok(w, http.StatusOK, map[string]any{"jobId": job.ID, "status": job.Status, "createdAt": job.CreatedAt, "updatedAt": job.UpdatedAt, "phase": payload.Phase, "report": payload.Report, "error": payload.Error})
+	ok(
+		w,
+		http.StatusOK,
+		map[string]any{
+			"jobId":     job.ID,
+			"status":    job.Status,
+			"createdAt": job.CreatedAt,
+			"updatedAt": job.UpdatedAt,
+			"phase":     payload.Phase,
+			"report":    payload.Report,
+			"error":     payload.Error,
+		},
+	)
 }
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	items := make([]map[string]any, 0, len(s.Users.List()))
@@ -1807,7 +2089,14 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "USER_CREATE_FAILED", err.Error())
 		return
 	}
-	s.audit(r, r.Context().Value(userKey).(*model.User).Username, "user.create", "user", user.ID, map[string]any{"role": user.Role})
+	s.audit(
+		r,
+		r.Context().Value(userKey).(*model.User).Username,
+		"user.create",
+		"user",
+		user.ID,
+		map[string]any{"role": user.Role},
+	)
 	ok(w, http.StatusCreated, publicUser(user))
 }
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
@@ -1856,7 +2145,14 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "USER_UPDATE_FAILED", err.Error())
 		return
 	}
-	s.audit(r, r.Context().Value(userKey).(*model.User).Username, "user.update", "user", copy.ID, map[string]any{"role": copy.Role, "disabled": copy.Disabled})
+	s.audit(
+		r,
+		r.Context().Value(userKey).(*model.User).Username,
+		"user.update",
+		"user",
+		copy.ID,
+		map[string]any{"role": copy.Role, "disabled": copy.Disabled},
+	)
 	ok(w, http.StatusOK, publicUser(&copy))
 }
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
@@ -1886,7 +2182,8 @@ func activeAdminCount(users *auth.Users) int {
 	return count
 }
 func wouldRemoveLastAdmin(users *auth.Users, before, after *model.User) bool {
-	return before.Role == "admin" && !before.Disabled && (after.Role != "admin" || after.Disabled) && activeAdminCount(users) <= 1
+	return before.Role == "admin" && !before.Disabled && (after.Role != "admin" || after.Disabled) &&
+		activeAdminCount(users) <= 1
 }
 func (s *Server) resetUserPassword(w http.ResponseWriter, r *http.Request) {
 	user, exists := s.Users.ByID(chi.URLParam(r, "id"))
@@ -2019,7 +2316,10 @@ func (s *Server) setArticleStatus(article *model.Article, status model.Status) e
 	now := nowPtr()
 	front := source.Front
 	front.Status, front.Updated = status, now
-	if err := s.Content.SaveVersion(article, article.Source, front, source.Body, content.SaveOpts{BumpSourceRevision: true, Snapshot: true}); err != nil {
+	if err := s.Content.SaveVersion(
+		article, article.Source, front, source.Body,
+		content.SaveOpts{BumpSourceRevision: true, Snapshot: true},
+	); err != nil {
 		return err
 	}
 	locales := make([]model.Locale, 0, len(article.Versions))
@@ -2036,7 +2336,10 @@ func (s *Server) setArticleStatus(article *model.Article, status model.Status) e
 		}
 		derived := version.Front
 		derived.Status, derived.Updated = status, now
-		if err := s.Content.SaveVersion(article, locale, derived, version.Body, content.SaveOpts{MirrorAuthoritative: true}); err != nil {
+		if err := s.Content.SaveVersion(
+			article, locale, derived, version.Body,
+			content.SaveOpts{MirrorAuthoritative: true},
+		); err != nil {
 			return err
 		}
 	}
@@ -2068,7 +2371,10 @@ func (s *Server) queueLocaleRefresh(ctx context.Context, locales ...model.Locale
 		}
 		seen[locale] = true
 		payload, _ := json.Marshal(map[string]string{"locale": string(locale)})
-		_, _ = s.Jobs.Enqueue(ctx, jobs.Job{Kind: "render", DedupeKey: "site-refresh:" + string(locale), Payload: payload, Priority: 20})
+		_, _ = s.Jobs.Enqueue(
+			ctx,
+			jobs.Job{Kind: "render", DedupeKey: "site-refresh:" + string(locale), Payload: payload, Priority: 20},
+		)
 	}
 }
 
@@ -2084,7 +2390,8 @@ func (s *Server) nextCopySlug(kind model.ContentType, locale model.Locale, slug 
 		}
 		used := false
 		for _, existing := range s.Index.Articles() {
-			if existing.Type == kind && existing.Versions[locale] != nil && existing.Versions[locale].Front.Slug == candidate {
+			if existing.Type == kind && existing.Versions[locale] != nil &&
+				existing.Versions[locale].Front.Slug == candidate {
 				used = true
 				break
 			}
@@ -2179,7 +2486,12 @@ func (s *Server) deleteCategory(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if _, exists := s.Index.Category(migrateTo); !exists {
-				fail(w, http.StatusUnprocessableEntity, "INVALID_MIGRATION", "migration destination category was not found")
+				fail(
+					w,
+					http.StatusUnprocessableEntity,
+					"INVALID_MIGRATION",
+					"migration destination category was not found",
+				)
 				return
 			}
 			changed := 0
@@ -2191,7 +2503,10 @@ func (s *Server) deleteCategory(w http.ResponseWriter, r *http.Request) {
 				front := source.Front
 				front.Categories = replaceString(front.Categories, id, migrateTo)
 				front.Updated = nowPtr()
-				if err := s.Content.SaveVersion(article, article.Source, front, source.Body, content.SaveOpts{BumpSourceRevision: true, Snapshot: true}); err != nil {
+				if err := s.Content.SaveVersion(
+					article, article.Source, front, source.Body,
+					content.SaveOpts{BumpSourceRevision: true, Snapshot: true},
+				); err != nil {
 					fail(w, http.StatusInternalServerError, "CATEGORY_MIGRATION_FAILED", err.Error())
 					return
 				}
@@ -2221,7 +2536,13 @@ func (s *Server) deleteCategory(w http.ResponseWriter, r *http.Request) {
 		for _, article := range references {
 			ids = append(ids, string(article.ID))
 		}
-		failWithData(w, http.StatusConflict, "CATEGORY_IN_USE", "category is referenced by published or draft content", map[string]any{"references": total, "articleIDs": ids})
+		failWithData(
+			w,
+			http.StatusConflict,
+			"CATEGORY_IN_USE",
+			"category is referenced by published or draft content",
+			map[string]any{"references": total, "articleIDs": ids},
+		)
 		return
 	}
 	if err := s.Taxonomy.Delete("categories", id); err != nil {
@@ -2277,7 +2598,10 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 		front := source.Front
 		front.Tags = withoutString(front.Tags, id)
 		front.Updated = nowPtr()
-		if err := s.Content.SaveVersion(article, article.Source, front, source.Body, content.SaveOpts{BumpSourceRevision: true, Snapshot: true}); err != nil {
+		if err := s.Content.SaveVersion(
+			article, article.Source, front, source.Body,
+			content.SaveOpts{BumpSourceRevision: true, Snapshot: true},
+		); err != nil {
 			fail(w, http.StatusInternalServerError, "TAG_MIGRATION_FAILED", err.Error())
 			return
 		}
@@ -2360,7 +2684,8 @@ func (s *Server) saveLink(w http.ResponseWriter, r *http.Request) {
 	if value.ID == "" {
 		value.ID = slugify(value.Name)
 	}
-	if value.URL == "" || (value.Status != "" && value.Status != "active" && value.Status != "pending" && value.Status != "rejected") {
+	if value.URL == "" ||
+		(value.Status != "" && value.Status != "active" && value.Status != "pending" && value.Status != "rejected") {
 		fail(w, http.StatusUnprocessableEntity, "INVALID_LINK", "link URL or status is invalid")
 		return
 	}
@@ -2491,11 +2816,16 @@ func (s *Server) menuTargets(w http.ResponseWriter, r *http.Request) {
 	if locale == "" {
 		locale = model.Locale(s.Config.I18n.SourceLocale)
 	}
-	items, _ := s.Index.List(index.ListQuery{Type: typ, Locale: locale, Search: r.URL.Query().Get("q"), Page: 1, PerPage: 30})
+	items, _ := s.Index.List(
+		index.ListQuery{Type: typ, Locale: locale, Search: r.URL.Query().Get("q"), Page: 1, PerPage: 30},
+	)
 	out := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		version := item.Versions[locale]
-		out = append(out, map[string]any{"id": item.ID, "title": version.Front.Title, "slug": version.Front.Slug, "type": typ})
+		out = append(
+			out,
+			map[string]any{"id": item.ID, "title": version.Front.Title, "slug": version.Front.Slug, "type": typ},
+		)
 	}
 	ok(w, http.StatusOK, map[string]any{"items": out})
 }
@@ -2510,13 +2840,35 @@ func (s *Server) queueStaticRefresh(ctx context.Context) {
 				continue
 			}
 			payload, _ := json.Marshal(map[string]string{"articleID": string(article.ID), "locale": string(locale)})
-			_, _ = s.Jobs.Enqueue(ctx, jobs.Job{Kind: "render", DedupeKey: string(article.ID) + ":" + string(locale), Payload: payload, Priority: 20})
+			_, _ = s.Jobs.Enqueue(
+				ctx,
+				jobs.Job{
+					Kind:      "render",
+					DedupeKey: string(article.ID) + ":" + string(locale),
+					Payload:   payload,
+					Priority:  20,
+				},
+			)
 		}
 	}
 }
 func (s *Server) setSession(w http.ResponseWriter, r *http.Request, user *model.User) {
-	token, _ := auth.Sign(s.Config.Security.SessionSecret, auth.NewClaims(user, time.Duration(s.Config.Security.SessionMaxAge)*time.Second))
-	http.SetCookie(w, &http.Cookie{Name: "blog_session", Value: token, Path: "/", MaxAge: s.Config.Security.SessionMaxAge, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: s.cookieSecure(r)})
+	token, _ := auth.Sign(
+		s.Config.Security.SessionSecret,
+		auth.NewClaims(user, time.Duration(s.Config.Security.SessionMaxAge)*time.Second),
+	)
+	http.SetCookie(
+		w,
+		&http.Cookie{
+			Name:     "blog_session",
+			Value:    token,
+			Path:     "/",
+			MaxAge:   s.Config.Security.SessionMaxAge,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   s.cookieSecure(r),
+		},
+	)
 }
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -2587,7 +2939,15 @@ func (s *Server) cookieSecure(r *http.Request) bool {
 	return false
 }
 func publicUser(user *model.User) map[string]any {
-	return map[string]any{"id": user.ID, "username": user.Username, "email": user.Email, "displayName": user.DisplayName, "role": user.Role, "locale": user.Locale, "disabled": user.Disabled}
+	return map[string]any{
+		"id":          user.ID,
+		"username":    user.Username,
+		"email":       user.Email,
+		"displayName": user.DisplayName,
+		"role":        user.Role,
+		"locale":      user.Locale,
+		"disabled":    user.Disabled,
+	}
 }
 func requestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2604,7 +2964,10 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		if strings.HasPrefix(r.URL.Path, "/admin") || strings.HasPrefix(r.URL.Path, "/api/") {
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'")
+			csp := "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+				"img-src 'self' data: blob: https:; font-src 'self' data:; " +
+				"connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+			w.Header().Set("Content-Security-Policy", csp)
 		}
 		next.ServeHTTP(w, r)
 	})

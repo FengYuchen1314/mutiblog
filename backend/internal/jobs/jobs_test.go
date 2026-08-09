@@ -16,11 +16,17 @@ func TestQueueDeduplicatesAndClaims(t *testing.T) {
 	}
 	defer db.Close()
 	q := New(db)
-	first, err := q.Enqueue(context.Background(), Job{Kind: "render", DedupeKey: "en:post:x", Payload: []byte(`{"id":"x"}`)})
+	first, err := q.Enqueue(
+		context.Background(),
+		Job{Kind: "render", DedupeKey: "en:post:x", Payload: []byte(`{"id":"x"}`)},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := q.Enqueue(context.Background(), Job{Kind: "render", DedupeKey: "en:post:x", Payload: []byte(`{"id":"x","fresh":true}`)})
+	second, err := q.Enqueue(
+		context.Background(),
+		Job{Kind: "render", DedupeKey: "en:post:x", Payload: []byte(`{"id":"x","fresh":true}`)},
+	)
 	if err != nil || first != second {
 		t.Fatalf("ids %d %d err %v", first, second, err)
 	}
@@ -40,14 +46,20 @@ func TestQueueDeduplicatesRunningJob(t *testing.T) {
 	}
 	defer db.Close()
 	q := New(db)
-	first, err := q.Enqueue(context.Background(), Job{Kind: "render", DedupeKey: "en:post:x", Payload: []byte(`{"revision":1}`)})
+	first, err := q.Enqueue(
+		context.Background(),
+		Job{Kind: "render", DedupeKey: "en:post:x", Payload: []byte(`{"revision":1}`)},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = q.Claim(context.Background(), "render", "worker"); err != nil {
 		t.Fatal(err)
 	}
-	second, err := q.Enqueue(context.Background(), Job{Kind: "render", DedupeKey: "en:post:x", Payload: []byte(`{"revision":2}`)})
+	second, err := q.Enqueue(
+		context.Background(),
+		Job{Kind: "render", DedupeKey: "en:post:x", Payload: []byte(`{"revision":2}`)},
+	)
 	if err != nil || first != second {
 		t.Fatalf("ids %d %d err %v", first, second, err)
 	}
@@ -67,11 +79,17 @@ func TestQueueStartAndGetKeepTaskIdentity(t *testing.T) {
 	}
 	defer db.Close()
 	q := New(db)
-	first, err := q.Enqueue(context.Background(), Job{Kind: "import", DedupeKey: "one", Payload: []byte(`{"name":"one.md"}`)})
+	first, err := q.Enqueue(
+		context.Background(),
+		Job{Kind: "import", DedupeKey: "one", Payload: []byte(`{"name":"one.md"}`)},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := q.Enqueue(context.Background(), Job{Kind: "import", DedupeKey: "two", Payload: []byte(`{"name":"two.md"}`)})
+	second, err := q.Enqueue(
+		context.Background(),
+		Job{Kind: "import", DedupeKey: "two", Payload: []byte(`{"name":"two.md"}`)},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +120,10 @@ func TestQueueStats(t *testing.T) {
 	if _, err = q.Enqueue(context.Background(), Job{Kind: "render", Payload: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Write().Exec("INSERT INTO jobs(kind,payload,priority,status,max_attempts,run_after,created_at,updated_at) VALUES('render','{}',100,'failed',3,?,?,?)", time.Now().UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	insert := "INSERT INTO jobs(kind,payload,priority,status,max_attempts,run_after,created_at,updated_at) " +
+		"VALUES('render','{}',100,'failed',3,?,?,?)"
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err = db.Write().Exec(insert, now, now, now); err != nil {
 		t.Fatal(err)
 	}
 	stats, err := q.Stats(context.Background())
@@ -119,14 +140,25 @@ func TestQueueDedupeSlidesRunAfter(t *testing.T) {
 	defer db.Close()
 	q := New(db)
 	base := time.Now()
-	first, err := q.Enqueue(context.Background(), Job{Kind: "render", DedupeKey: "hreflang:x:en", Payload: []byte(`{"v":1}`), RunAfter: base.Add(30 * time.Second)})
+	first, err := q.Enqueue(
+		context.Background(),
+		Job{
+			Kind:      "render",
+			DedupeKey: "hreflang:x:en",
+			Payload:   []byte(`{"v":1}`),
+			RunAfter:  base.Add(30 * time.Second),
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A second arrival inside the merge window must slide the run time
 	// forward instead of creating a second job (docs/13 P21).
 	later := base.Add(60 * time.Second)
-	second, err := q.Enqueue(context.Background(), Job{Kind: "render", DedupeKey: "hreflang:x:en", Payload: []byte(`{"v":2}`), RunAfter: later})
+	second, err := q.Enqueue(
+		context.Background(),
+		Job{Kind: "render", DedupeKey: "hreflang:x:en", Payload: []byte(`{"v":2}`), RunAfter: later},
+	)
 	if err != nil || first != second {
 		t.Fatalf("ids %d %d err %v", first, second, err)
 	}
@@ -168,7 +200,8 @@ func TestQueueRetriesAndReclaimsWithoutConsumingAttempts(t *testing.T) {
 	if status != "pending" || attempts != 1 {
 		t.Fatalf("after retry: status=%q attempts=%d", status, attempts)
 	}
-	if _, err := db.Write().Exec("UPDATE jobs SET status='running',locked_at='2000-01-01T00:00:00Z',locked_by='dead' WHERE id=?", id); err != nil {
+	markRunning := "UPDATE jobs SET status='running',locked_at='2000-01-01T00:00:00Z',locked_by='dead' WHERE id=?"
+	if _, err := db.Write().Exec(markRunning, id); err != nil {
 		t.Fatal(err)
 	}
 	count, err := q.ReclaimStale(context.Background(), time.Second)

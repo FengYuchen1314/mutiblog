@@ -12,7 +12,12 @@ func TestLoadAppliesEnvironmentAndInterpolation(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data := []byte("server: { baseURL: https://example.test, port: 8080 }\ni18n: { defaultLocale: en, sourceLocale: en, locales: [{code: en, name: English, urlPrefix: en, enabled: true}] }\nsecurity: { sessionSecret: '${BLOG_AI_API_KEY}' }\n")
+	data := []byte(
+		"server: { baseURL: https://example.test, port: 8080 }\n" +
+			"i18n: { defaultLocale: en, sourceLocale: en, " +
+			"locales: [{code: en, name: English, urlPrefix: en, enabled: true}] }\n" +
+			"security: { sessionSecret: '${BLOG_AI_API_KEY}' }\n",
+	)
 	if err := os.WriteFile(filepath.Join(root, "config", "config.yaml"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +85,9 @@ func TestReadSettingsMasksInterpolatedSecrets(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data := []byte("ai: { apiKey: '${BLOG_TEST_KEY}' }\nsecurity: { sessionSecret: '${BLOG_TEST_SECRET}' }\nsite: { title: Example }\n")
+	data := []byte(
+		"ai: { apiKey: '${BLOG_TEST_KEY}' }\nsecurity: { sessionSecret: '${BLOG_TEST_SECRET}' }\nsite: { title: Example }\n",
+	)
 	if err := os.WriteFile(filepath.Join(root, "config", "config.yaml"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +97,8 @@ func TestReadSettingsMasksInterpolatedSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings["ai"].(map[string]any)["apiKey"] != "********" || settings["security"].(map[string]any)["sessionSecret"] != "********" {
+	if settings["ai"].(map[string]any)["apiKey"] != "********" ||
+		settings["security"].(map[string]any)["sessionSecret"] != "********" {
 		t.Fatalf("settings leaked a secret: %#v", settings)
 	}
 	if settings["site"].(map[string]any)["title"] != "Example" {
@@ -104,7 +112,12 @@ func TestUpdateSchemaVersionAddsAndValidatesMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(root, "config", "config.yaml")
-	data := []byte("# retained\nserver: { baseURL: https://example.test, port: 8080 }\ni18n: { defaultLocale: en, sourceLocale: en, locales: [{code: en, name: English, urlPrefix: en, enabled: true}] }\nsecurity: { sessionSecret: '01234567890123456789012345678901' }\n")
+	data := []byte(
+		"# retained\nserver: { baseURL: https://example.test, port: 8080 }\n" +
+			"i18n: { defaultLocale: en, sourceLocale: en, " +
+			"locales: [{code: en, name: English, urlPrefix: en, enabled: true}] }\n" +
+			"security: { sessionSecret: '01234567890123456789012345678901' }\n",
+	)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}

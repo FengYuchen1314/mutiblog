@@ -19,8 +19,17 @@ func TestValidateImageRejectsMismatchedExtension(t *testing.T) {
 func TestSVGUploadIsSanitized(t *testing.T) {
 	root := t.TempDir()
 	storage := NewLocal(root, "/media")
-	raw := []byte(`<svg onclick="alert(1)"><script>alert(1)</script><foreignObject>bad</foreignObject><a href="javascript:alert(1)">x</a><path d="M0 0"/></svg>`)
-	if err := storage.Put(context.Background(), "unsafe.svg", bytes.NewReader(raw), int64(len(raw)), "image/svg+xml"); err != nil {
+	raw := []byte(
+		`<svg onclick="alert(1)"><script>alert(1)</script><foreignObject>bad</foreignObject>` +
+			`<a href="javascript:alert(1)">x</a><path d="M0 0"/></svg>`,
+	)
+	put := func() error {
+		return storage.Put(
+			context.Background(), "unsafe.svg", bytes.NewReader(raw),
+			int64(len(raw)), "image/svg+xml",
+		)
+	}
+	if err := put(); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := os.ReadFile(filepath.Join(root, "unsafe.svg"))

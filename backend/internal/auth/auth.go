@@ -44,7 +44,14 @@ func HashPassword(password string) (string, error) {
 	}
 	p := PasswordParams()
 	hash := argon2.IDKey([]byte(password), salt, p.Time, p.Memory, p.Threads, p.KeyLen)
-	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", p.Memory, p.Time, p.Threads, base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(hash)), nil
+	return fmt.Sprintf(
+		"$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s",
+		p.Memory,
+		p.Time,
+		p.Threads,
+		base64.RawStdEncoding.EncodeToString(salt),
+		base64.RawStdEncoding.EncodeToString(hash),
+	), nil
 }
 
 // PasswordParams lowers Argon2 memory on small Linux hosts while increasing
@@ -166,4 +173,19 @@ func Can(role, action string) bool {
 	return false
 }
 
-var permissions = map[string][]string{"post.read": {"admin", "editor", "author", "translator"}, "post.write": {"admin", "editor"}, "post.publish": {"admin", "editor"}, "post.delete": {"admin", "editor"}, "post.translate": {"admin", "editor", "translator"}, "taxonomy.write": {"admin", "editor"}, "media.write": {"admin", "editor", "author"}, "theme.settings": {"admin"}, "theme.activate": {"admin"}, "settings.write": {"admin"}, "user.manage": {"admin"}, "backup.manage": {"admin"}, "render.rebuild": {"admin", "editor"}, "log.read": {"admin"}}
+var permissions = map[string][]string{
+	"post.read":      {"admin", "editor", "author", "translator"},
+	"post.write":     {"admin", "editor"},
+	"post.publish":   {"admin", "editor"},
+	"post.delete":    {"admin", "editor"},
+	"post.translate": {"admin", "editor", "translator"},
+	"taxonomy.write": {"admin", "editor"},
+	"media.write":    {"admin", "editor", "author"},
+	"theme.settings": {"admin"},
+	"theme.activate": {"admin"},
+	"settings.write": {"admin"},
+	"user.manage":    {"admin"},
+	"backup.manage":  {"admin"},
+	"render.rebuild": {"admin", "editor"},
+	"log.read":       {"admin"},
+}

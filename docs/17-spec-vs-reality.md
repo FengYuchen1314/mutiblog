@@ -159,6 +159,7 @@ export function render(props) { return '<html string>' }
 
 | # | 规格说 | 实际是 | 处置 | 任务 |
 |---|---|---|---|---|
+| T0 | 代码规范基线（行长 ≤120、Prettier/ESLint/gofmt、Makefile fmt/lint） | 超长行全部拆分，工具链就绪 | ✅ 已完成 | T0 |
 | A1 | `docs/08 §2` TanStack Router 路由表 | 已装未用，`useState` 切页，刷新丢状态 | **按规格改造** | T1 |
 | A2 | `docs/08 §1` Tailwind + shadcn/ui | 纯手写 CSS | **待定**，见 `TASKS.md` Q2 | T1 |
 | A3 | `docs/08 §1` 按 feature 分目录 | 16 个组件挤在 63 行单文件 | **按规格改造** | T1 |

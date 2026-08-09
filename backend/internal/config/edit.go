@@ -74,7 +74,9 @@ func redactMap(values map[string]any) map[string]any {
 
 func secretKey(key string) bool {
 	key = strings.ToLower(key)
-	return strings.Contains(key, "secret") || strings.Contains(key, "password") || strings.Contains(key, "apikey") || strings.Contains(key, "api_key") || strings.Contains(key, "token")
+	return strings.Contains(key, "secret") || strings.Contains(key, "password") || strings.Contains(key, "apikey") ||
+		strings.Contains(key, "api_key") ||
+		strings.Contains(key, "token")
 }
 
 // FilePath resolves the primary config path without loading it. It is shared
@@ -173,7 +175,8 @@ func UpdateSchemaVersion(root, file string, version int) (*Config, error) {
 	if err := yaml.Unmarshal(raw, &document); err != nil {
 		return nil, err
 	}
-	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 ||
+		document.Content[0].Kind != yaml.MappingNode {
 		return nil, errors.New("invalid YAML configuration document")
 	}
 	mapping := document.Content[0]
@@ -185,7 +188,12 @@ func UpdateSchemaVersion(root, file string, version int) (*Config, error) {
 		}
 	}
 	if target == nil {
-		mapping.Content = append([]*yaml.Node{{Kind: yaml.ScalarNode, Tag: "!!str", Value: "schemaVersion"}, {Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(version)}}, mapping.Content...)
+		mapping.Content = append(
+			[]*yaml.Node{
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: "schemaVersion"},
+				{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(version)},
+			},
+			mapping.Content...)
 	} else {
 		target.Kind, target.Tag, target.Value, target.Content = yaml.ScalarNode, "!!int", fmt.Sprint(version), nil
 	}
@@ -217,7 +225,8 @@ func UpdateSchemaVersion(root, file string, version int) (*Config, error) {
 }
 
 func topLevelNode(document *yaml.Node, key string) (*yaml.Node, error) {
-	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 ||
+		document.Content[0].Kind != yaml.MappingNode {
 		return nil, errors.New("invalid YAML configuration document")
 	}
 	mapping := document.Content[0]
@@ -254,7 +263,8 @@ func mergeMapping(target, patch *yaml.Node) {
 			if target.Content[j+1].Kind == yaml.MappingNode && incoming.Kind == yaml.MappingNode {
 				mergeMapping(target.Content[j+1], incoming)
 			} else {
-				head, line, foot := target.Content[j+1].HeadComment, target.Content[j+1].LineComment, target.Content[j+1].FootComment
+				next := target.Content[j+1]
+				head, line, foot := next.HeadComment, next.LineComment, next.FootComment
 				*target.Content[j+1] = *incoming
 				target.Content[j+1].HeadComment, target.Content[j+1].LineComment, target.Content[j+1].FootComment = head, line, foot
 			}

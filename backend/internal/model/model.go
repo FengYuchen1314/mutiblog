@@ -78,7 +78,11 @@ func (l LocalizedString) MarshalYAML() (any, error) {
 	sort.Strings(keys)
 	n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	for _, key := range keys {
-		n.Content = append(n.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: l[Locale(key)]})
+		n.Content = append(
+			n.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: l[Locale(key)]},
+		)
 	}
 	return n, nil
 }
@@ -107,27 +111,27 @@ type ArticleVersion struct {
 }
 
 type FrontMatter struct {
-	ID           ArticleID      `yaml:"id" json:"id"`
-	Title        string         `yaml:"title" json:"title"`
-	Slug         string         `yaml:"slug" json:"slug"`
+	ID           ArticleID      `yaml:"id"                    json:"id"`
+	Title        string         `yaml:"title"                 json:"title"`
+	Slug         string         `yaml:"slug"                  json:"slug"`
 	Description  string         `yaml:"description,omitempty" json:"description,omitempty"`
-	Date         time.Time      `yaml:"date" json:"date"`
-	Updated      *time.Time     `yaml:"updated,omitempty" json:"updated,omitempty"`
-	Status       Status         `yaml:"status" json:"status"`
-	Categories   []string       `yaml:"categories,omitempty" json:"categories,omitempty"`
-	Tags         []string       `yaml:"tags,omitempty" json:"tags,omitempty"`
-	Cover        string         `yaml:"cover,omitempty" json:"cover,omitempty"`
-	Author       string         `yaml:"author" json:"author"`
-	SourceLocale Locale         `yaml:"sourceLocale" json:"sourceLocale"`
-	Locale       Locale         `yaml:"locale" json:"locale"`
-	Pinned       bool           `yaml:"pinned,omitempty" json:"pinned,omitempty"`
-	TOC          *bool          `yaml:"toc,omitempty" json:"toc,omitempty"`
-	Comments     *bool          `yaml:"comments,omitempty" json:"comments,omitempty"`
-	SEO          *SEO           `yaml:"seo,omitempty" json:"seo,omitempty"`
-	Template     string         `yaml:"template,omitempty" json:"template,omitempty"`
-	Order        int            `yaml:"order,omitempty" json:"order,omitempty"`
-	ShowInMenu   bool           `yaml:"showInMenu,omitempty" json:"showInMenu,omitempty"`
-	Extra        map[string]any `yaml:",inline" json:"-"`
+	Date         time.Time      `yaml:"date"                  json:"date"`
+	Updated      *time.Time     `yaml:"updated,omitempty"     json:"updated,omitempty"`
+	Status       Status         `yaml:"status"                json:"status"`
+	Categories   []string       `yaml:"categories,omitempty"  json:"categories,omitempty"`
+	Tags         []string       `yaml:"tags,omitempty"        json:"tags,omitempty"`
+	Cover        string         `yaml:"cover,omitempty"       json:"cover,omitempty"`
+	Author       string         `yaml:"author"                json:"author"`
+	SourceLocale Locale         `yaml:"sourceLocale"          json:"sourceLocale"`
+	Locale       Locale         `yaml:"locale"                json:"locale"`
+	Pinned       bool           `yaml:"pinned,omitempty"      json:"pinned,omitempty"`
+	TOC          *bool          `yaml:"toc,omitempty"         json:"toc,omitempty"`
+	Comments     *bool          `yaml:"comments,omitempty"    json:"comments,omitempty"`
+	SEO          *SEO           `yaml:"seo,omitempty"         json:"seo,omitempty"`
+	Template     string         `yaml:"template,omitempty"    json:"template,omitempty"`
+	Order        int            `yaml:"order,omitempty"       json:"order,omitempty"`
+	ShowInMenu   bool           `yaml:"showInMenu,omitempty"  json:"showInMenu,omitempty"`
+	Extra        map[string]any `yaml:",inline"               json:"-"`
 }
 
 type SEO struct {
@@ -197,20 +201,20 @@ type MenuItem struct {
 	Children                         []MenuItem
 }
 type User struct {
-	ID           string            `yaml:"id" json:"id"`
-	Username     string            `yaml:"username" json:"username"`
-	Email        string            `yaml:"email" json:"email"`
-	DisplayName  string            `yaml:"displayName" json:"displayName"`
-	Avatar       string            `yaml:"avatar,omitempty" json:"avatar,omitempty"`
-	Role         string            `yaml:"role" json:"role"`
-	PasswordHash string            `yaml:"passwordHash" json:"-"`
-	TokenVersion int               `yaml:"tokenVersion" json:"tokenVersion"`
-	Locale       Locale            `yaml:"locale" json:"locale"`
-	CreatedAt    time.Time         `yaml:"createdAt" json:"createdAt"`
+	ID           string            `yaml:"id"                    json:"id"`
+	Username     string            `yaml:"username"              json:"username"`
+	Email        string            `yaml:"email"                 json:"email"`
+	DisplayName  string            `yaml:"displayName"           json:"displayName"`
+	Avatar       string            `yaml:"avatar,omitempty"      json:"avatar,omitempty"`
+	Role         string            `yaml:"role"                  json:"role"`
+	PasswordHash string            `yaml:"passwordHash"          json:"-"`
+	TokenVersion int               `yaml:"tokenVersion"          json:"tokenVersion"`
+	Locale       Locale            `yaml:"locale"                json:"locale"`
+	CreatedAt    time.Time         `yaml:"createdAt"             json:"createdAt"`
 	LastLoginAt  *time.Time        `yaml:"lastLoginAt,omitempty" json:"lastLoginAt,omitempty"`
-	Disabled     bool              `yaml:"disabled" json:"disabled"`
-	Bio          LocalizedString   `yaml:"bio,omitempty" json:"bio,omitempty"`
-	Social       map[string]string `yaml:"social,omitempty" json:"social,omitempty"`
+	Disabled     bool              `yaml:"disabled"              json:"disabled"`
+	Bio          LocalizedString   `yaml:"bio,omitempty"         json:"bio,omitempty"`
+	Social       map[string]string `yaml:"social,omitempty"      json:"social,omitempty"`
 }
 type MediaMeta struct {
 	Path, MIME    string

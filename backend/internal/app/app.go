@@ -87,12 +87,26 @@ func New(opts Options) (*App, []string, error) {
 		return nil, warnings, err
 	}
 	if cfg.SchemaVersion > migrate.CurrentContentSchema {
-		return nil, warnings, fmt.Errorf("content schema %d is newer than this binary (supports %d); upgrade the application or restore a backup", cfg.SchemaVersion, migrate.CurrentContentSchema)
+		return nil, warnings, fmt.Errorf(
+			"content schema %d is newer than this binary (supports %d); upgrade the application or restore a backup",
+			cfg.SchemaVersion,
+			migrate.CurrentContentSchema,
+		)
 	}
 	if cfg.SchemaVersion < migrate.CurrentContentSchema {
-		warnings = append(warnings, fmt.Sprintf("content schema %d is older than supported schema %d; run blog migrate before editing content", cfg.SchemaVersion, migrate.CurrentContentSchema))
+		warnings = append(
+			warnings,
+			fmt.Sprintf(
+				"content schema %d is older than supported schema %d; run blog migrate before editing content",
+				cfg.SchemaVersion,
+				migrate.CurrentContentSchema,
+			),
+		)
 	}
-	for _, path := range []string{cfg.Paths.Content, cfg.Paths.Data, cfg.Paths.Media, cfg.Paths.Generated, cfg.Paths.Cache, cfg.Paths.Themes} {
+	for _, path := range []string{
+		cfg.Paths.Content, cfg.Paths.Data, cfg.Paths.Media,
+		cfg.Paths.Generated, cfg.Paths.Cache, cfg.Paths.Themes,
+	} {
 		if err := fsutil.EnsureDir(path, 0o755); err != nil {
 			return nil, warnings, err
 		}
@@ -111,20 +125,30 @@ func New(opts Options) (*App, []string, error) {
 		return nil, warnings, err
 	}
 	taxonomyStore := taxonomy.NewStore(cfg.Paths.Data)
-	ix := index.New(index.Options{ContentRoot: cfg.Paths.Content, BodyResidentLimitBytes: int64(cfg.Index.BodyResidentLimitMB) << 20, ForceMode: cfg.Index.ForceMode})
+	ix := index.New(
+		index.Options{
+			ContentRoot:            cfg.Paths.Content,
+			BodyResidentLimitBytes: int64(cfg.Index.BodyResidentLimitMB) << 20,
+			ForceMode:              cfg.Index.ForceMode,
+		},
+	)
 	if err := ix.RebuildAll(context.Background(), contentStore, taxonomyStore); err != nil {
 		_ = db.Close()
 		return nil, warnings, err
 	}
 	bus := events.New(opts.Logger)
-	w, err := watcher.New([]string{cfg.Paths.Content, cfg.Paths.Data, filepath.Join(opts.Root, "config"), cfg.Paths.Themes}, bus)
+	w, err := watcher.New(
+		[]string{cfg.Paths.Content, cfg.Paths.Data, filepath.Join(opts.Root, "config"), cfg.Paths.Themes},
+		bus,
+	)
 	if err != nil {
 		_ = db.Close()
 		return nil, warnings, err
 	}
 	mediaStore := media.NewLocal(cfg.Paths.Media, cfg.Storage.Local.PublicPrefix)
 	themeStore := theme.NewStore(cfg.Paths.Themes, cfg.Paths.Data)
-	if active, themeErr := themeStore.Get(cfg.Theme.Active); themeErr != nil || theme.Compatible(active.Manifest, theme.EngineVersion) != nil {
+	if active, themeErr := themeStore.Get(cfg.Theme.Active); themeErr != nil ||
+		theme.Compatible(active.Manifest, theme.EngineVersion) != nil {
 		reason := "unknown error"
 		if themeErr != nil {
 			reason = themeErr.Error()
@@ -158,13 +182,25 @@ func New(opts Options) (*App, []string, error) {
 	queue := jobs.New(db)
 	enqueueRender := func(articleID model.ArticleID, loc model.Locale) {
 		payload, _ := json.Marshal(map[string]string{"articleID": string(articleID), "locale": string(loc)})
-		if _, err := queue.Enqueue(context.Background(), jobs.Job{Kind: "render", DedupeKey: string(articleID) + ":" + string(loc), Payload: payload, Priority: 10}); err != nil {
+		job := jobs.Job{
+			Kind:      "render",
+			DedupeKey: string(articleID) + ":" + string(loc),
+			Payload:   payload,
+			Priority:  10,
+		}
+		if _, err := queue.Enqueue(context.Background(), job); err != nil {
 			opts.Logger.Warn("external change render was not queued", "article", articleID, "locale", loc, "err", err)
 		}
 	}
 	enqueueLocaleRefresh := func(loc model.Locale) {
 		payload, _ := json.Marshal(map[string]string{"locale": string(loc)})
-		if _, err := queue.Enqueue(context.Background(), jobs.Job{Kind: "render", DedupeKey: "locale:" + string(loc), Payload: payload, Priority: 30}); err != nil {
+		job := jobs.Job{
+			Kind:      "render",
+			DedupeKey: "locale:" + string(loc),
+			Payload:   payload,
+			Priority:  30,
+		}
+		if _, err := queue.Enqueue(context.Background(), job); err != nil {
 			opts.Logger.Warn("locale refresh was not queued", "locale", loc, "err", err)
 		}
 	}
@@ -178,8 +214,17 @@ func New(opts Options) (*App, []string, error) {
 			if before != nil {
 				ix.RemoveBundle(change.Dir)
 				for _, loc := range publishedLocales(before) {
-					if removeErr := renderer.Remove(before, loc); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-						opts.Logger.Warn("removing externally deleted article failed", "article", before.ID, "locale", loc, "err", removeErr)
+					if removeErr := renderer.Remove(before, loc); removeErr != nil &&
+						!errors.Is(removeErr, os.ErrNotExist) {
+						opts.Logger.Warn(
+							"removing externally deleted article failed",
+							"article",
+							before.ID,
+							"locale",
+							loc,
+							"err",
+							removeErr,
+						)
 					}
 					enqueueLocaleRefresh(loc)
 				}
@@ -198,8 +243,17 @@ func New(opts Options) (*App, []string, error) {
 		ix.RemoveBundle(change.Dir)
 		if before != nil {
 			for _, loc := range publishedLocales(before) {
-				if removeErr := renderer.Remove(before, loc); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-					opts.Logger.Warn("removing externally deleted article failed", "article", before.ID, "locale", loc, "err", removeErr)
+				if removeErr := renderer.Remove(before, loc); removeErr != nil &&
+					!errors.Is(removeErr, os.ErrNotExist) {
+					opts.Logger.Warn(
+						"removing externally deleted article failed",
+						"article",
+						before.ID,
+						"locale",
+						loc,
+						"err",
+						removeErr,
+					)
 				}
 				enqueueLocaleRefresh(loc)
 			}
@@ -230,10 +284,44 @@ func New(opts Options) (*App, []string, error) {
 			_ = db.Close()
 			return nil, warnings, err
 		}
-		translator = &ai.Service{Provider: provider, Store: contentStore, Index: ix, Jobs: queue, DB: db, Budget: cfg.AI.SegmentBudget}
+		translator = &ai.Service{
+			Provider: provider,
+			Store:    contentStore,
+			Index:    ix,
+			Jobs:     queue,
+			DB:       db,
+			Budget:   cfg.AI.SegmentBudget,
+		}
 	}
-	backupOptions := backup.Options{Root: opts.Root, Content: cfg.Paths.Content, Data: cfg.Paths.Data, Config: filepath.Join(opts.Root, "config"), Media: cfg.Paths.Media, OutputDir: cfg.Backup.Dir, IncludeMedia: cfg.Backup.IncludeMedia, Keep: cfg.Backup.Keep}
-	return &App{Root: opts.Root, ConfigFile: opts.ConfigFile, Config: cfg, State: db, Content: contentStore, Taxonomy: taxonomyStore, Index: ix, Events: bus, Watcher: w, Users: users, Media: mediaStore, Render: renderer, Jobs: queue, AI: translator, Theme: themeStore, Backup: backupOptions, logger: opts.Logger}, warnings, nil
+	backupOptions := backup.Options{
+		Root:         opts.Root,
+		Content:      cfg.Paths.Content,
+		Data:         cfg.Paths.Data,
+		Config:       filepath.Join(opts.Root, "config"),
+		Media:        cfg.Paths.Media,
+		OutputDir:    cfg.Backup.Dir,
+		IncludeMedia: cfg.Backup.IncludeMedia,
+		Keep:         cfg.Backup.Keep,
+	}
+	return &App{
+		Root:       opts.Root,
+		ConfigFile: opts.ConfigFile,
+		Config:     cfg,
+		State:      db,
+		Content:    contentStore,
+		Taxonomy:   taxonomyStore,
+		Index:      ix,
+		Events:     bus,
+		Watcher:    w,
+		Users:      users,
+		Media:      mediaStore,
+		Render:     renderer,
+		Jobs:       queue,
+		AI:         translator,
+		Theme:      themeStore,
+		Backup:     backupOptions,
+		logger:     opts.Logger,
+	}, warnings, nil
 }
 func (a *App) Serve(ctx context.Context) error {
 	if a.Config.Render.WorkerEnabled {
@@ -256,7 +344,30 @@ func (a *App) Serve(ctx context.Context) error {
 	if a.AI != nil {
 		go a.consumeTranslations(watchCtx)
 	}
-	a.server = &http.Server{Addr: fmt.Sprintf("%s:%d", a.Config.Server.Host, a.Config.Server.Port), Handler: httpserver.New(&httpserver.Server{Root: a.Root, ConfigFile: a.ConfigFile, Config: a.Config, State: a.State, Users: a.Users, Index: a.Index, Content: a.Content, Events: a.Events, Media: a.Media, Taxonomy: a.Taxonomy, Render: a.Render, Jobs: a.Jobs, AI: a.AI, Theme: a.Theme, AppVersion: theme.EngineVersion, Backup: a.Backup}), ReadHeaderTimeout: 10 * time.Second}
+	a.server = &http.Server{
+		Addr: fmt.Sprintf("%s:%d", a.Config.Server.Host, a.Config.Server.Port),
+		Handler: httpserver.New(
+			&httpserver.Server{
+				Root:       a.Root,
+				ConfigFile: a.ConfigFile,
+				Config:     a.Config,
+				State:      a.State,
+				Users:      a.Users,
+				Index:      a.Index,
+				Content:    a.Content,
+				Events:     a.Events,
+				Media:      a.Media,
+				Taxonomy:   a.Taxonomy,
+				Render:     a.Render,
+				Jobs:       a.Jobs,
+				AI:         a.AI,
+				Theme:      a.Theme,
+				AppVersion: theme.EngineVersion,
+				Backup:     a.Backup,
+			},
+		),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		if err := a.Watcher.Start(watchCtx); err != nil {
@@ -624,7 +735,12 @@ func (a *App) consumeScheduledPublishes(ctx context.Context) {
 }
 
 func (a *App) publishDue(ctx context.Context) {
-	rows, err := a.State.Read().QueryContext(ctx, "SELECT article_id,locale FROM scheduled_publish WHERE status='scheduled' AND publish_at<=?", time.Now().UTC().Format(time.RFC3339Nano))
+	rows, err := a.State.Read().
+		QueryContext(
+			ctx,
+			"SELECT article_id,locale FROM scheduled_publish WHERE status='scheduled' AND publish_at<=?",
+			time.Now().UTC().Format(time.RFC3339Nano),
+		)
 	if err != nil {
 		a.logger.Warn("scheduled publish lookup failed", "err", err)
 		return
@@ -635,7 +751,8 @@ func (a *App) publishDue(ctx context.Context) {
 		if err := rows.Scan(&id, &locale); err != nil {
 			continue
 		}
-		claim, err := a.State.Write().ExecContext(ctx, "UPDATE scheduled_publish SET status='publishing' WHERE article_id=? AND status='scheduled'", id)
+		claim, err := a.State.Write().
+			ExecContext(ctx, "UPDATE scheduled_publish SET status='publishing' WHERE article_id=? AND status='scheduled'", id)
 		if err != nil {
 			continue
 		}
@@ -649,28 +766,49 @@ func (a *App) publishDue(ctx context.Context) {
 			version = article.Versions[model.Locale(locale)]
 		}
 		if version == nil {
-			_, _ = a.State.Write().ExecContext(ctx, "UPDATE scheduled_publish SET status='failed' WHERE article_id=?", id)
+			_, _ = a.State.Write().
+				ExecContext(ctx, "UPDATE scheduled_publish SET status='failed' WHERE article_id=?", id)
 			continue
 		}
 		front := version.Front
 		front.Status = model.StatusPublished
 		now := time.Now().UTC()
 		front.Updated = &now
-		if err := a.Content.SaveVersion(article, model.Locale(locale), front, version.Body, content.SaveOpts{BumpSourceRevision: model.Locale(locale) == article.Source, Snapshot: true}); err != nil {
-			_, _ = a.State.Write().ExecContext(ctx, "UPDATE scheduled_publish SET status='failed' WHERE article_id=?", id)
+		opts := content.SaveOpts{
+			BumpSourceRevision: model.Locale(locale) == article.Source,
+			Snapshot:           true,
+		}
+		if err := a.Content.SaveVersion(article, model.Locale(locale), front, version.Body, opts); err != nil {
+			_, _ = a.State.Write().
+				ExecContext(ctx, "UPDATE scheduled_publish SET status='failed' WHERE article_id=?", id)
 			continue
 		}
 		a.Index.UpsertArticle(article)
 		a.Events.Publish(ctx, events.ArticlePublished{ID: article.ID, Locale: model.Locale(locale), FirstPublish: true})
 		payload, _ := json.Marshal(map[string]string{"articleID": id, "locale": locale})
-		if _, err := a.Jobs.Enqueue(ctx, jobs.Job{Kind: "render", DedupeKey: id + ":" + locale, Payload: payload, Priority: 10}); err != nil {
-			_, _ = a.State.Write().ExecContext(ctx, "UPDATE scheduled_publish SET status='scheduled' WHERE article_id=?", id)
+		job := jobs.Job{
+			Kind:      "render",
+			DedupeKey: id + ":" + locale,
+			Payload:   payload,
+			Priority:  10,
+		}
+		if _, err := a.Jobs.Enqueue(ctx, job); err != nil {
+			_, _ = a.State.Write().
+				ExecContext(ctx, "UPDATE scheduled_publish SET status='scheduled' WHERE article_id=?", id)
 			continue
 		}
 		if a.AI != nil && a.Config.I18n.AutoTranslateOnPublish {
 			for _, target := range a.translationTargets(article.Source) {
 				if _, err := a.AI.Enqueue(ctx, article.ID, target, false); err != nil {
-					a.logger.Warn("scheduled publication translation was not queued", "article", article.ID, "locale", target, "err", err)
+					a.logger.Warn(
+						"scheduled publication translation was not queued",
+						"article",
+						article.ID,
+						"locale",
+						target,
+						"err",
+						err,
+					)
 				}
 			}
 		}
@@ -725,14 +863,19 @@ func (a *App) renderLocale(ctx context.Context, loc model.Locale) error {
 			relative = fmt.Sprintf("page/%d", page)
 			extraPaths = append(extraPaths, "/"+prefix+"/"+relative+"/")
 		}
-		if _, err := a.Render.RenderPaginatedCollection(ctx, loc, a.Config.Site.Title, items[start:end], relative, paginationFor(prefix, page, totalPages)); err != nil {
+		pageLinks := paginationFor(prefix, page, totalPages)
+		if _, err := a.Render.RenderPaginatedCollection(
+			ctx, loc, a.Config.Site.Title, items[start:end], relative, pageLinks,
+		); err != nil {
 			return err
 		}
 	}
 	if err := a.renderTaxonomy(ctx, loc, prefix, &extraPaths); err != nil {
 		return err
 	}
-	if _, err := a.Render.RenderNotFound(ctx, loc, notFoundTitle(loc), notFoundMessage(loc), notFoundHomeLabel(loc)); err != nil {
+	if _, err := a.Render.RenderNotFound(
+		ctx, loc, notFoundTitle(loc), notFoundMessage(loc), notFoundHomeLabel(loc),
+	); err != nil {
 		return err
 	}
 	if _, err := a.Render.RenderSearch(ctx, loc, searchTitle(loc)); err != nil {
@@ -745,7 +888,20 @@ func (a *App) renderLocale(ctx context.Context, loc model.Locale) error {
 			prefixes[model.Locale(configured.Code)] = configured.URLPrefix
 		}
 	}
-	return (&feed.Generator{Output: a.Render.Output(), BaseURL: a.Config.Server.BaseURL, SiteTitle: a.Config.Site.Title, Index: a.Index, ExtraURLs: extraPaths, Prefix: prefix, RobotsTxt: a.Config.SEO.RobotsTxt, Prefixes: prefixes, DefaultLocale: model.Locale(a.Config.I18n.DefaultLocale)}).Generate(loc)
+	generator := &feed.Generator{
+		Output:        a.Render.Output(),
+		BaseURL:       a.Config.Server.BaseURL,
+		SiteTitle:     a.Config.Site.Title,
+		Index:         a.Index,
+		ExtraURLs:     extraPaths,
+		Prefix:        prefix,
+		RobotsTxt:     a.Config.SEO.RobotsTxt,
+		Prefixes:      prefixes,
+		DefaultLocale: model.Locale(a.Config.I18n.DefaultLocale),
+	}
+	return generator.Generate(
+		loc,
+	)
 }
 
 func paginationFor(prefix string, current, total int) render.Pagination {
@@ -792,7 +948,14 @@ func articleItems(posts []*model.Article, loc model.Locale, prefix string) []ren
 		if v == nil {
 			continue
 		}
-		items = append(items, render.HomeItem{Title: v.Front.Title, Description: v.Front.Description, URL: "/" + prefix + "/posts/" + v.Front.Slug + "/"})
+		items = append(
+			items,
+			render.HomeItem{
+				Title:       v.Front.Title,
+				Description: v.Front.Description,
+				URL:         "/" + prefix + "/posts/" + v.Front.Slug + "/",
+			},
+		)
 	}
 	return items
 }
@@ -820,8 +983,22 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 			name = slug
 		}
 		relative := "categories/" + slug
-		categoryIndex = append(categoryIndex, render.HomeItem{Title: name, Description: category.Description.Get(loc, ""), URL: "/" + prefix + "/" + relative + "/"})
-		posts, _ := a.Index.List(index.ListQuery{Type: model.ContentPost, Locale: loc, Category: category.ID, Status: []model.Status{model.StatusPublished}})
+		categoryIndex = append(
+			categoryIndex,
+			render.HomeItem{
+				Title:       name,
+				Description: category.Description.Get(loc, ""),
+				URL:         "/" + prefix + "/" + relative + "/",
+			},
+		)
+		posts, _ := a.Index.List(
+			index.ListQuery{
+				Type:     model.ContentPost,
+				Locale:   loc,
+				Category: category.ID,
+				Status:   []model.Status{model.StatusPublished},
+			},
+		)
 		if _, err := a.Render.RenderCollection(ctx, loc, name, postItems(posts), relative); err != nil {
 			return err
 		}
@@ -844,8 +1021,22 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 			name = slug
 		}
 		relative := "tags/" + slug
-		tagIndex = append(tagIndex, render.HomeItem{Title: name, Description: tag.Description.Get(loc, ""), URL: "/" + prefix + "/" + relative + "/"})
-		posts, _ := a.Index.List(index.ListQuery{Type: model.ContentPost, Locale: loc, Tag: tag.ID, Status: []model.Status{model.StatusPublished}})
+		tagIndex = append(
+			tagIndex,
+			render.HomeItem{
+				Title:       name,
+				Description: tag.Description.Get(loc, ""),
+				URL:         "/" + prefix + "/" + relative + "/",
+			},
+		)
+		posts, _ := a.Index.List(
+			index.ListQuery{
+				Type:   model.ContentPost,
+				Locale: loc,
+				Tag:    tag.ID,
+				Status: []model.Status{model.StatusPublished},
+			},
+		)
 		if _, err := a.Render.RenderCollection(ctx, loc, name, postItems(posts), relative); err != nil {
 			return err
 		}
@@ -860,7 +1051,10 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 	months := map[monthKey][]*model.Article{}
 	for _, article := range a.Index.PublishedPosts(loc) {
 		v := article.Versions[loc]
-		months[monthKey{v.Front.Date.Year(), int(v.Front.Date.Month())}] = append(months[monthKey{v.Front.Date.Year(), int(v.Front.Date.Month())}], article)
+		months[monthKey{v.Front.Date.Year(), int(v.Front.Date.Month())}] = append(
+			months[monthKey{v.Front.Date.Year(), int(v.Front.Date.Month())}],
+			article,
+		)
 	}
 	keys := make([]monthKey, 0, len(months))
 	for key := range months {
@@ -873,7 +1067,14 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 	for _, key := range keys {
 		relative := fmt.Sprintf("archives/%04d/%02d", key.year, key.month)
 		title := fmt.Sprintf("%04d-%02d", key.year, key.month)
-		archiveIndex = append(archiveIndex, render.HomeItem{Title: title, Description: fmt.Sprintf("%d posts", len(months[key])), URL: "/" + prefix + "/" + relative + "/"})
+		archiveIndex = append(
+			archiveIndex,
+			render.HomeItem{
+				Title:       title,
+				Description: fmt.Sprintf("%d posts", len(months[key])),
+				URL:         "/" + prefix + "/" + relative + "/",
+			},
+		)
 		if _, err := a.Render.RenderCollection(ctx, loc, title, postItems(months[key]), relative); err != nil {
 			return err
 		}
@@ -887,7 +1088,10 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 	links := a.Index.Links()
 	linkItems := make([]render.HomeItem, 0, len(links))
 	for _, link := range links {
-		linkItems = append(linkItems, render.HomeItem{Title: link.Name, Description: link.Description.Get(loc, ""), URL: link.URL})
+		linkItems = append(
+			linkItems,
+			render.HomeItem{Title: link.Name, Description: link.Description.Get(loc, ""), URL: link.URL},
+		)
 	}
 	if _, err := a.Render.RenderCollection(ctx, loc, "Links", linkItems, "links"); err != nil {
 		return err
@@ -895,6 +1099,7 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 	*extraPaths = append(*extraPaths, "/"+prefix+"/links/")
 	return nil
 }
+
 // ensureSessionSecret implements the P5 startup contract: environment wins,
 // then config/.secrets.yaml, then a freshly generated 48-byte secret persisted
 // atomically with mode 0600. The process must never fail to start because the

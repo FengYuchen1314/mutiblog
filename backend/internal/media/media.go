@@ -110,7 +110,17 @@ func (s *LocalStorage) List(_ context.Context, dir string) ([]Entry, error) {
 			continue
 		}
 		rel := filepath.ToSlash(filepath.Join(dir, item.Name()))
-		out = append(out, Entry{Path: rel, Name: item.Name(), MIME: mime.TypeByExtension(filepath.Ext(item.Name())), Size: info.Size(), IsDir: item.IsDir(), ModTime: info.ModTime()})
+		out = append(
+			out,
+			Entry{
+				Path:    rel,
+				Name:    item.Name(),
+				MIME:    mime.TypeByExtension(filepath.Ext(item.Name())),
+				Size:    info.Size(),
+				IsDir:   item.IsDir(),
+				ModTime: info.ModTime(),
+			},
+		)
 	}
 	return out, nil
 }
@@ -123,7 +133,14 @@ func (s *LocalStorage) Stat(_ context.Context, path string) (Entry, error) {
 	if err != nil {
 		return Entry{}, err
 	}
-	return Entry{Path: path, Name: filepath.Base(path), MIME: mime.TypeByExtension(filepath.Ext(path)), Size: info.Size(), IsDir: info.IsDir(), ModTime: info.ModTime()}, nil
+	return Entry{
+		Path:    path,
+		Name:    filepath.Base(path),
+		MIME:    mime.TypeByExtension(filepath.Ext(path)),
+		Size:    info.Size(),
+		IsDir:   info.IsDir(),
+		ModTime: info.ModTime(),
+	}, nil
 }
 func (s *LocalStorage) PublicURL(path string) string {
 	return s.prefix + "/" + strings.TrimLeft(filepath.ToSlash(path), "/")
@@ -196,7 +213,8 @@ func ValidateImage(header []byte, name string, allowed []string) (string, error)
 	// The standard sniffer identifies many valid SVG files as text/xml. The
 	// extension is accepted only for SVG and the payload is subsequently
 	// sanitised before it reaches the public media directory.
-	if ext == ".svg" && byExt == "image/svg+xml" && (detected == "image/svg+xml" || strings.HasPrefix(detected, "text/")) {
+	if ext == ".svg" && byExt == "image/svg+xml" &&
+		(detected == "image/svg+xml" || strings.HasPrefix(detected, "text/")) {
 		return "image/svg+xml", nil
 	}
 	if !allowedDetected || detected != byExt || !strings.HasPrefix(detected, "image/") {
@@ -206,9 +224,16 @@ func ValidateImage(header []byte, name string, allowed []string) (string, error)
 }
 
 var (
-	svgDangerousElement = regexp.MustCompile(`(?is)<\s*script\b[^>]*>.*?<\s*/\s*script\s*>|<\s*foreignObject\b[^>]*>.*?<\s*/\s*foreignObject\s*>`)
-	svgEventAttribute   = regexp.MustCompile(`(?is)\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)`)
-	svgDangerousURL     = regexp.MustCompile(`(?is)\s+(?:href|xlink:href)\s*=\s*(?:"\s*(?:javascript:|data:text/html)[^"]*"|'\s*(?:javascript:|data:text/html)[^']*'|(?:javascript:|data:text/html)[^\s>]+)`)
+	svgDangerousElement = regexp.MustCompile(
+		`(?is)<\s*script\b[^>]*>.*?<\s*/\s*script\s*>|<\s*foreignObject\b[^>]*>.*?<\s*/\s*foreignObject\s*>`,
+	)
+	svgEventAttribute = regexp.MustCompile(`(?is)\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)`)
+	svgDangerousURL   = regexp.MustCompile(
+		`(?is)\s+(?:href|xlink:href)\s*=\s*(?:` +
+			`"\s*(?:javascript:|data:text/html)[^"]*"|` +
+			`'\s*(?:javascript:|data:text/html)[^']*'|` +
+			`(?:javascript:|data:text/html)[^\s>]+)`,
+	)
 )
 
 func sanitizeSVG(data []byte) []byte {

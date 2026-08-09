@@ -211,7 +211,11 @@ func migrateCommand(opts options, args []string) error {
 		return err
 	}
 	if cfg.SchemaVersion > migrate.CurrentContentSchema {
-		return fmt.Errorf("content schema %d is newer than this binary (supports %d); upgrade the application or restore a backup", cfg.SchemaVersion, migrate.CurrentContentSchema)
+		return fmt.Errorf(
+			"content schema %d is newer than this binary (supports %d); upgrade the application or restore a backup",
+			cfg.SchemaVersion,
+			migrate.CurrentContentSchema,
+		)
 	}
 	if cfg.SchemaVersion >= target {
 		fmt.Printf("migrate: schema %d is already at target %d\n", cfg.SchemaVersion, target)
@@ -219,7 +223,13 @@ func migrateCommand(opts options, args []string) error {
 	}
 	// Always start from the dry-run traversal. It both makes the preview exact
 	// and ensures a backup is created before the first content file is touched.
-	report, err := migrate.Run(context.Background(), content.NewStore(cfg.Paths.Content), cfg.SchemaVersion, target, true)
+	report, err := migrate.Run(
+		context.Background(),
+		content.NewStore(cfg.Paths.Content),
+		cfg.SchemaVersion,
+		target,
+		true,
+	)
 	if err != nil {
 		return err
 	}
@@ -230,18 +240,51 @@ func migrateCommand(opts options, args []string) error {
 		fmt.Printf("migrate: schema %d -> %d; %d files would change\n", report.From, report.To, len(report.Changed))
 		return nil
 	}
-	backupItem, err := backup.Create(backup.Options{Root: opts.root, Content: cfg.Paths.Content, Data: cfg.Paths.Data, Config: filepath.Join(opts.root, "config"), Media: cfg.Paths.Media, OutputDir: cfg.Backup.Dir, IncludeMedia: cfg.Backup.IncludeMedia, Keep: cfg.Backup.Keep, Name: "backup-" + time.Now().UTC().Format("20060102-150405") + "-pre-migration-v" + fmt.Sprint(target) + ".zip"})
+	backupItem, err := backup.Create(
+		backup.Options{
+			Root:         opts.root,
+			Content:      cfg.Paths.Content,
+			Data:         cfg.Paths.Data,
+			Config:       filepath.Join(opts.root, "config"),
+			Media:        cfg.Paths.Media,
+			OutputDir:    cfg.Backup.Dir,
+			IncludeMedia: cfg.Backup.IncludeMedia,
+			Keep:         cfg.Backup.Keep,
+			Name: "backup-" + time.Now().
+				UTC().
+				Format("20060102-150405") +
+				"-pre-migration-v" + fmt.Sprint(
+				target,
+			) + ".zip",
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("pre-migration backup failed: %w", err)
 	}
-	report, err = migrate.Run(context.Background(), content.NewStore(cfg.Paths.Content), cfg.SchemaVersion, target, false)
+	report, err = migrate.Run(
+		context.Background(),
+		content.NewStore(cfg.Paths.Content),
+		cfg.SchemaVersion,
+		target,
+		false,
+	)
 	if err != nil {
 		return fmt.Errorf("migration failed after backup %s: %w", backupItem.Path, err)
 	}
 	if _, err := config.UpdateSchemaVersion(opts.root, opts.config, target); err != nil {
-		return fmt.Errorf("migration content was applied but schema marker could not be updated; restore %s or rerun: %w", backupItem.Path, err)
+		return fmt.Errorf(
+			"migration content was applied but schema marker could not be updated; restore %s or rerun: %w",
+			backupItem.Path,
+			err,
+		)
 	}
-	fmt.Printf("migrate: schema %d -> %d; changed=%d; backup=%s\n", report.From, report.To, len(report.Changed), backupItem.Path)
+	fmt.Printf(
+		"migrate: schema %d -> %d; changed=%d; backup=%s\n",
+		report.From,
+		report.To,
+		len(report.Changed),
+		backupItem.Path,
+	)
 	return nil
 }
 
@@ -265,7 +308,9 @@ type importedFrontMatter struct {
 // shares the exact parser and validation path used by the authenticated import API.
 func importCommand(opts options, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: blog import <path.md|directory|archive.zip> [--dry-run] [--locale L] [--status draft|published]")
+		return errors.New(
+			"usage: blog import <path.md|directory|archive.zip> [--dry-run] [--locale L] [--status draft|published]",
+		)
 	}
 	path, dryRun, locale := args[0], false, model.Locale("")
 	var forcedStatus model.Status
@@ -311,15 +356,36 @@ func importCommand(opts options, args []string) error {
 	if !validLocale {
 		return fmt.Errorf("import locale %q is not an enabled configured locale", locale)
 	}
-	report, runErr := (importer.Service{Content: instance.Content, Index: instance.Index, Taxonomy: instance.Taxonomy}).Run(context.Background(), files, importer.Options{Locale: locale, Status: forcedStatus, DryRun: dryRun, CreateMissingTaxonomy: true})
-	fmt.Printf("import: found=%d imported=%d skipped=%d dryRun=%t\n", report.Found, report.Imported, report.Skipped, dryRun)
+	svc := importer.Service{
+		Content:  instance.Content,
+		Index:    instance.Index,
+		Taxonomy: instance.Taxonomy,
+	}
+	report, runErr := svc.Run(
+		context.Background(),
+		files,
+		importer.Options{Locale: locale, Status: forcedStatus, DryRun: dryRun, CreateMissingTaxonomy: true},
+	)
+	fmt.Printf(
+		"import: found=%d imported=%d skipped=%d dryRun=%t\n",
+		report.Found,
+		report.Imported,
+		report.Skipped,
+		dryRun,
+	)
 	for _, failure := range report.Failures {
 		fmt.Fprintln(os.Stderr, "skipped:", failure)
 	}
 	return runErr
 }
 
-func resolveImportCategories(values []string, locale model.Locale, existing map[string]*model.Category, store *taxonomy.Store, dryRun bool) ([]string, []string, error) {
+func resolveImportCategories(
+	values []string,
+	locale model.Locale,
+	existing map[string]*model.Category,
+	store *taxonomy.Store,
+	dryRun bool,
+) ([]string, []string, error) {
 	resolved, created := make([]string, 0, len(values)), []string{}
 	seen := map[string]bool{}
 	for _, value := range values {
@@ -346,7 +412,14 @@ func resolveImportCategories(values []string, locale model.Locale, existing map[
 	}
 	return resolved, created, nil
 }
-func resolveImportTags(values []string, locale model.Locale, existing map[string]*model.Tag, store *taxonomy.Store, dryRun bool) ([]string, []string, error) {
+
+func resolveImportTags(
+	values []string,
+	locale model.Locale,
+	existing map[string]*model.Tag,
+	store *taxonomy.Store,
+	dryRun bool,
+) ([]string, []string, error) {
 	resolved, created := make([]string, 0, len(values)), []string{}
 	seen := map[string]bool{}
 	for _, value := range values {
@@ -486,9 +559,20 @@ func readImportFiles(path string) ([]importFile, error) {
 	return files, err
 }
 
-func importMarkdown(file importFile, locale model.Locale, forcedStatus model.Status) (model.FrontMatter, string, error) {
+func importMarkdown(
+	file importFile,
+	locale model.Locale,
+	forcedStatus model.Status,
+) (model.FrontMatter, string, error) {
 	body := string(file.Data)
-	front := model.FrontMatter{Title: strings.TrimSuffix(filepath.Base(file.Name), filepath.Ext(file.Name)), Author: "import", SourceLocale: locale, Locale: locale, Status: model.StatusDraft, Date: file.ModTime}
+	front := model.FrontMatter{
+		Title:        strings.TrimSuffix(filepath.Base(file.Name), filepath.Ext(file.Name)),
+		Author:       "import",
+		SourceLocale: locale,
+		Locale:       locale,
+		Status:       model.StatusDraft,
+		Date:         file.ModTime,
+	}
 	if front.Date.IsZero() {
 		front.Date = time.Now()
 	}
@@ -808,7 +892,11 @@ func yamlPath(document *yaml.Node, parts []string, create bool) (*yaml.Node, err
 			if !create {
 				return nil, fmt.Errorf("configuration key %q was not found", strings.Join(parts[:i+1], "."))
 			}
-			current.Content = append(current.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: part}, &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"})
+			current.Content = append(
+				current.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: part},
+				&yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"},
+			)
 			value = current.Content[len(current.Content)-1]
 		}
 		if i == len(parts)-1 {
@@ -821,7 +909,8 @@ func yamlPath(document *yaml.Node, parts []string, create bool) (*yaml.Node, err
 
 func secretConfigPath(path string) bool {
 	path = strings.ToLower(path)
-	return strings.Contains(path, "secret") || strings.Contains(path, "password") || strings.Contains(path, "apikey") || strings.Contains(path, "api_key")
+	return strings.Contains(path, "secret") || strings.Contains(path, "password") || strings.Contains(path, "apikey") ||
+		strings.Contains(path, "api_key")
 }
 
 type outputDiff struct {
@@ -953,7 +1042,15 @@ func backupCommand(opts options, args []string) error {
 	if err != nil {
 		return err
 	}
-	backupOptions := backup.Options{Content: cfg.Paths.Content, Data: cfg.Paths.Data, Config: filepath.Join(opts.root, "config"), Media: cfg.Paths.Media, OutputDir: cfg.Backup.Dir, IncludeMedia: cfg.Backup.IncludeMedia, Keep: cfg.Backup.Keep}
+	backupOptions := backup.Options{
+		Content:      cfg.Paths.Content,
+		Data:         cfg.Paths.Data,
+		Config:       filepath.Join(opts.root, "config"),
+		Media:        cfg.Paths.Media,
+		OutputDir:    cfg.Backup.Dir,
+		IncludeMedia: cfg.Backup.IncludeMedia,
+		Keep:         cfg.Backup.Keep,
+	}
 	switch args[0] {
 	case "create":
 		if len(args) > 1 && args[1] == "--no-media" {
@@ -1012,8 +1109,15 @@ func exportCommand(opts options, args []string) error {
 		return err
 	}
 	item, err := backup.Create(backup.Options{
-		Root: opts.root, Content: cfg.Paths.Content, Data: cfg.Paths.Data, Config: filepath.Join(opts.root, "config"), Media: cfg.Paths.Media,
-		OutputDir: filepath.Dir(target), Name: filepath.Base(target), Scopes: scopes, IncludeMedia: scopes["media"], Keep: cfg.Backup.Keep,
+		Root:    opts.root,
+		Content: cfg.Paths.Content,
+		Data:    cfg.Paths.Data,
+		Config:  filepath.Join(opts.root, "config"),
+		Media:   cfg.Paths.Media,
+		OutputDir: filepath.Dir(
+			target,
+		),
+		Name: filepath.Base(target), Scopes: scopes, IncludeMedia: scopes["media"], Keep: cfg.Backup.Keep,
 	})
 	if err != nil {
 		return err
@@ -1023,7 +1127,10 @@ func exportCommand(opts options, args []string) error {
 }
 func adminCommand(opts options, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: blog admin create | list | reset-password <username> [--stdin|--random] | unlock <username> | set-role <username> <role> | hash-password [--stdin]")
+		return errors.New(
+			"usage: blog admin create | list | reset-password <username> [--stdin|--random] " +
+				"| unlock <username> | set-role <username> <role> | hash-password [--stdin]",
+		)
 	}
 	cfg, _, err := config.Load(opts.root, opts.config)
 	if err != nil {
@@ -1176,7 +1283,9 @@ func passwordForCLI(reader *bufio.Reader, stdin, randomPassword bool) (string, e
 }
 func serve(opts options) error {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	instance, warnings, err := app.New(app.Options{Root: opts.root, ConfigFile: opts.config, Dev: opts.dev, Logger: logger})
+	instance, warnings, err := app.New(
+		app.Options{Root: opts.root, ConfigFile: opts.config, Dev: opts.dev, Logger: logger},
+	)
 	if err != nil {
 		return err
 	}
@@ -1186,7 +1295,19 @@ func serve(opts options) error {
 	for _, warning := range warnings {
 		logger.Warn(warning)
 	}
-	logger.Info("mutiblog starting", "version", version, "root", opts.root, "address", fmt.Sprintf("%s:%d", instance.Config.Server.Host, instance.Config.Server.Port), "theme", instance.Config.Theme.Active, "locales", len(instance.Config.I18n.Locales))
+	logger.Info(
+		"mutiblog starting",
+		"version",
+		version,
+		"root",
+		opts.root,
+		"address",
+		fmt.Sprintf("%s:%d", instance.Config.Server.Host, instance.Config.Server.Port),
+		"theme",
+		instance.Config.Theme.Active,
+		"locales",
+		len(instance.Config.I18n.Locales),
+	)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := instance.Serve(ctx); err != nil && !errors.Is(err, context.Canceled) {

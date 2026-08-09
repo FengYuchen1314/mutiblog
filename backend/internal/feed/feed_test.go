@@ -12,7 +12,11 @@ func TestArticleAlternatesArePublishedAndStable(t *testing.T) {
 		"en":    {Front: model.FrontMatter{Slug: "english", Status: model.StatusPublished}},
 		"ja":    {Front: model.FrontMatter{Slug: "draft", Status: model.StatusDraft}},
 	}}
-	generator := Generator{BaseURL: "https://blog.example", DefaultLocale: "zh-CN", Prefixes: map[model.Locale]string{"zh-CN": "zh-cn", "en": "en"}}
+	generator := Generator{
+		BaseURL:       "https://blog.example",
+		DefaultLocale: "zh-CN",
+		Prefixes:      map[model.Locale]string{"zh-CN": "zh-cn", "en": "en"},
+	}
 	got := generator.articleAlternates(article)
 	if len(got) != 3 {
 		t.Fatalf("alternates=%#v", got)

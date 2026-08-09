@@ -13,7 +13,18 @@ import (
 
 func TestSerializeRoundTripPreservesKnownAndExtraFields(t *testing.T) {
 	date := time.Date(2026, 8, 9, 12, 0, 0, 0, time.FixedZone("CST", 8*3600))
-	f := model.FrontMatter{ID: "019fd210-e463-7709-9a23-9252a081279d", Title: "Title", Slug: "title", Date: date, Status: model.StatusPublished, Author: "admin", SourceLocale: "zh-CN", Locale: "zh-CN", Categories: []string{"linux"}, Extra: map[string]any{"custom": "value", "weight": 2}}
+	f := model.FrontMatter{
+		ID:           "019fd210-e463-7709-9a23-9252a081279d",
+		Title:        "Title",
+		Slug:         "title",
+		Date:         date,
+		Status:       model.StatusPublished,
+		Author:       "admin",
+		SourceLocale: "zh-CN",
+		Locale:       "zh-CN",
+		Categories:   []string{"linux"},
+		Extra:        map[string]any{"custom": "value", "weight": 2},
+	}
 	first, err := Serialize(f, "body\n\n")
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +48,13 @@ func TestSerializeRoundTripPreservesKnownAndExtraFields(t *testing.T) {
 func TestCreateLoadAndScanBundle(t *testing.T) {
 	root := t.TempDir()
 	s := NewStore(root)
-	f := model.FrontMatter{Title: "中文标题", Slug: "中文标题", Status: model.StatusDraft, Author: "admin", SourceLocale: "zh-CN"}
+	f := model.FrontMatter{
+		Title:        "中文标题",
+		Slug:         "中文标题",
+		Status:       model.StatusDraft,
+		Author:       "admin",
+		SourceLocale: "zh-CN",
+	}
 	a, err := s.CreateBundle(model.ContentPost, "zh-CN", f, "hello")
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +80,12 @@ func TestCreateLoadAndScanBundle(t *testing.T) {
 
 func TestRevisionCanBeReadAndRestoredAsANewRevision(t *testing.T) {
 	store := NewStore(t.TempDir())
-	article, err := store.CreateBundle(model.ContentPost, "en", model.FrontMatter{Title: "Post", Slug: "post", Status: model.StatusDraft, Author: "admin", SourceLocale: "en"}, "first")
+	article, err := store.CreateBundle(
+		model.ContentPost,
+		"en",
+		model.FrontMatter{Title: "Post", Slug: "post", Status: model.StatusDraft, Author: "admin", SourceLocale: "en"},
+		"first",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,14 +93,15 @@ func TestRevisionCanBeReadAndRestoredAsANewRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	current := article.Versions["en"]
-	if err := store.SaveVersion(article, "en", current.Front, "second", SaveOpts{BumpSourceRevision: true, Snapshot: true}); err != nil {
+	opts := SaveOpts{BumpSourceRevision: true, Snapshot: true}
+	if err := store.SaveVersion(article, "en", current.Front, "second", opts); err != nil {
 		t.Fatal(err)
 	}
 	front, body, err := store.ReadRevision(article.ID, "en", 1)
 	if err != nil || body != "first\n" {
 		t.Fatalf("revision body=%q err=%v", body, err)
 	}
-	if err := store.SaveVersion(article, "en", front, body, SaveOpts{BumpSourceRevision: true, Snapshot: true}); err != nil {
+	if err := store.SaveVersion(article, "en", front, body, opts); err != nil {
 		t.Fatal(err)
 	}
 	if got := article.Versions["en"].Body; got != "first\n" {
@@ -93,7 +116,12 @@ func TestRevisionCanBeReadAndRestoredAsANewRevision(t *testing.T) {
 func TestDeleteBundleRemovesRevisionsAndDrafts(t *testing.T) {
 	root := t.TempDir()
 	store := NewStore(root)
-	article, err := store.CreateBundle(model.ContentPost, "en", model.FrontMatter{Title: "Post", Slug: "post", Status: model.StatusDraft, Author: "admin", SourceLocale: "en"}, "body")
+	article, err := store.CreateBundle(
+		model.ContentPost,
+		"en",
+		model.FrontMatter{Title: "Post", Slug: "post", Status: model.StatusDraft, Author: "admin", SourceLocale: "en"},
+		"body",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

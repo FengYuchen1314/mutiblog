@@ -41,14 +41,25 @@ func TestSetupLoginAndProtectedRoute(t *testing.T) {
 	cfg.Security.SessionMaxAge = 3600
 	cfg.Security.CookieSecure = "false"
 	cfg.I18n.DefaultLocale = "en"
-	h := New(&Server{Config: cfg, State: db, Users: users, Index: index.New(index.Options{ContentRoot: filepath.Join(root, "content")}), Content: content.NewStore(filepath.Join(root, "content")), Events: events.New(nil)})
+	h := New(
+		&Server{
+			Config:  cfg,
+			State:   db,
+			Users:   users,
+			Index:   index.New(index.Options{ContentRoot: filepath.Join(root, "content")}),
+			Content: content.NewStore(filepath.Join(root, "content")),
+			Events:  events.New(nil),
+		},
+	)
 	request := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
 	response := httptest.NewRecorder()
 	h.ServeHTTP(response, request)
 	if response.Code != 200 {
 		t.Fatal(response.Code)
 	}
-	body := []byte(`{"username":"admin","email":"admin@example.test","password":"correct horse battery staple","locale":"en"}`)
+	body := []byte(
+		`{"username":"admin","email":"admin@example.test","password":"correct horse battery staple","locale":"en"}`,
+	)
 	request = httptest.NewRequest(http.MethodPost, "/api/auth/setup", bytes.NewReader(body))
 	response = httptest.NewRecorder()
 	h.ServeHTTP(response, request)
@@ -86,7 +97,11 @@ func TestSetupLoginAndProtectedRoute(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &csrfPayload); err != nil {
 		t.Fatal(err)
 	}
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/posts/", bytes.NewReader([]byte(`{"title":"First post","body":"Hello"}`)))
+	request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/admin/posts/",
+		bytes.NewReader([]byte(`{"title":"First post","body":"Hello"}`)),
+	)
 	request.AddCookie(cookies[0])
 	request.AddCookie(csrfCookie)
 	request.Header.Set("X-CSRF-Token", csrfPayload.Data.Token)
@@ -103,7 +118,11 @@ func TestSetupLoginAndProtectedRoute(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	request = httptest.NewRequest(http.MethodPost, "/api/admin/posts/"+created.Data.ID+"/publish", bytes.NewBufferString(`{"publishAt":"2030-01-02T03:04:05Z"}`))
+	request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/admin/posts/"+created.Data.ID+"/publish",
+		bytes.NewBufferString(`{"publishAt":"2030-01-02T03:04:05Z"}`),
+	)
 	request.AddCookie(cookies[0])
 	request.AddCookie(csrfCookie)
 	request.Header.Set("X-CSRF-Token", csrfPayload.Data.Token)
@@ -113,10 +132,15 @@ func TestSetupLoginAndProtectedRoute(t *testing.T) {
 		t.Fatalf("schedule publish: %d %s", response.Code, response.Body.String())
 	}
 	var status string
-	if err := db.Read().QueryRow("SELECT status FROM scheduled_publish WHERE article_id=?", created.Data.ID).Scan(&status); err != nil || status != "scheduled" {
+	row := db.Read().QueryRow("SELECT status FROM scheduled_publish WHERE article_id=?", created.Data.ID)
+	if err := row.Scan(&status); err != nil || status != "scheduled" {
 		t.Fatalf("scheduled row = %q, %v", status, err)
 	}
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/posts/"+created.Data.ID, bytes.NewBufferString(`{"title":"First post","body":"new body","baseHash":"stale"}`))
+	request = httptest.NewRequest(
+		http.MethodPut,
+		"/api/admin/posts/"+created.Data.ID,
+		bytes.NewBufferString(`{"title":"First post","body":"new body","baseHash":"stale"}`),
+	)
 	request.AddCookie(cookies[0])
 	request.AddCookie(csrfCookie)
 	request.Header.Set("X-CSRF-Token", csrfPayload.Data.Token)
@@ -134,20 +158,30 @@ func TestSetupLoginAndProtectedRoute(t *testing.T) {
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("last admin protection: %d %s", response.Code, response.Body.String())
 	}
-	request = httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader([]byte(`{"username":"admin","password":"correct horse battery staple"}`)))
+	request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/auth/login",
+		bytes.NewReader([]byte(`{"username":"admin","password":"correct horse battery staple"}`)),
+	)
 	response = httptest.NewRecorder()
 	h.ServeHTTP(response, request)
 	if response.Code != 200 {
 		t.Fatalf("login: %d %s", response.Code, response.Body.String())
 	}
 	var loginAttempts, auditEvents int
-	if err := db.Read().QueryRow("SELECT count(*) FROM login_attempts WHERE identifier='admin' AND success=1").Scan(&loginAttempts); err != nil || loginAttempts != 1 {
+	attemptRow := db.Read().QueryRow(
+		"SELECT count(*) FROM login_attempts WHERE identifier='admin' AND success=1",
+	)
+	if err := attemptRow.Scan(&loginAttempts); err != nil || loginAttempts != 1 {
 		t.Fatalf("login attempts=%d err=%v", loginAttempts, err)
 	}
-	if err := db.Read().QueryRow("SELECT count(*) FROM audit_log WHERE action='auth.login'").Scan(&auditEvents); err != nil || auditEvents != 1 {
+	auditRow := db.Read().QueryRow("SELECT count(*) FROM audit_log WHERE action='auth.login'")
+	if err := auditRow.Scan(&auditEvents); err != nil || auditEvents != 1 {
 		t.Fatalf("login audit=%d err=%v", auditEvents, err)
 	}
-	if _, err := db.Write().Exec("INSERT INTO system_log(level,component,message,created_at) VALUES('warning','render','renderer delayed','2026-08-10T00:00:00Z')"); err != nil {
+	logSQL := "INSERT INTO system_log(level,component,message,created_at) " +
+		"VALUES('warning','render','renderer delayed','2026-08-10T00:00:00Z')"
+	if _, err := db.Write().Exec(logSQL); err != nil {
 		t.Fatal(err)
 	}
 	request = httptest.NewRequest(http.MethodGet, "/api/admin/system/logs?limit=1", nil)
@@ -162,14 +196,23 @@ func TestSetupLoginAndProtectedRoute(t *testing.T) {
 func TestSetArticleStatusPersistsEveryLocale(t *testing.T) {
 	root := t.TempDir()
 	store := content.NewStore(filepath.Join(root, "content"))
-	front := model.FrontMatter{Title: "Source", Slug: "source", Status: model.StatusPublished, Author: "admin", SourceLocale: "en"}
+	front := model.FrontMatter{
+		Title:        "Source",
+		Slug:         "source",
+		Status:       model.StatusPublished,
+		Author:       "admin",
+		SourceLocale: "en",
+	}
 	article, err := store.CreateBundle(model.ContentPost, "en", front, "source body")
 	if err != nil {
 		t.Fatal(err)
 	}
 	translated := front
 	translated.Title, translated.Slug = "Traduction", "traduction"
-	if err := store.SaveVersion(article, "fr", translated, "translated body", content.SaveOpts{MirrorAuthoritative: true}); err != nil {
+	if err := store.SaveVersion(
+		article, "fr", translated, "translated body",
+		content.SaveOpts{MirrorAuthoritative: true},
+	); err != nil {
 		t.Fatal(err)
 	}
 	ix := index.New(index.Options{ContentRoot: filepath.Join(root, "content")})
@@ -226,15 +269,29 @@ ai: { apiKey: "test-api-key" }
 		t.Fatal(err)
 	}
 	csrf := "csrf-value"
-	h := New(&Server{Root: root, Config: cfg, Users: users, Index: index.New(index.Options{ContentRoot: filepath.Join(root, "content")}), Content: content.NewStore(filepath.Join(root, "content")), Events: events.New(nil)})
+	h := New(
+		&Server{
+			Root:    root,
+			Config:  cfg,
+			Users:   users,
+			Index:   index.New(index.Options{ContentRoot: filepath.Join(root, "content")}),
+			Content: content.NewStore(filepath.Join(root, "content")),
+			Events:  events.New(nil),
+		},
+	)
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/settings/", nil)
 	request.AddCookie(&http.Cookie{Name: "blog_session", Value: session})
 	response := httptest.NewRecorder()
 	h.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "test-api-key") || !strings.Contains(response.Body.String(), "********") {
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "test-api-key") ||
+		!strings.Contains(response.Body.String(), "********") {
 		t.Fatalf("masked settings = %d %s", response.Code, response.Body.String())
 	}
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/settings/site", bytes.NewBufferString(`{"title":"After"}`))
+	request = httptest.NewRequest(
+		http.MethodPut,
+		"/api/admin/settings/site",
+		bytes.NewBufferString(`{"title":"After"}`),
+	)
 	request.AddCookie(&http.Cookie{Name: "blog_session", Value: session})
 	request.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrf})
 	request.Header.Set("X-CSRF-Token", csrf)
@@ -246,7 +303,11 @@ ai: { apiKey: "test-api-key" }
 	if cfg.Site.Title != "After" {
 		t.Fatalf("live config title=%q", cfg.Site.Title)
 	}
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/settings/security", bytes.NewBufferString(`{"sessionSecret":"********"}`))
+	request = httptest.NewRequest(
+		http.MethodPut,
+		"/api/admin/settings/security",
+		bytes.NewBufferString(`{"sessionSecret":"********"}`),
+	)
 	request.AddCookie(&http.Cookie{Name: "blog_session", Value: session})
 	request.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrf})
 	request.Header.Set("X-CSRF-Token", csrf)
@@ -267,17 +328,25 @@ func TestSystemAuditFiltersEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Write().Exec("INSERT INTO audit_log(actor,action,target_type,target_id,detail,ip,created_at) VALUES(?,?,?,?,?,?,?)", "admin", "theme.activate", "theme", "default", "{}", "127.0.0.1", time.Now().UTC().Format(time.RFC3339)); err != nil {
+	insertAudit := "INSERT INTO audit_log(actor,action,target_type,target_id,detail,ip,created_at) " +
+		"VALUES(?,?,?,?,?,?,?)"
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := db.Write().Exec(
+		insertAudit, "admin", "theme.activate", "theme", "default", "{}", "127.0.0.1", now,
+	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Write().Exec("INSERT INTO audit_log(actor,action,target_type,target_id,detail,ip,created_at) VALUES(?,?,?,?,?,?,?)", "editor", "post.update", "post", "x", "{}", "127.0.0.1", time.Now().UTC().Format(time.RFC3339)); err != nil {
+	if _, err := db.Write().Exec(
+		insertAudit, "editor", "post.update", "post", "x", "{}", "127.0.0.1", now,
+	); err != nil {
 		t.Fatal(err)
 	}
 	server := &Server{State: db}
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/system/audit?actor=admin&action=theme.activate", nil)
 	response := httptest.NewRecorder()
 	server.systemAudit(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"theme.activate"`) || strings.Contains(response.Body.String(), `"post.update"`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"theme.activate"`) ||
+		strings.Contains(response.Body.String(), `"post.update"`) {
 		t.Fatalf("audit = %d %s", response.Code, response.Body.String())
 	}
 }
@@ -294,7 +363,8 @@ func TestDownloadBackupLimitsNameToBackupDirectory(t *testing.T) {
 	request = request.WithContext(context.WithValue(request.Context(), chi.RouteCtxKey, route))
 	response := httptest.NewRecorder()
 	server.downloadBackup(response, request)
-	if response.Code != http.StatusOK || response.Body.String() != "zip-data" || response.Header().Get("Content-Type") != "application/zip" {
+	if response.Code != http.StatusOK || response.Body.String() != "zip-data" ||
+		response.Header().Get("Content-Type") != "application/zip" {
 		t.Fatalf("download = %d %q %q", response.Code, response.Body.String(), response.Header().Get("Content-Type"))
 	}
 	request = httptest.NewRequest(http.MethodGet, "/api/admin/backups/nope/download", nil)
@@ -310,10 +380,15 @@ func TestDownloadBackupLimitsNameToBackupDirectory(t *testing.T) {
 
 func TestRestoreBackupRequiresExplicitConfirmation(t *testing.T) {
 	server := &Server{Root: t.TempDir(), Backup: backup.Options{OutputDir: t.TempDir()}}
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/backups/restore", strings.NewReader(`{"name":"missing.zip","confirm":false}`))
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/admin/backups/restore",
+		strings.NewReader(`{"name":"missing.zip","confirm":false}`),
+	)
 	response := httptest.NewRecorder()
 	server.restoreBackup(response, request)
-	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "RESTORE_CONFIRMATION_REQUIRED") {
+	if response.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(response.Body.String(), "RESTORE_CONFIRMATION_REQUIRED") {
 		t.Fatalf("restore confirmation = %d %s", response.Code, response.Body.String())
 	}
 }
@@ -322,7 +397,8 @@ func TestRestartRendererReportsUnavailableWithoutService(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/system/restart-renderer", nil)
 	response := httptest.NewRecorder()
 	(&Server{}).restartRenderer(response, request)
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "RENDERER_UNAVAILABLE") {
+	if response.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(response.Body.String(), "RENDERER_UNAVAILABLE") {
 		t.Fatalf("restart renderer = %d %s", response.Code, response.Body.String())
 	}
 }
@@ -355,11 +431,13 @@ theme: { active: default }
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		manifest := "name: " + name + "\ntemplates: [home, post, page, category, category_list, tag, tag_list, archive, links, search, not_found]\n"
+		manifest := "name: " + name +
+			"\ntemplates: [home, post, page, category, category_list, tag, tag_list, archive, links, search, not_found]\n"
 		if err := os.WriteFile(filepath.Join(dir, "theme.yaml"), []byte(manifest), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "settings.schema.json"), []byte(`{"fields":[{"key":"color","type":"color","default":"#112233"}]}`), 0o644); err != nil {
+		schema := `{"fields":[{"key":"color","type":"color","default":"#112233"}]}`
+		if err := os.WriteFile(filepath.Join(dir, "settings.schema.json"), []byte(schema), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -380,7 +458,17 @@ theme: { active: default }
 		t.Fatal(err)
 	}
 	store := theme.NewStore(filepath.Join(root, "themes"), filepath.Join(root, "data"))
-	h := New(&Server{Root: root, Config: cfg, Users: users, Index: index.New(index.Options{ContentRoot: filepath.Join(root, "content")}), Content: content.NewStore(filepath.Join(root, "content")), Events: events.New(nil), Theme: store})
+	h := New(
+		&Server{
+			Root:    root,
+			Config:  cfg,
+			Users:   users,
+			Index:   index.New(index.Options{ContentRoot: filepath.Join(root, "content")}),
+			Content: content.NewStore(filepath.Join(root, "content")),
+			Events:  events.New(nil),
+			Theme:   store,
+		},
+	)
 	request := httptest.NewRequest(http.MethodGet, "/api/admin/themes/demo", nil)
 	request.AddCookie(&http.Cookie{Name: "blog_session", Value: session})
 	response := httptest.NewRecorder()
@@ -398,7 +486,11 @@ theme: { active: default }
 	if response.Code != http.StatusOK || cfg.Theme.Active != "demo" {
 		t.Fatalf("activate = %d %s active=%q", response.Code, response.Body.String(), cfg.Theme.Active)
 	}
-	request = httptest.NewRequest(http.MethodPut, "/api/admin/themes/demo/settings", bytes.NewBufferString(`{"color":"#abcdef"}`))
+	request = httptest.NewRequest(
+		http.MethodPut,
+		"/api/admin/themes/demo/settings",
+		bytes.NewBufferString(`{"color":"#abcdef"}`),
+	)
 	request.AddCookie(&http.Cookie{Name: "blog_session", Value: session})
 	request.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrf})
 	request.Header.Set("X-CSRF-Token", csrf)
@@ -442,7 +534,16 @@ func TestLinksAndMenusAPI(t *testing.T) {
 	if err = ix.RebuildAll(context.Background(), content.NewStore(filepath.Join(root, "content")), tax); err != nil {
 		t.Fatal(err)
 	}
-	h := New(&Server{Config: cfg, Users: users, Index: ix, Content: content.NewStore(filepath.Join(root, "content")), Taxonomy: tax, Events: events.New(nil)})
+	h := New(
+		&Server{
+			Config:   cfg,
+			Users:    users,
+			Index:    ix,
+			Content:  content.NewStore(filepath.Join(root, "content")),
+			Taxonomy: tax,
+			Events:   events.New(nil),
+		},
+	)
 	session, err := auth.Sign(cfg.Security.SessionSecret, auth.NewClaims(admin, time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -457,7 +558,8 @@ func TestLinksAndMenusAPI(t *testing.T) {
 		h.ServeHTTP(res, req)
 		return res
 	}
-	if res := write("/api/admin/links/", `{"id":"example","name":"Example","url":"https://example.com"}`); res.Code != http.StatusOK {
+	linkJSON := `{"id":"example","name":"Example","url":"https://example.com"}`
+	if res := write("/api/admin/links/", linkJSON); res.Code != http.StatusOK {
 		t.Fatalf("create link: %d %s", res.Code, res.Body.String())
 	}
 	if res := write("/api/admin/menus/", `{"id":"main","name":{"en":"Main"},"items":[]}`); res.Code != http.StatusOK {
@@ -468,7 +570,8 @@ func TestLinksAndMenusAPI(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "blog_session", Value: session})
 		res := httptest.NewRecorder()
 		h.ServeHTTP(res, req)
-		if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "example") && strings.Contains(path, "links") {
+		if res.Code != http.StatusOK ||
+			!strings.Contains(res.Body.String(), "example") && strings.Contains(path, "links") {
 			t.Fatalf("list %s: %d %s", path, res.Code, res.Body.String())
 		}
 	}
@@ -480,10 +583,12 @@ func TestRootLocaleRedirectAndStaticFiles(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(generated, "public", "zh-tw"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(generated, "public", "zh-tw", "index.html"), []byte("traditional"), 0o644); err != nil {
+	home := []byte("traditional")
+	if err := os.WriteFile(filepath.Join(generated, "public", "zh-tw", "index.html"), home, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(generated, "public", "zh-tw", "404.html"), []byte("localized not found"), 0o644); err != nil {
+	notFound := []byte("localized not found")
+	if err := os.WriteFile(filepath.Join(generated, "public", "zh-tw", "404.html"), notFound, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	users, err := auth.OpenUsers(filepath.Join(root, "data"))
@@ -496,10 +601,21 @@ func TestRootLocaleRedirectAndStaticFiles(t *testing.T) {
 	cfg.Server.TrustedProxies = []string{"127.0.0.1"}
 	cfg.I18n.DefaultLocale = "en"
 	cfg.I18n.CookieName = "locale"
-	cfg.I18n.Locales = []config.LocaleConfig{{Code: "en", URLPrefix: "en", Enabled: true}, {Code: "zh-TW", URLPrefix: "zh-tw", Enabled: true}}
+	cfg.I18n.Locales = []config.LocaleConfig{
+		{Code: "en", URLPrefix: "en", Enabled: true},
+		{Code: "zh-TW", URLPrefix: "zh-tw", Enabled: true},
+	}
 	cfg.I18n.LocaleAliases = map[string]string{"zh-HK": "zh-TW"}
 	cfg.I18n.CountryLocaleMap = map[string]string{"TW": "zh-TW"}
-	h := New(&Server{Config: cfg, Users: users, Index: index.New(index.Options{ContentRoot: filepath.Join(root, "content")}), Content: content.NewStore(filepath.Join(root, "content")), Events: events.New(nil)})
+	h := New(
+		&Server{
+			Config:  cfg,
+			Users:   users,
+			Index:   index.New(index.Options{ContentRoot: filepath.Join(root, "content")}),
+			Content: content.NewStore(filepath.Join(root, "content")),
+			Events:  events.New(nil),
+		},
+	)
 
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.Header.Set("Accept-Language", "zh-HK, en;q=0.8")
@@ -511,7 +627,8 @@ func TestRootLocaleRedirectAndStaticFiles(t *testing.T) {
 	if response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("root redirect cache policy = %q", response.Header().Get("Cache-Control"))
 	}
-	if cookies := response.Result().Cookies(); len(cookies) != 1 || cookies[0].Name != "locale" || cookies[0].Value != "zh-TW" {
+	if cookies := response.Result().Cookies(); len(cookies) != 1 || cookies[0].Name != "locale" ||
+		cookies[0].Value != "zh-TW" {
 		t.Fatalf("locale cookie = %#v", cookies)
 	}
 
@@ -563,7 +680,15 @@ func TestGoDirectModeServesMedia(t *testing.T) {
 	cfg.I18n.DefaultLocale = "en"
 	cfg.I18n.CookieName = "locale"
 	cfg.I18n.Locales = []config.LocaleConfig{{Code: "en", URLPrefix: "en", Enabled: true}}
-	h := New(&Server{Config: cfg, Users: users, Index: index.New(index.Options{ContentRoot: filepath.Join(root, "content")}), Content: content.NewStore(filepath.Join(root, "content")), Events: events.New(nil)})
+	h := New(
+		&Server{
+			Config:  cfg,
+			Users:   users,
+			Index:   index.New(index.Options{ContentRoot: filepath.Join(root, "content")}),
+			Content: content.NewStore(filepath.Join(root, "content")),
+			Events:  events.New(nil),
+		},
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/media/2026/08/pixel.png", nil)
 	res := httptest.NewRecorder()
@@ -593,9 +718,21 @@ func TestLoginRateLimitAndOriginValidation(t *testing.T) {
 	cfg.Security.LoginRateLimit.Attempts = 1
 	cfg.Security.LoginRateLimit.Window = config.Duration(time.Minute)
 	cfg.Server.BaseURL = "https://blog.example.test"
-	h := New(&Server{Config: cfg, Users: users, Index: index.New(index.Options{ContentRoot: filepath.Join(root, "content")}), Content: content.NewStore(filepath.Join(root, "content")), Events: events.New(nil)})
+	h := New(
+		&Server{
+			Config:  cfg,
+			Users:   users,
+			Index:   index.New(index.Options{ContentRoot: filepath.Join(root, "content")}),
+			Content: content.NewStore(filepath.Join(root, "content")),
+			Events:  events.New(nil),
+		},
+	)
 	for _, want := range []int{http.StatusUnauthorized, http.StatusTooManyRequests} {
-		request := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(`{"username":"admin","password":"wrong"}`))
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/api/auth/login",
+			bytes.NewBufferString(`{"username":"admin","password":"wrong"}`),
+		)
 		response := httptest.NewRecorder()
 		h.ServeHTTP(response, request)
 		if response.Code != want {

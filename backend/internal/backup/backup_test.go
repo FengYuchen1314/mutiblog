@@ -11,7 +11,16 @@ import (
 
 func TestCreateValidateRedactAndPrune(t *testing.T) {
 	root := t.TempDir()
-	for _, item := range []struct{ path, content string }{{"content/posts/a.md", "body"}, {"data/categories.yaml", "items: []"}, {"config/config.yaml", "ai:\n  apiKey: secret\nsecurity:\n  sessionSecret: secret-session\ncache:\n  apiToken: cache-token\n"}, {"config/.secrets.yaml", "ai: secret-file\n"}, {"media/a.txt", "media"}} {
+	configContent := "ai:\n  apiKey: secret\nsecurity:\n  sessionSecret: secret-session\n" +
+		"cache:\n  apiToken: cache-token\n"
+	files := []struct{ path, content string }{
+		{"content/posts/a.md", "body"},
+		{"data/categories.yaml", "items: []"},
+		{"config/config.yaml", configContent},
+		{"config/.secrets.yaml", "ai: secret-file\n"},
+		{"media/a.txt", "media"},
+	}
+	for _, item := range files {
 		path := filepath.Join(root, item.path)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -24,13 +33,24 @@ func TestCreateValidateRedactAndPrune(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Write().Exec("INSERT INTO system_log(level,component,message,created_at) VALUES('info','test','snapshot',datetime('now'))"); err != nil {
+	logInsert := "INSERT INTO system_log(level,component,message,created_at) " +
+		"VALUES('info','test','snapshot',datetime('now'))"
+	if _, err = db.Write().Exec(logInsert); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	opts := Options{Content: filepath.Join(root, "content"), Data: filepath.Join(root, "data"), Config: filepath.Join(root, "config"), Media: filepath.Join(root, "media"), OutputDir: filepath.Join(root, "backups"), IncludeMedia: true, ExcludeSecrets: true, Keep: 1}
+	opts := Options{
+		Content:        filepath.Join(root, "content"),
+		Data:           filepath.Join(root, "data"),
+		Config:         filepath.Join(root, "config"),
+		Media:          filepath.Join(root, "media"),
+		OutputDir:      filepath.Join(root, "backups"),
+		IncludeMedia:   true,
+		ExcludeSecrets: true,
+		Keep:           1,
+	}
 	archive, err := Create(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +76,8 @@ func TestCreateValidateRedactAndPrune(t *testing.T) {
 			data := make([]byte, file.UncompressedSize64)
 			_, _ = r.Read(data)
 			r.Close()
-			if strings.Contains(string(data), "secret") || strings.Contains(string(data), "cache-token") || !strings.Contains(string(data), "apiKey: \"\"") {
+			if strings.Contains(string(data), "secret") || strings.Contains(string(data), "cache-token") ||
+				!strings.Contains(string(data), "apiKey: \"\"") {
 				t.Fatalf("secret leaked: %s", data)
 			}
 		}
@@ -82,7 +103,9 @@ func TestRestoreRequiresConfirmationAndReplacesCanonicalData(t *testing.T) {
 	if err := os.WriteFile(content, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	archive, err := Create(Options{Content: filepath.Join(source, "content"), OutputDir: filepath.Join(source, "backups")})
+	archive, err := Create(
+		Options{Content: filepath.Join(source, "content"), OutputDir: filepath.Join(source, "backups")},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +172,11 @@ func TestCreateSelectedExportScopesAndName(t *testing.T) {
 		}
 	}
 	archive, err := Create(Options{
-		Content: filepath.Join(root, "content"), Data: filepath.Join(root, "data"), Config: filepath.Join(root, "config"), Media: filepath.Join(root, "media"), OutputDir: filepath.Join(root, "exports"),
+		Content: filepath.Join(
+			root,
+			"content",
+		), Data: filepath.Join(root, "data"), Config: filepath.Join(root, "config"),
+		Media: filepath.Join(root, "media"), OutputDir: filepath.Join(root, "exports"),
 		Name: "content-only.zip", Scopes: map[string]bool{"content": true},
 	})
 	if err != nil {
@@ -164,11 +191,18 @@ func TestCreateSelectedExportScopesAndName(t *testing.T) {
 	}
 	defer reader.Close()
 	for _, file := range reader.File {
-		if strings.HasPrefix(file.Name, "data/") || strings.HasPrefix(file.Name, "config/") || strings.HasPrefix(file.Name, "media/") {
+		if strings.HasPrefix(file.Name, "data/") || strings.HasPrefix(file.Name, "config/") ||
+			strings.HasPrefix(file.Name, "media/") {
 			t.Fatalf("unexpected scoped file %q", file.Name)
 		}
 	}
-	if _, err := Create(Options{Content: filepath.Join(root, "content"), OutputDir: filepath.Join(root, "exports"), Name: "content-only.zip", Scopes: map[string]bool{"content": true}}); err == nil {
+	opts := Options{
+		Content:   filepath.Join(root, "content"),
+		OutputDir: filepath.Join(root, "exports"),
+		Name:      "content-only.zip",
+		Scopes:    map[string]bool{"content": true},
+	}
+	if _, err := Create(opts); err == nil {
 		t.Fatal("existing export was overwritten")
 	}
 }

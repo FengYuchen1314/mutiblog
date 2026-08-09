@@ -22,7 +22,9 @@ func TestExtractProtectsMarkdownStructure(t *testing.T) {
 		t.Fatalf("segments = %d: %#v", len(segs), segs)
 	}
 	for _, segment := range segs {
-		if strings.Contains(segment.Text, "docker compose") || strings.Contains(segment.Text, "https://") || strings.Contains(segment.Text, "192.168") || strings.Contains(segment.Text, "$E =") {
+		if strings.Contains(segment.Text, "docker compose") || strings.Contains(segment.Text, "https://") ||
+			strings.Contains(segment.Text, "192.168") ||
+			strings.Contains(segment.Text, "$E =") {
 			t.Fatalf("unprotected content in %q", segment.Text)
 		}
 	}
@@ -34,7 +36,11 @@ func TestExtractProtectsMarkdownStructure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, protected := range []string{"docker compose up -d", "https://example.com/a?b=c", "/media/cover.png", "192.168.1.1:8080", "$E = mc^2$", "// 不翻译"} {
+	protectedList := []string{
+		"docker compose up -d", "https://example.com/a?b=c", "/media/cover.png",
+		"192.168.1.1:8080", "$E = mc^2$", "// 不翻译",
+	}
+	for _, protected := range protectedList {
 		if !strings.Contains(got, protected) {
 			t.Fatalf("lost protected content %q in %s", protected, got)
 		}

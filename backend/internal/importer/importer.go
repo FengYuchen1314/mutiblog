@@ -74,9 +74,23 @@ func (s Service) Run(ctx context.Context, files []File, opts Options) (Report, e
 		}
 		front.Slug = uniqueImportSlug(front.Slug, used)
 		used[front.Slug] = true
-		front.Categories, _, err = resolveImportCategories(front.Categories, opts.Locale, data.Categories, s.Taxonomy, opts.DryRun, opts.CreateMissingTaxonomy)
+		front.Categories, _, err = resolveImportCategories(
+			front.Categories,
+			opts.Locale,
+			data.Categories,
+			s.Taxonomy,
+			opts.DryRun,
+			opts.CreateMissingTaxonomy,
+		)
 		if err == nil {
-			front.Tags, _, err = resolveImportTags(front.Tags, opts.Locale, data.Tags, s.Taxonomy, opts.DryRun, opts.CreateMissingTaxonomy)
+			front.Tags, _, err = resolveImportTags(
+				front.Tags,
+				opts.Locale,
+				data.Tags,
+				s.Taxonomy,
+				opts.DryRun,
+				opts.CreateMissingTaxonomy,
+			)
 		}
 		if err != nil {
 			report.Skipped++
@@ -105,7 +119,13 @@ func (s Service) Run(ctx context.Context, files []File, opts Options) (Report, e
 	return report, nil
 }
 
-func resolveImportCategories(values []string, locale model.Locale, existing map[string]*model.Category, store *taxonomy.Store, dryRun, createMissing bool) ([]string, []string, error) {
+func resolveImportCategories(
+	values []string,
+	locale model.Locale,
+	existing map[string]*model.Category,
+	store *taxonomy.Store,
+	dryRun, createMissing bool,
+) ([]string, []string, error) {
 	resolved, created := make([]string, 0, len(values)), []string{}
 	seen := map[string]bool{}
 	for _, value := range values {
@@ -135,7 +155,14 @@ func resolveImportCategories(values []string, locale model.Locale, existing map[
 	}
 	return resolved, created, nil
 }
-func resolveImportTags(values []string, locale model.Locale, existing map[string]*model.Tag, store *taxonomy.Store, dryRun, createMissing bool) ([]string, []string, error) {
+
+func resolveImportTags(
+	values []string,
+	locale model.Locale,
+	existing map[string]*model.Tag,
+	store *taxonomy.Store,
+	dryRun, createMissing bool,
+) ([]string, []string, error) {
 	resolved, created := make([]string, 0, len(values)), []string{}
 	seen := map[string]bool{}
 	for _, value := range values {
@@ -280,7 +307,14 @@ func ReadPath(path string) ([]File, error) {
 
 func ParseMarkdown(file File, locale model.Locale, forcedStatus model.Status) (model.FrontMatter, string, error) {
 	body := string(file.Data)
-	front := model.FrontMatter{Title: strings.TrimSuffix(filepath.Base(file.Name), filepath.Ext(file.Name)), Author: "import", SourceLocale: locale, Locale: locale, Status: model.StatusDraft, Date: file.ModTime}
+	front := model.FrontMatter{
+		Title:        strings.TrimSuffix(filepath.Base(file.Name), filepath.Ext(file.Name)),
+		Author:       "import",
+		SourceLocale: locale,
+		Locale:       locale,
+		Status:       model.StatusDraft,
+		Date:         file.ModTime,
+	}
 	if front.Date.IsZero() {
 		front.Date = time.Now()
 	}

@@ -43,7 +43,8 @@ type OpenAICompatible struct {
 }
 
 func NewOpenAICompatible(cfg config.AIConfig) (*OpenAICompatible, error) {
-	if strings.TrimSpace(cfg.BaseURL) == "" || strings.TrimSpace(cfg.APIKey) == "" || strings.TrimSpace(cfg.Model) == "" {
+	if strings.TrimSpace(cfg.BaseURL) == "" || strings.TrimSpace(cfg.APIKey) == "" ||
+		strings.TrimSpace(cfg.Model) == "" {
 		return nil, errors.New("AI provider requires baseURL, apiKey, and model")
 	}
 	timeout := time.Duration(cfg.Timeout)
@@ -59,7 +60,17 @@ func NewOpenAICompatible(cfg config.AIConfig) (*OpenAICompatible, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 	baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
 	baseURL = strings.TrimRight(baseURL, "/")
-	return &OpenAICompatible{baseURL: baseURL, apiKey: cfg.APIKey, model: cfg.Model, prompt: cfg.SystemPromptOverride, temperature: cfg.Temperature, maxTokens: cfg.MaxTokensPerRequest, maxRetries: maxRetries, rpm: cfg.RateLimitRPM, client: &http.Client{Timeout: timeout}}, nil
+	return &OpenAICompatible{
+		baseURL:     baseURL,
+		apiKey:      cfg.APIKey,
+		model:       cfg.Model,
+		prompt:      cfg.SystemPromptOverride,
+		temperature: cfg.Temperature,
+		maxTokens:   cfg.MaxTokensPerRequest,
+		maxRetries:  maxRetries,
+		rpm:         cfg.RateLimitRPM,
+		client:      &http.Client{Timeout: timeout},
+	}, nil
 }
 
 func (p *OpenAICompatible) Name() string     { return "openai-compatible" }
@@ -74,7 +85,12 @@ func (p *OpenAICompatible) Test(ctx context.Context) error {
 	return err
 }
 
-func (p *OpenAICompatible) Translate(ctx context.Context, segs []Segment, src, dst model.Locale, title string) ([]string, error) {
+func (p *OpenAICompatible) Translate(
+	ctx context.Context,
+	segs []Segment,
+	src, dst model.Locale,
+	title string,
+) ([]string, error) {
 	values := make([]string, len(segs))
 	for i, segment := range segs {
 		values[i] = segment.Text
@@ -135,7 +151,13 @@ func (p *OpenAICompatible) wait(ctx context.Context) error {
 	return nil
 }
 
-func (p *OpenAICompatible) request(ctx context.Context, segments []string, src, dst model.Locale, title string, temperature float64) ([]string, Usage, int, time.Duration, error) {
+func (p *OpenAICompatible) request(
+	ctx context.Context,
+	segments []string,
+	src, dst model.Locale,
+	title string,
+	temperature float64,
+) ([]string, Usage, int, time.Duration, error) {
 	type message struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -143,7 +165,10 @@ func (p *OpenAICompatible) request(ctx context.Context, segments []string, src, 
 	body := map[string]any{
 		"model":       p.model,
 		"temperature": temperature,
-		"messages":    []message{{Role: "system", Content: p.systemPrompt(src, dst)}, {Role: "user", Content: userPrompt(src, dst, title, segments)}},
+		"messages": []message{
+			{Role: "system", Content: p.systemPrompt(src, dst)},
+			{Role: "user", Content: userPrompt(src, dst, title, segments)},
+		},
 	}
 	if p.maxTokens > 0 {
 		body["max_tokens"] = p.maxTokens
@@ -155,7 +180,12 @@ func (p *OpenAICompatible) request(ctx context.Context, segments []string, src, 
 	if err != nil {
 		return nil, Usage{}, 0, 0, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		p.baseURL+"/chat/completions",
+		bytes.NewReader(payload),
+	)
 	if err != nil {
 		return nil, Usage{}, 0, 0, err
 	}
@@ -168,10 +198,13 @@ func (p *OpenAICompatible) request(ctx context.Context, segments []string, src, 
 			return nil, Usage{}, 0, 0, fmt.Errorf("AI 请求超时：请检查服务器网络或代理设置（%w）", err)
 		}
 		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "tls") || strings.Contains(lower, "x509") || strings.Contains(lower, "certificate") || strings.Contains(lower, "handshake") {
+		if strings.Contains(lower, "tls") || strings.Contains(lower, "x509") ||
+			strings.Contains(lower, "certificate") ||
+			strings.Contains(lower, "handshake") {
 			return nil, Usage{}, 0, 0, fmt.Errorf("TLS 握手失败，可能是中间人代理或证书问题（%w）", err)
 		}
-		if strings.Contains(lower, "no such host") || strings.Contains(lower, "dns") || strings.Contains(lower, "lookup") {
+		if strings.Contains(lower, "no such host") || strings.Contains(lower, "dns") ||
+			strings.Contains(lower, "lookup") {
 			return nil, Usage{}, 0, 0, fmt.Errorf("无法解析域名 %s，请检查 Base URL（%w）", p.baseURL, err)
 		}
 		return nil, Usage{}, 0, 0, fmt.Errorf("AI provider request failed: %w", err)
@@ -189,13 +222,27 @@ func (p *OpenAICompatible) request(ctx context.Context, segments []string, src, 
 		}
 		switch response.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf("API Key 无效或无权访问该模型（HTTP %d）：%s", response.StatusCode, message)
+			return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf(
+				"API Key 无效或无权访问该模型（HTTP %d）：%s",
+				response.StatusCode,
+				message,
+			)
 		case http.StatusNotFound:
-			return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf("端点未找到（HTTP 404）：请检查 Base URL 是否需要以 /v1 结尾。原始响应：%s", message)
+			return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf(
+				"端点未找到（HTTP 404）：请检查 Base URL 是否需要以 /v1 结尾。原始响应：%s",
+				message,
+			)
 		case http.StatusTooManyRequests:
-			return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf("AI 服务限流（HTTP 429），请稍后重试或降低并发：%s", message)
+			return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf(
+				"AI 服务限流（HTTP 429），请稍后重试或降低并发：%s",
+				message,
+			)
 		}
-		return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf("AI provider returned HTTP %d: %s", response.StatusCode, message)
+		return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf(
+			"AI provider returned HTTP %d: %s",
+			response.StatusCode,
+			message,
+		)
 	}
 	var decoded struct {
 		Choices []struct {
@@ -215,17 +262,30 @@ func (p *OpenAICompatible) request(ctx context.Context, segments []string, src, 
 	if err != nil {
 		return nil, Usage{}, response.StatusCode, retryAfter, err
 	}
-	return stringsOut, Usage{PromptTokens: decoded.Usage.PromptTokens, CompletionTokens: decoded.Usage.CompletionTokens}, response.StatusCode, retryAfter, nil
+	return stringsOut, Usage{
+		PromptTokens:     decoded.Usage.PromptTokens,
+		CompletionTokens: decoded.Usage.CompletionTokens,
+	}, response.StatusCode, retryAfter, nil
 }
 
 func (p *OpenAICompatible) systemPrompt(src, dst model.Locale) string {
 	if p.prompt != "" {
 		return p.prompt
 	}
-	return fmt.Sprintf("You are a professional technical translator. Translate each input JSON string from %s to %s. Output ONLY {\"segments\":[...]} with the same number and order. Preserve every placeholder token like ⟦P1⟧ exactly. Preserve Markdown syntax, links, code, URLs, paths, formulas, product names, and technical identifiers; translate only human-readable text. Do not add explanations or summaries.", src, dst)
+	return fmt.Sprintf(
+		"You are a professional technical translator. Translate each input JSON string "+
+			"from %s to %s. Output ONLY {\"segments\":[...]} with the same number and order. "+
+			"Preserve every placeholder token like ⟦P1⟧ exactly. Preserve Markdown syntax, links, "+
+			"code, URLs, paths, formulas, product names, and technical identifiers; "+
+			"translate only human-readable text. Do not add explanations or summaries.",
+		src,
+		dst,
+	)
 }
 func userPrompt(src, dst model.Locale, title string, segments []string) string {
-	b, _ := json.Marshal(map[string]any{"sourceLanguage": src, "targetLanguage": dst, "articleTitle": title, "segments": segments})
+	b, _ := json.Marshal(
+		map[string]any{"sourceLanguage": src, "targetLanguage": dst, "articleTitle": title, "segments": segments},
+	)
 	return string(b)
 }
 func parseSegments(content string) ([]string, error) {

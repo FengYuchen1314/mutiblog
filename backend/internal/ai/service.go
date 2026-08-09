@@ -58,7 +58,12 @@ type Service struct {
 	Budget   int
 }
 
-func (s *Service) Enqueue(ctx context.Context, articleID model.ArticleID, target model.Locale, force bool) (Task, error) {
+func (s *Service) Enqueue(
+	ctx context.Context,
+	articleID model.ArticleID,
+	target model.Locale,
+	force bool,
+) (Task, error) {
 	article, ok := s.Index.Article(articleID)
 	if !ok {
 		return Task{}, fmt.Errorf("article %s not found", articleID)
@@ -72,26 +77,57 @@ func (s *Service) Enqueue(ctx context.Context, articleID model.ArticleID, target
 	if article.Trans == nil {
 		article.Trans = map[model.Locale]*model.TranslationState{}
 	}
-	article.Trans[target] = &model.TranslationState{Status: model.TSPending, TranslatedFromRevision: article.SourceRev, Revision: revision(article.Trans[target])}
+	article.Trans[target] = &model.TranslationState{
+		Status:                 model.TSPending,
+		TranslatedFromRevision: article.SourceRev,
+		Revision:               revision(article.Trans[target]),
+	}
 	if err := s.Store.SaveMetadata(article); err != nil {
 		return Task{}, err
 	}
 	s.Index.UpsertArticle(article)
 	now := time.Now().UTC()
-	result, err := s.DB.Write().ExecContext(ctx, "INSERT INTO translation_tasks(article_id,source_locale,target_locale,source_revision,status,created_at) VALUES(?,?,?,?,?,?)", article.ID, article.Source, target, article.SourceRev, "pending", now.Format(time.RFC3339Nano))
+	result, err := s.DB.Write().
+		ExecContext(
+			ctx,
+			"INSERT INTO translation_tasks(article_id,source_locale,target_locale,"+
+				"source_revision,status,created_at) VALUES(?,?,?,?,?,?)",
+			article.ID, article.Source, target, article.SourceRev, "pending",
+			now.Format(time.RFC3339Nano),
+		)
 	if err != nil {
 		return Task{}, err
 	}
 	taskID, _ := result.LastInsertId()
-	payload, _ := json.Marshal(jobPayload{TaskID: taskID, ArticleID: string(article.ID), Target: string(target), Force: force})
-	jobID, err := s.Jobs.Enqueue(ctx, jobs.Job{Kind: "translate", DedupeKey: "translate:" + string(article.ID) + ":" + string(target), Payload: payload, Priority: 10})
+	payload, _ := json.Marshal(
+		jobPayload{TaskID: taskID, ArticleID: string(article.ID), Target: string(target), Force: force},
+	)
+	jobID, err := s.Jobs.Enqueue(
+		ctx,
+		jobs.Job{
+			Kind:      "translate",
+			DedupeKey: "translate:" + string(article.ID) + ":" + string(target),
+			Payload:   payload,
+			Priority:  10,
+		},
+	)
 	if err != nil {
 		return Task{}, err
 	}
-	if _, err = s.DB.Write().ExecContext(ctx, "UPDATE translation_tasks SET job_id=? WHERE id=?", jobID, taskID); err != nil {
+	updateJob := "UPDATE translation_tasks SET job_id=? WHERE id=?"
+	if _, err = s.DB.Write().ExecContext(ctx, updateJob, jobID, taskID); err != nil {
 		return Task{}, err
 	}
-	return Task{ID: taskID, ArticleID: article.ID, Source: article.Source, Target: target, SourceRevision: article.SourceRev, Status: "pending", JobID: jobID, CreatedAt: &now}, nil
+	return Task{
+		ID:             taskID,
+		ArticleID:      article.ID,
+		Source:         article.Source,
+		Target:         target,
+		SourceRevision: article.SourceRev,
+		Status:         "pending",
+		JobID:          jobID,
+		CreatedAt:      &now,
+	}, nil
 }
 
 func (s *Service) Run(ctx context.Context, raw json.RawMessage) error {
@@ -106,17 +142,23 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) error {
 	if !ok {
 		return fmt.Errorf("article %s not found", payload.ArticleID)
 	}
-	if current := article.Trans[model.Locale(payload.Target)]; current != nil && current.ManualEdited && !payload.Force {
+	if current := article.Trans[model.Locale(payload.Target)]; current != nil && current.ManualEdited &&
+		!payload.Force {
 		return ErrManualProtected
 	}
 	now := time.Now().UTC()
-	if _, err := s.DB.Write().ExecContext(ctx, "UPDATE translation_tasks SET status='translating',started_at=? WHERE id=?", now.Format(time.RFC3339Nano), payload.TaskID); err != nil {
+	startSQL := "UPDATE translation_tasks SET status='translating',started_at=? WHERE id=?"
+	if _, err := s.DB.Write().ExecContext(ctx, startSQL, now.Format(time.RFC3339Nano), payload.TaskID); err != nil {
 		return err
 	}
 	if article.Trans == nil {
 		article.Trans = map[model.Locale]*model.TranslationState{}
 	}
-	article.Trans[model.Locale(payload.Target)] = &model.TranslationState{Status: model.TSTranslating, TranslatedFromRevision: article.SourceRev, Revision: revision(article.Trans[model.Locale(payload.Target)])}
+	article.Trans[model.Locale(payload.Target)] = &model.TranslationState{
+		Status:                 model.TSTranslating,
+		TranslatedFromRevision: article.SourceRev,
+		Revision:               revision(article.Trans[model.Locale(payload.Target)]),
+	}
 	if err := s.Store.SaveMetadata(article); err != nil {
 		return err
 	}
@@ -131,7 +173,15 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) error {
 		}
 		article, source = loaded, loaded.Versions[loaded.Source]
 	}
-	result, err := TranslateMarkdown(ctx, s.Provider, source.Body, article.Source, model.Locale(payload.Target), source.Front.Title, s.Budget)
+	result, err := TranslateMarkdown(
+		ctx,
+		s.Provider,
+		source.Body,
+		article.Source,
+		model.Locale(payload.Target),
+		source.Front.Title,
+		s.Budget,
+	)
 	if err != nil {
 		return s.fail(ctx, article, payload, err)
 	}
@@ -142,12 +192,30 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) error {
 	front.Updated = &now
 	target := model.Locale(payload.Target)
 	previous := article.Trans[target]
-	article.Trans[target] = &model.TranslationState{Status: model.TSCompleted, TranslatedFromRevision: article.SourceRev, Revision: revision(previous) + 1, Provider: s.Provider.Name(), UpdatedAt: &now, TokensUsed: result.Usage.PromptTokens + result.Usage.CompletionTokens}
-	if err := s.Store.SaveVersion(article, target, front, result.Markdown, content.SaveOpts{MirrorAuthoritative: true}); err != nil {
+	article.Trans[target] = &model.TranslationState{
+		Status:                 model.TSCompleted,
+		TranslatedFromRevision: article.SourceRev,
+		Revision:               revision(previous) + 1,
+		Provider:               s.Provider.Name(),
+		UpdatedAt:              &now,
+		TokensUsed:             result.Usage.PromptTokens + result.Usage.CompletionTokens,
+	}
+	if err := s.Store.SaveVersion(
+		article, target, front, result.Markdown,
+		content.SaveOpts{MirrorAuthoritative: true},
+	); err != nil {
 		return s.fail(ctx, article, payload, err)
 	}
 	s.Index.UpsertArticle(article)
-	_, _ = s.Jobs.Enqueue(ctx, jobs.Job{Kind: "render", DedupeKey: string(article.ID) + ":" + string(target), Payload: mustJSON(map[string]string{"articleID": string(article.ID), "locale": string(target)}), Priority: 10})
+	_, _ = s.Jobs.Enqueue(
+		ctx,
+		jobs.Job{
+			Kind:      "render",
+			DedupeKey: string(article.ID) + ":" + string(target),
+			Payload:   mustJSON(map[string]string{"articleID": string(article.ID), "locale": string(target)}),
+			Priority:  10,
+		},
+	)
 	// hreflang alternates are symmetric: every other locale page must list the
 	// freshly translated version. Coalesce those refreshes into one deferred
 	// render per locale within the merge window.
@@ -156,13 +224,35 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) error {
 			continue
 		}
 		payload := mustJSON(map[string]string{"articleID": string(article.ID), "locale": string(loc)})
-		_, _ = s.Jobs.Enqueue(ctx, jobs.Job{Kind: "render", DedupeKey: "hreflang:" + string(article.ID) + ":" + string(loc), Payload: payload, Priority: 20, RunAfter: time.Now().Add(hreflangMergeWindow)})
+		_, _ = s.Jobs.Enqueue(
+			ctx,
+			jobs.Job{
+				Kind:      "render",
+				DedupeKey: "hreflang:" + string(article.ID) + ":" + string(loc),
+				Payload:   payload,
+				Priority:  20,
+				RunAfter:  time.Now().Add(hreflangMergeWindow),
+			},
+		)
 	}
-	_, err = s.DB.Write().ExecContext(ctx, "UPDATE translation_tasks SET status='completed',segments_total=?,segments_done=?,tokens_in=?,tokens_out=?,provider=?,model=?,finished_at=?,error=NULL WHERE id=?", lenMustSegments(source.Body), lenMustSegments(source.Body), result.Usage.PromptTokens, result.Usage.CompletionTokens, s.Provider.Name(), providerModel(s.Provider), time.Now().UTC().Format(time.RFC3339Nano), payload.TaskID)
+	_, err = s.DB.Write().
+		ExecContext(
+			ctx,
+			"UPDATE translation_tasks SET status='completed',segments_total=?,segments_done=?,"+
+				"tokens_in=?,tokens_out=?,provider=?,model=?,finished_at=?,error=NULL WHERE id=?",
+			lenMustSegments(source.Body), lenMustSegments(source.Body),
+			result.Usage.PromptTokens, result.Usage.CompletionTokens,
+			s.Provider.Name(), providerModel(s.Provider),
+			time.Now().UTC().Format(time.RFC3339Nano), payload.TaskID,
+		)
 	return err
 }
 
-func (s *Service) translateFront(ctx context.Context, source model.FrontMatter, src, dst model.Locale) (model.FrontMatter, error) {
+func (s *Service) translateFront(
+	ctx context.Context,
+	source model.FrontMatter,
+	src, dst model.Locale,
+) (model.FrontMatter, error) {
 	front := source
 	front.Locale = dst
 	front.SEO = cloneSEO(source.SEO)
@@ -212,10 +302,22 @@ func (s *Service) fail(ctx context.Context, article *model.Article, payload jobP
 	now := time.Now().UTC()
 	target := model.Locale(payload.Target)
 	previous := article.Trans[target]
-	article.Trans[target] = &model.TranslationState{Status: model.TSFailed, TranslatedFromRevision: article.SourceRev, Revision: revision(previous), Error: cause.Error(), FailedAt: &now, Attempts: revision(previous)}
+	article.Trans[target] = &model.TranslationState{
+		Status:                 model.TSFailed,
+		TranslatedFromRevision: article.SourceRev,
+		Revision:               revision(previous),
+		Error:                  cause.Error(),
+		FailedAt:               &now,
+		Attempts:               revision(previous),
+	}
 	_ = s.Store.SaveMetadata(article)
 	s.Index.UpsertArticle(article)
-	_, _ = s.DB.Write().ExecContext(ctx, "UPDATE translation_tasks SET status='failed',error=?,finished_at=? WHERE id=?", cause.Error(), now.Format(time.RFC3339Nano), payload.TaskID)
+	_, _ = s.DB.Write().
+		ExecContext(
+			ctx,
+			"UPDATE translation_tasks SET status='failed',error=?,finished_at=? WHERE id=?",
+			cause.Error(), now.Format(time.RFC3339Nano), payload.TaskID,
+		)
 	return cause
 }
 
@@ -223,7 +325,14 @@ func (s *Service) List(ctx context.Context, limit int) ([]Task, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	rows, err := s.DB.Read().QueryContext(ctx, "SELECT id,article_id,source_locale,target_locale,source_revision,status,COALESCE(job_id,0),segments_total,segments_done,tokens_in,tokens_out,COALESCE(provider,''),COALESCE(model,''),COALESCE(error,''),created_at,started_at,finished_at FROM translation_tasks ORDER BY id DESC LIMIT ?", limit)
+	rows, err := s.DB.Read().
+		QueryContext(
+			ctx,
+			"SELECT id,article_id,source_locale,target_locale,source_revision,status,COALESCE(job_id,0),"+
+				"segments_total,segments_done,tokens_in,tokens_out,COALESCE(provider,''),COALESCE(model,''),"+
+				"COALESCE(error,''),created_at,started_at,finished_at FROM translation_tasks ORDER BY id DESC LIMIT ?",
+			limit,
+		)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +342,13 @@ func (s *Service) List(ctx context.Context, limit int) ([]Task, error) {
 		var task Task
 		var created string
 		var started, finished sql.NullString
-		if err := rows.Scan(&task.ID, &task.ArticleID, &task.Source, &task.Target, &task.SourceRevision, &task.Status, &task.JobID, &task.SegmentsTotal, &task.SegmentsDone, &task.TokensIn, &task.TokensOut, &task.Provider, &task.Model, &task.Error, &created, &started, &finished); err != nil {
+		if err := rows.Scan(
+			&task.ID, &task.ArticleID, &task.Source, &task.Target,
+			&task.SourceRevision, &task.Status, &task.JobID,
+			&task.SegmentsTotal, &task.SegmentsDone, &task.TokensIn,
+			&task.TokensOut, &task.Provider, &task.Model, &task.Error,
+			&created, &started, &finished,
+		); err != nil {
 			return nil, err
 		}
 		if parsed, err := time.Parse(time.RFC3339Nano, created); err == nil {

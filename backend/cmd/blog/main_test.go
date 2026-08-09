@@ -42,20 +42,50 @@ func TestCompareTrees(t *testing.T) {
 }
 
 func TestImportMarkdownToleratesMissingFrontMatterAndDuplicateSlugs(t *testing.T) {
-	front, body, err := importMarkdown(importFile{Name: "Hello World.md", Data: []byte("external body"), ModTime: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)}, "en", "")
-	if err != nil || front.Title != "Hello World" || front.Slug != "hello-world" || front.Status != model.StatusDraft || body != "external body" {
+	front, body, err := importMarkdown(
+		importFile{
+			Name:    "Hello World.md",
+			Data:    []byte("external body"),
+			ModTime: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
+		},
+		"en",
+		"",
+	)
+	if err != nil || front.Title != "Hello World" || front.Slug != "hello-world" || front.Status != model.StatusDraft ||
+		body != "external body" {
 		t.Fatalf("front=%#v body=%q err=%v", front, body, err)
 	}
-	front, body, err = importMarkdown(importFile{Name: "ignored.md", Data: []byte("---\ntitle: Imported\nslug: same\nstatus: published\ncategories: [News]\n---\ncontent\n")}, "en", model.StatusDraft)
-	if err != nil || front.Slug != "same" || front.Status != model.StatusDraft || len(front.Categories) != 1 || body != "content\n" {
+	front, body, err = importMarkdown(
+		importFile{
+			Name: "ignored.md",
+			Data: []byte("---\ntitle: Imported\nslug: same\nstatus: published\ncategories: [News]\n---\ncontent\n"),
+		},
+		"en",
+		model.StatusDraft,
+	)
+	if err != nil || front.Slug != "same" || front.Status != model.StatusDraft || len(front.Categories) != 1 ||
+		body != "content\n" {
 		t.Fatalf("front=%#v body=%q err=%v", front, body, err)
 	}
 	used := map[string]bool{"same": true, "same-2": true}
 	if got := uniqueImportSlug("same", used); got != "same-3" {
 		t.Fatalf("unique slug=%q", got)
 	}
-	front, body, err = importMarkdown(importFile{Name: "hugo.md", Data: []byte("+++\ntitle = \"Hugo Post\"\ndate = \"2024-02-03\"\ndraft = false\ncategories = [\"News\", \"Tech\"]\ntags = [\"go\"]\n+++\nHugo body\n")}, "en", "")
-	if err != nil || front.Title != "Hugo Post" || front.Slug != "hugo-post" || front.Status != model.StatusPublished || len(front.Categories) != 2 || len(front.Tags) != 1 || body != "Hugo body\n" {
+	front, body, err = importMarkdown(
+		importFile{
+			Name: "hugo.md",
+			Data: []byte(
+				"+++\ntitle = \"Hugo Post\"\ndate = \"2024-02-03\"\ndraft = false\n" +
+					"categories = [\"News\", \"Tech\"]\ntags = [\"go\"]\n+++\nHugo body\n",
+			),
+		},
+		"en",
+		"",
+	)
+	if err != nil || front.Title != "Hugo Post" || front.Slug != "hugo-post" || front.Status != model.StatusPublished ||
+		len(front.Categories) != 2 ||
+		len(front.Tags) != 1 ||
+		body != "Hugo body\n" {
 		t.Fatalf("hugo front=%#v body=%q err=%v", front, body, err)
 	}
 }
@@ -135,7 +165,19 @@ backup: { dir: ./backups, keep: 2, includeMedia: false }
 		t.Fatal(err)
 	}
 	store := content.NewStore(filepath.Join(root, "content"))
-	article, err := store.CreateBundle(model.ContentPost, "en", model.FrontMatter{Title: "Old", Slug: "old", Author: "admin", SourceLocale: "en", Status: model.StatusDraft, Date: time.Now()}, "body")
+	article, err := store.CreateBundle(
+		model.ContentPost,
+		"en",
+		model.FrontMatter{
+			Title:        "Old",
+			Slug:         "old",
+			Author:       "admin",
+			SourceLocale: "en",
+			Status:       model.StatusDraft,
+			Date:         time.Now(),
+		},
+		"body",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,14 @@ type TranslationResult struct {
 // atomic-in-memory reconstruction. Callers write the resulting Markdown only
 // after this function succeeds, so a failed provider can never leave a partial
 // locale file on disk.
-func TranslateMarkdown(ctx context.Context, provider Provider, markdown string, src, dst model.Locale, title string, budget int) (TranslationResult, error) {
+func TranslateMarkdown(
+	ctx context.Context,
+	provider Provider,
+	markdown string,
+	src, dst model.Locale,
+	title string,
+	budget int,
+) (TranslationResult, error) {
 	segs, err := Extract(markdown, ExtractOpts{})
 	if err != nil {
 		return TranslationResult{}, err
@@ -44,7 +51,11 @@ func TranslateMarkdown(ctx context.Context, provider Provider, markdown string, 
 		warnings = append(warnings, failed...)
 	}
 	if len(warnings)*5 > len(segs) {
-		return TranslationResult{}, fmt.Errorf("translation validation failed for %d of %d segments", len(warnings), len(segs))
+		return TranslationResult{}, fmt.Errorf(
+			"translation validation failed for %d of %d segments",
+			len(warnings),
+			len(segs),
+		)
 	}
 	output, err := Apply(markdown, segs, translated)
 	if err != nil {
@@ -60,7 +71,13 @@ func TranslateMarkdown(ctx context.Context, provider Provider, markdown string, 
 	return result, nil
 }
 
-func translateBatch(ctx context.Context, provider Provider, batch []Segment, src, dst model.Locale, title string) ([]string, []string, error) {
+func translateBatch(
+	ctx context.Context,
+	provider Provider,
+	batch []Segment,
+	src, dst model.Locale,
+	title string,
+) ([]string, []string, error) {
 	out, err := provider.Translate(ctx, batch, src, dst, title)
 	if err == nil {
 		err = ValidateBatch(batch, out)
@@ -77,7 +94,11 @@ func translateBatch(ctx context.Context, provider Provider, batch []Segment, src
 		return out, nil, nil
 	}
 	if len(batch) == 1 {
-		return []string{batch[0].Text}, []string{fmt.Sprintf("segment %d retained original: %v", batch[0].Index, retryErr)}, nil
+		return []string{
+				batch[0].Text,
+			}, []string{
+				fmt.Sprintf("segment %d retained original: %v", batch[0].Index, retryErr),
+			}, nil
 	}
 	mid := len(batch) / 2
 	left, leftWarnings, leftErr := translateBatch(ctx, provider, batch[:mid], src, dst, title)
@@ -136,7 +157,8 @@ func samePlaceholderSet(a, b map[string]int) bool {
 }
 func containsRefusal(value string) bool {
 	lower := strings.ToLower(value)
-	return strings.Contains(lower, "as an ai language model") || strings.Contains(lower, "i cannot translate") || strings.Contains(value, "无法翻译")
+	return strings.Contains(lower, "as an ai language model") || strings.Contains(lower, "i cannot translate") ||
+		strings.Contains(value, "无法翻译")
 }
 
 type Fingerprint struct {

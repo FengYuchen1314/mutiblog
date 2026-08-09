@@ -76,7 +76,8 @@ func TestPaginationUsesCanonicalLocalePaths(t *testing.T) {
 	if pagination.Page != 2 || pagination.Total != 3 || len(pagination.Links) != 3 {
 		t.Fatalf("pagination=%#v", pagination)
 	}
-	if pagination.Links[0].URL != "/zh-cn/" || pagination.Links[1].URL != "/zh-cn/page/2/" || !pagination.Links[1].Current {
+	if pagination.Links[0].URL != "/zh-cn/" || pagination.Links[1].URL != "/zh-cn/page/2/" ||
+		!pagination.Links[1].Current {
 		t.Fatalf("links=%#v", pagination.Links)
 	}
 }

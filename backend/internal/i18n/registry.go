@@ -30,7 +30,14 @@ func Canonical(s string) (model.Locale, bool) {
 	return model.Locale(v), true
 }
 func New(cfg config.I18nConfig) (*Registry, error) {
-	r := &Registry{prefix: map[string]model.Locale{}, canonical: map[string]model.Locale{}, aliases: map[string]model.Locale{}, countries: map[string]model.Locale{}, DefaultLocale: model.Locale(cfg.DefaultLocale), SourceLocale: model.Locale(cfg.SourceLocale)}
+	r := &Registry{
+		prefix:        map[string]model.Locale{},
+		canonical:     map[string]model.Locale{},
+		aliases:       map[string]model.Locale{},
+		countries:     map[string]model.Locale{},
+		DefaultLocale: model.Locale(cfg.DefaultLocale),
+		SourceLocale:  model.Locale(cfg.SourceLocale),
+	}
 	for _, item := range cfg.Locales {
 		if !item.Enabled {
 			continue

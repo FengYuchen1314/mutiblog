@@ -148,7 +148,8 @@ func Extract(md string, _ ExtractOpts) ([]Segment, error) {
 	sort.Slice(out, func(i, j int) bool { return out[i].Start < out[j].Start })
 	for i := range out {
 		out[i].Index = i
-		if out[i].Start < 0 || out[i].End > len(md) || out[i].Start >= out[i].End || (i > 0 && out[i-1].End > out[i].Start) {
+		if out[i].Start < 0 || out[i].End > len(md) || out[i].Start >= out[i].End ||
+			(i > 0 && out[i-1].End > out[i].Start) {
 			return nil, fmt.Errorf("invalid or overlapping translation segment at %d", i)
 		}
 	}

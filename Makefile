@@ -10,11 +10,19 @@ build:
 dev:
 	cd $(BACKEND) && $(GO) run ./cmd/blog --dev
 
+fmt:
+	cd $(BACKEND) && gofmt -w ./cmd ./internal
+	cd frontend/admin && ./node_modules/.bin/prettier --write "src/**/*.{ts,tsx,css}"
+	cd frontend/renderer && ../admin/node_modules/.bin/prettier --write "*.js"
+	@if [ -d frontend/renderer/src ]; then cd frontend/renderer && ../admin/node_modules/.bin/prettier --write "src/**/*.{ts,js}"; fi
+	@if [ -d themes/default/src ]; then cd themes/default && ../admin/node_modules/.bin/prettier --write "src/**/*.{ts,tsx,css}"; fi
+
 test: check-api-types
 	cd $(BACKEND) && $(GO) test ./...
 
 lint:
-	cd $(BACKEND) && $(GO) vet ./...
+	cd $(BACKEND) && gofmt -l ./cmd ./internal | (! grep .) && $(GO) vet ./...
+	cd frontend/admin && ./node_modules/.bin/eslint src --max-warnings 0
 
 api-types:
 	cd frontend/admin && ./node_modules/.bin/openapi-typescript ../../backend/api/openapi.yaml -o src/api/schema.d.ts

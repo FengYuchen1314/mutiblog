@@ -284,13 +284,36 @@ func (s *Service) Render(ctx context.Context, article *model.Article, loc model.
 	sort.Slice(locales, func(i, j int) bool { return locales[i] < locales[j] })
 	alternates := make([]map[string]string, 0, len(locales)+1)
 	for _, locale := range locales {
-		alternates = append(alternates, map[string]string{"hrefLang": string(locale), "href": pathFor(locale, article.Versions[locale].Front.Slug)})
+		alternates = append(
+			alternates,
+			map[string]string{"hrefLang": string(locale), "href": pathFor(locale, article.Versions[locale].Front.Slug)},
+		)
 	}
 	if defaultVersion := article.Versions[s.defaultLocale]; defaultVersion != nil {
-		alternates = append(alternates, map[string]string{"hrefLang": "x-default", "href": pathFor(s.defaultLocale, defaultVersion.Front.Slug)})
+		alternates = append(
+			alternates,
+			map[string]string{"hrefLang": "x-default", "href": pathFor(s.defaultLocale, defaultVersion.Front.Slug)},
+		)
 	}
 	themeName, themeDir := s.themeIdentity()
-	payload, _ := json.Marshal(map[string]any{"kind": string(article.Type), "title": v.Front.Title, "description": v.Front.Description, "body": v.Body, "locale": loc, "author": v.Front.Author, "publishedAt": v.Front.Date.UTC().Format(time.RFC3339), "modifiedAt": frontUpdated(v.Front), "theme": s.themeSettings(), "themeName": themeName, "themeDir": themeDir, "markdown": s.markdownOptions(), "canonical": pathFor(loc, v.Front.Slug), "alternates": alternates})
+	payload, _ := json.Marshal(
+		map[string]any{
+			"kind":        string(article.Type),
+			"title":       v.Front.Title,
+			"description": v.Front.Description,
+			"body":        v.Body,
+			"locale":      loc,
+			"author":      v.Front.Author,
+			"publishedAt": v.Front.Date.UTC().Format(time.RFC3339),
+			"modifiedAt":  frontUpdated(v.Front),
+			"theme":       s.themeSettings(),
+			"themeName":   themeName,
+			"themeDir":    themeDir,
+			"markdown":    s.markdownOptions(),
+			"canonical":   pathFor(loc, v.Front.Slug),
+			"alternates":  alternates,
+		},
+	)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/render", bytes.NewReader(payload))
 	if err != nil {
 		return "", err
@@ -407,10 +430,27 @@ func (s *Service) RenderHome(ctx context.Context, locale model.Locale, title str
 // RenderNotFound produces the locale-scoped static fallback consumed by a
 // reverse proxy when a visitor requests an absent page. No application process
 // is required on that read path.
-func (s *Service) RenderNotFound(ctx context.Context, locale model.Locale, title, message, homeLabel string) (string, error) {
+func (s *Service) RenderNotFound(
+	ctx context.Context,
+	locale model.Locale,
+	title, message, homeLabel string,
+) (string, error) {
 	prefix := s.localePrefix(locale)
 	themeName, themeDir := s.themeIdentity()
-	payload, _ := json.Marshal(map[string]any{"kind": "not_found", "title": title, "message": message, "homeLabel": homeLabel, "locale": locale, "prefix": prefix, "theme": s.themeSettings(), "themeName": themeName, "themeDir": themeDir, "canonical": strings.TrimRight(s.baseURL, "/") + "/" + prefix + "/404.html"})
+	payload, _ := json.Marshal(
+		map[string]any{
+			"kind":      "not_found",
+			"title":     title,
+			"message":   message,
+			"homeLabel": homeLabel,
+			"locale":    locale,
+			"prefix":    prefix,
+			"theme":     s.themeSettings(),
+			"themeName": themeName,
+			"themeDir":  themeDir,
+			"canonical": strings.TrimRight(s.baseURL, "/") + "/" + prefix + "/404.html",
+		},
+	)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/render", bytes.NewReader(payload))
 	if err != nil {
 		return "", err
@@ -442,7 +482,20 @@ func (s *Service) RenderNotFound(ctx context.Context, locale model.Locale, title
 func (s *Service) RenderSearch(ctx context.Context, locale model.Locale, title string) (string, error) {
 	prefix := s.localePrefix(locale)
 	themeName, themeDir := s.themeIdentity()
-	payload, _ := json.Marshal(map[string]any{"kind": "search", "title": title, "locale": locale, "prefix": prefix, "searchIndexURL": "/" + prefix + "/search-index.json", "theme": s.themeSettings(), "themeName": themeName, "themeDir": themeDir, "canonical": s.siteURL(locale, "search"), "alternates": s.collectionAlternates("search")})
+	payload, _ := json.Marshal(
+		map[string]any{
+			"kind":           "search",
+			"title":          title,
+			"locale":         locale,
+			"prefix":         prefix,
+			"searchIndexURL": "/" + prefix + "/search-index.json",
+			"theme":          s.themeSettings(),
+			"themeName":      themeName,
+			"themeDir":       themeDir,
+			"canonical":      s.siteURL(locale, "search"),
+			"alternates":     s.collectionAlternates("search"),
+		},
+	)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/render", bytes.NewReader(payload))
 	if err != nil {
 		return "", err
@@ -472,23 +525,56 @@ func (s *Service) RenderSearch(ctx context.Context, locale model.Locale, title s
 // RenderCollection produces any list-like static page (home, taxonomy,
 // archive, or links) with the same deterministic Node template.
 // relative is a locale-relative directory; an empty value means the locale home.
-func (s *Service) RenderCollection(ctx context.Context, locale model.Locale, title string, items []HomeItem, relative string) (string, error) {
+func (s *Service) RenderCollection(
+	ctx context.Context,
+	locale model.Locale,
+	title string,
+	items []HomeItem,
+	relative string,
+) (string, error) {
 	return s.renderCollection(ctx, locale, title, items, relative, nil)
 }
 
 // RenderPaginatedCollection uses the same collection template while adding
 // fully-static page navigation computed by Go from the canonical list order.
-func (s *Service) RenderPaginatedCollection(ctx context.Context, locale model.Locale, title string, items []HomeItem, relative string, pagination Pagination) (string, error) {
+func (s *Service) RenderPaginatedCollection(
+	ctx context.Context,
+	locale model.Locale,
+	title string,
+	items []HomeItem,
+	relative string,
+	pagination Pagination,
+) (string, error) {
 	return s.renderCollection(ctx, locale, title, items, relative, &pagination)
 }
 
-func (s *Service) renderCollection(ctx context.Context, locale model.Locale, title string, items []HomeItem, relative string, pagination *Pagination) (string, error) {
+func (s *Service) renderCollection(
+	ctx context.Context,
+	locale model.Locale,
+	title string,
+	items []HomeItem,
+	relative string,
+	pagination *Pagination,
+) (string, error) {
 	canonical := s.siteURL(locale)
 	if relative != "" {
 		canonical = s.siteURL(locale, strings.Trim(relative, "/"))
 	}
 	themeName, themeDir := s.themeIdentity()
-	payload, _ := json.Marshal(map[string]any{"kind": "collection", "title": title, "locale": locale, "items": items, "pagination": pagination, "theme": s.themeSettings(), "themeName": themeName, "themeDir": themeDir, "canonical": canonical, "alternates": s.collectionAlternates(relative)})
+	payload, _ := json.Marshal(
+		map[string]any{
+			"kind":       "collection",
+			"title":      title,
+			"locale":     locale,
+			"items":      items,
+			"pagination": pagination,
+			"theme":      s.themeSettings(),
+			"themeName":  themeName,
+			"themeDir":   themeDir,
+			"canonical":  canonical,
+			"alternates": s.collectionAlternates(relative),
+		},
+	)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/render", bytes.NewReader(payload))
 	if err != nil {
 		return "", err

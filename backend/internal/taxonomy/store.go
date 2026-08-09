@@ -27,7 +27,13 @@ type Result struct {
 
 func NewStore(dataRoot string) *Store { return &Store{root: dataRoot} }
 func (s *Store) LoadAll() Result {
-	r := Result{Categories: map[string]*model.Category{}, Tags: map[string]*model.Tag{}, Links: map[string]*model.Link{}, Menus: map[string]*model.Menu{}, Users: map[string]*model.User{}}
+	r := Result{
+		Categories: map[string]*model.Category{},
+		Tags:       map[string]*model.Tag{},
+		Links:      map[string]*model.Link{},
+		Menus:      map[string]*model.Menu{},
+		Users:      map[string]*model.User{},
+	}
 	s.loadDir("categories", func(path, id string) error {
 		var value model.Category
 		if err := read(path, &value); err != nil {

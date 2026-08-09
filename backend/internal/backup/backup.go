@@ -300,7 +300,10 @@ func redactedConfig(path string) ([]byte, error) {
 func redactSecrets(value map[string]any) {
 	for key, item := range value {
 		lower := strings.ToLower(key)
-		if strings.Contains(lower, "secret") || strings.Contains(lower, "password") || strings.Contains(lower, "apikey") || strings.Contains(lower, "api_key") || strings.Contains(lower, "token") {
+		if strings.Contains(lower, "secret") || strings.Contains(lower, "password") ||
+			strings.Contains(lower, "apikey") ||
+			strings.Contains(lower, "api_key") ||
+			strings.Contains(lower, "token") {
 			value[key] = ""
 			continue
 		}
@@ -333,7 +336,10 @@ func List(dir string) ([]Archive, error) {
 		if err != nil {
 			return nil, err
 		}
-		archives = append(archives, Archive{Path: filepath.Join(dir, entry.Name()), Size: info.Size(), CreatedAt: info.ModTime()})
+		archives = append(
+			archives,
+			Archive{Path: filepath.Join(dir, entry.Name()), Size: info.Size(), CreatedAt: info.ModTime()},
+		)
 	}
 	sort.Slice(archives, func(i, j int) bool { return archives[i].Path > archives[j].Path })
 	return archives, nil
@@ -414,7 +420,9 @@ func Restore(opts RestoreOptions) error {
 			continue
 		}
 		parts := strings.Split(filepath.ToSlash(file.Name), "/")
-		if len(parts) < 2 || !allowed[parts[0]] || strings.Contains(file.Name, "\\") || strings.HasPrefix(file.Name, "/") || strings.Contains(file.Name, "..") {
+		if len(parts) < 2 || !allowed[parts[0]] || strings.Contains(file.Name, "\\") ||
+			strings.HasPrefix(file.Name, "/") ||
+			strings.Contains(file.Name, "..") {
 			return fmt.Errorf("unsafe backup path %q", file.Name)
 		}
 		target, err := fsutil.SafeJoin(stage, file.Name)

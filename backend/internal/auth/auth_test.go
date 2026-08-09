@@ -15,7 +15,10 @@ func TestPasswordAndSignedSession(t *testing.T) {
 	if !VerifyPassword(hash, "correct horse battery staple") || VerifyPassword(hash, "wrong password") {
 		t.Fatal("password verification failed")
 	}
-	token, err := Sign("01234567890123456789012345678901", Claims{UID: "admin", ExpiresAt: time.Now().Add(time.Minute).Unix()})
+	token, err := Sign(
+		"01234567890123456789012345678901",
+		Claims{UID: "admin", ExpiresAt: time.Now().Add(time.Minute).Unix()},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +53,8 @@ func TestResetPasswordInvalidatesSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	updated, ok := users.ByUsername("admin")
-	if !ok || updated.TokenVersion != oldVersion+1 || !VerifyPassword(updated.PasswordHash, "another correct horse battery staple") {
+	if !ok || updated.TokenVersion != oldVersion+1 ||
+		!VerifyPassword(updated.PasswordHash, "another correct horse battery staple") {
 		t.Fatalf("updated=%#v", updated)
 	}
 }

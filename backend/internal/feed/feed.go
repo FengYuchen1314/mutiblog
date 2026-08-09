@@ -53,19 +53,43 @@ func (g *Generator) Generate(loc model.Locale) error {
 	for _, post := range posts {
 		v := post.Versions[loc]
 		url := base + "/posts/" + v.Front.Slug + "/"
-		items = append(items, rssItem{Title: v.Front.Title, Link: url, Description: v.Front.Description, PubDate: v.Front.Date.Format(time.RFC1123Z)})
-		search = append(search, map[string]string{"id": string(post.ID), "title": v.Front.Title, "description": v.Front.Description, "url": "/" + prefix + "/posts/" + v.Front.Slug + "/"})
+		items = append(
+			items,
+			rssItem{
+				Title:       v.Front.Title,
+				Link:        url,
+				Description: v.Front.Description,
+				PubDate:     v.Front.Date.Format(time.RFC1123Z),
+			},
+		)
+		search = append(
+			search,
+			map[string]string{
+				"id":          string(post.ID),
+				"title":       v.Front.Title,
+				"description": v.Front.Description,
+				"url":         "/" + prefix + "/posts/" + v.Front.Slug + "/",
+			},
+		)
 		urls = append(urls, sitemapURL{Loc: url, Alternates: g.articleAlternates(post)})
 	}
 	for _, extra := range g.ExtraURLs {
 		urls = append(urls, sitemapURL{Loc: strings.TrimRight(g.BaseURL, "/") + extra})
 	}
 	sort.Slice(urls, func(i, j int) bool { return urls[i].Loc < urls[j].Loc })
-	rssData, _ := xml.MarshalIndent(rss{Version: "2.0", Channel: rssChannel{Title: g.SiteTitle, Link: base + "/", Items: items}}, "", "  ")
+	rssData, _ := xml.MarshalIndent(
+		rss{Version: "2.0", Channel: rssChannel{Title: g.SiteTitle, Link: base + "/", Items: items}},
+		"",
+		"  ",
+	)
 	rssData = append([]byte(xml.Header), rssData...)
 	searchData, _ := json.Marshal(search)
 	var sitemap strings.Builder
-	sitemap.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">")
+	sitemap.WriteString(
+		"<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset " +
+			"xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" " +
+			"xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">",
+	)
 	for _, url := range urls {
 		sitemap.WriteString("<url><loc>")
 		sitemap.WriteString(xmlEscape(url.Loc))
@@ -81,9 +105,15 @@ func (g *Generator) Generate(loc model.Locale) error {
 	}
 	sitemap.WriteString("</urlset>")
 	dir := filepath.Join(g.Output, prefix)
-	files := map[string][]byte{filepath.Join(dir, "rss.xml"): rssData, filepath.Join(dir, "search-index.json"): searchData, filepath.Join(g.Output, "sitemap-"+prefix+".xml"): []byte(sitemap.String())}
+	files := map[string][]byte{
+		filepath.Join(dir, "rss.xml"):                     rssData,
+		filepath.Join(dir, "search-index.json"):           searchData,
+		filepath.Join(g.Output, "sitemap-"+prefix+".xml"): []byte(sitemap.String()),
+	}
 	if g.RobotsTxt != "" {
-		files[filepath.Join(g.Output, "robots.txt")] = []byte(strings.ReplaceAll(g.RobotsTxt, "{{baseURL}}", strings.TrimRight(g.BaseURL, "/")))
+		files[filepath.Join(g.Output, "robots.txt")] = []byte(
+			strings.ReplaceAll(g.RobotsTxt, "{{baseURL}}", strings.TrimRight(g.BaseURL, "/")),
+		)
 	}
 	if entries, err := filepath.Glob(filepath.Join(g.Output, "sitemap-*.xml")); err == nil {
 		current := filepath.Join(g.Output, "sitemap-"+prefix+".xml")
@@ -100,7 +130,9 @@ func (g *Generator) Generate(loc model.Locale) error {
 		entries = unique
 		sort.Strings(entries)
 		var indexXML strings.Builder
-		indexXML.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?><sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">")
+		indexXML.WriteString(
+			"<?xml version=\"1.0\" encoding=\"UTF-8\"?><sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
+		)
 		for _, entry := range entries {
 			name := filepath.Base(entry)
 			indexXML.WriteString("<sitemap><loc>")
@@ -129,10 +161,16 @@ func (g *Generator) articleAlternates(article *model.Article) []sitemapAlternate
 	sort.Slice(locales, func(i, j int) bool { return locales[i] < locales[j] })
 	result := make([]sitemapAlternate, 0, len(locales)+1)
 	for _, locale := range locales {
-		result = append(result, sitemapAlternate{Lang: string(locale), Href: g.articleURL(locale, article.Versions[locale].Front.Slug)})
+		result = append(
+			result,
+			sitemapAlternate{Lang: string(locale), Href: g.articleURL(locale, article.Versions[locale].Front.Slug)},
+		)
 	}
 	if version := article.Versions[g.DefaultLocale]; version != nil && version.Front.Status == model.StatusPublished {
-		result = append(result, sitemapAlternate{Lang: "x-default", Href: g.articleURL(g.DefaultLocale, version.Front.Slug)})
+		result = append(
+			result,
+			sitemapAlternate{Lang: "x-default", Href: g.articleURL(g.DefaultLocale, version.Front.Slug)},
+		)
 	}
 	return result
 }

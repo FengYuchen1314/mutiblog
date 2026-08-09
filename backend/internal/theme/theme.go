@@ -16,7 +16,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var requiredTemplates = []string{"home", "post", "page", "category", "category_list", "tag", "tag_list", "archive", "links", "search", "not_found"}
+var requiredTemplates = []string{
+	"home",
+	"post",
+	"page",
+	"category",
+	"category_list",
+	"tag",
+	"tag_list",
+	"archive",
+	"links",
+	"search",
+	"not_found",
+}
 
 // EngineVersion is the theme API version implemented by this release. It is
 // intentionally independent from the binary build label, so prerelease build
@@ -24,21 +36,21 @@ var requiredTemplates = []string{"home", "post", "page", "category", "category_l
 const EngineVersion = "1.0.0"
 
 type Manifest struct {
-	Name          string            `yaml:"name" json:"name"`
-	DisplayName   map[string]string `yaml:"displayName" json:"displayName"`
-	Version       string            `yaml:"version" json:"version"`
-	Description   map[string]string `yaml:"description" json:"description"`
-	Author        string            `yaml:"author" json:"author"`
-	Templates     []string          `yaml:"templates" json:"templates"`
-	Islands       []string          `yaml:"islands" json:"islands"`
-	Engine        Engine            `yaml:"engine" json:"engine"`
+	Name          string            `yaml:"name"          json:"name"`
+	DisplayName   map[string]string `yaml:"displayName"   json:"displayName"`
+	Version       string            `yaml:"version"       json:"version"`
+	Description   map[string]string `yaml:"description"   json:"description"`
+	Author        string            `yaml:"author"        json:"author"`
+	Templates     []string          `yaml:"templates"     json:"templates"`
+	Islands       []string          `yaml:"islands"       json:"islands"`
+	Engine        Engine            `yaml:"engine"        json:"engine"`
 	PageTemplates []PageTemplate    `yaml:"pageTemplates" json:"pageTemplates"`
 }
 type Engine struct {
 	MinVersion string `yaml:"minVersion" json:"minVersion"`
 }
 type PageTemplate struct {
-	Name  string            `yaml:"name" json:"name"`
+	Name  string            `yaml:"name"  json:"name"`
 	Label map[string]string `yaml:"label" json:"label"`
 }
 type Schema struct {
@@ -173,7 +185,12 @@ func Compatible(m Manifest, current string) error {
 			return nil
 		}
 		if actual[i] < required[i] {
-			return fmt.Errorf("theme %q requires engine v%s or later; current version is v%s", m.Name, m.Engine.MinVersion, current)
+			return fmt.Errorf(
+				"theme %q requires engine v%s or later; current version is v%s",
+				m.Name,
+				m.Engine.MinVersion,
+				current,
+			)
 		}
 	}
 	return nil

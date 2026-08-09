@@ -9,7 +9,18 @@ import (
 
 func TestSafeJoinRejectsTraversal(t *testing.T) {
 	base := t.TempDir()
-	unsafe := []string{"../x", "a/../../x", "/etc/passwd", "..", "", "a\\..\\x", "./../x", "a/../../../x", "./", "//etc/passwd"}
+	unsafe := []string{
+		"../x",
+		"a/../../x",
+		"/etc/passwd",
+		"..",
+		"",
+		"a\\..\\x",
+		"./../x",
+		"a/../../../x",
+		"./",
+		"//etc/passwd",
+	}
 	for _, path := range unsafe {
 		if _, err := SafeJoin(base, path); !errors.Is(err, ErrUnsafePath) {
 			t.Errorf("%q: %v", path, err)

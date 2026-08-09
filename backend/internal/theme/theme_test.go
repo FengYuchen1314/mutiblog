@@ -12,16 +12,29 @@ func TestStoreValidatesAndPersistsOnlyOverrides(t *testing.T) {
 	if err := os.MkdirAll(themeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "name: demo\ntemplates: [home, post, page, category, category_list, tag, tag_list, archive, links, search, not_found]\n"
+	manifest := "name: demo\n" +
+		"templates: [home, post, page, category, category_list, tag, tag_list, archive, links, search, not_found]\n"
 	if err := os.WriteFile(filepath.Join(themeDir, "theme.yaml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	schema := `{"fields":[{"key":"color","type":"color","default":"#112233"},{"key":"columns","type":"number","min":1,"max":4,"default":2},{"key":"layout","type":"select","options":[{"value":"wide"}],"default":"wide"},{"key":"css","type":"code","default":""}]}`
+	schema := `{"fields":[{"key":"color","type":"color","default":"#112233"},` +
+		`{"key":"columns","type":"number","min":1,"max":4,"default":2},` +
+		`{"key":"layout","type":"select","options":[{"value":"wide"}],"default":"wide"},` +
+		`{"key":"css","type":"code","default":""}]}`
 	if err := os.WriteFile(filepath.Join(themeDir, "settings.schema.json"), []byte(schema), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	store := NewStore(filepath.Join(root, "themes"), filepath.Join(root, "data"))
-	values, warnings, err := store.SaveSettings("demo", map[string]any{"color": "#abcdef", "columns": 9.0, "layout": "bad", "css": "x</style><script y", "unknown": "discard"})
+	values, warnings, err := store.SaveSettings(
+		"demo",
+		map[string]any{
+			"color":   "#abcdef",
+			"columns": 9.0,
+			"layout":  "bad",
+			"css":     "x</style><script y",
+			"unknown": "discard",
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +52,8 @@ func TestStoreValidatesAndPersistsOnlyOverrides(t *testing.T) {
 
 func TestLoadRejectsMissingTemplate(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "theme.yaml"), []byte("name: broken\ntemplates: [home]\n"), 0o644); err != nil {
+	manifest := []byte("name: broken\ntemplates: [home]\n")
+	if err := os.WriteFile(filepath.Join(root, "theme.yaml"), manifest, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(root); err == nil {
@@ -62,8 +76,33 @@ func TestCompatibleChecksMinimumEngineVersion(t *testing.T) {
 }
 
 func TestArraySettingsValidateNestedFieldsAndDiscardUnknownKeys(t *testing.T) {
-	schema := Schema{Fields: []Field{{Key: "links", Type: "array", Default: []any{}, Items: []Field{{Key: "platform", Type: "select", Default: "github", Options: []Option{{Value: "github"}, {Value: "x"}}}, {Key: "url", Type: "url", Default: ""}}}}}
-	values, warnings := ValidateSettings(schema, map[string]any{"links": []any{map[string]any{"platform": "x", "unknown": "drop"}, map[string]any{"platform": "bad", "url": "https://example.test"}}})
+	schema := Schema{
+		Fields: []Field{
+			{
+				Key:     "links",
+				Type:    "array",
+				Default: []any{},
+				Items: []Field{
+					{
+						Key:     "platform",
+						Type:    "select",
+						Default: "github",
+						Options: []Option{{Value: "github"}, {Value: "x"}},
+					},
+					{Key: "url", Type: "url", Default: ""},
+				},
+			},
+		},
+	}
+	values, warnings := ValidateSettings(
+		schema,
+		map[string]any{
+			"links": []any{
+				map[string]any{"platform": "x", "unknown": "drop"},
+				map[string]any{"platform": "bad", "url": "https://example.test"},
+			},
+		},
+	)
 	if len(warnings) != 1 {
 		t.Fatalf("warnings=%#v", warnings)
 	}
@@ -73,7 +112,8 @@ func TestArraySettingsValidateNestedFieldsAndDiscardUnknownKeys(t *testing.T) {
 	}
 	values, warnings = ValidateSettings(schema, map[string]any{"links": []any{map[string]any{"platform": "x"}}})
 	links, ok := values["links"].([]map[string]any)
-	if len(warnings) != 0 || !ok || len(links) != 1 || links[0]["platform"] != "x" || links[0]["url"] != "" || links[0]["unknown"] != nil {
+	if len(warnings) != 0 || !ok || len(links) != 1 || links[0]["platform"] != "x" || links[0]["url"] != "" ||
+		links[0]["unknown"] != nil {
 		t.Fatalf("values=%#v warnings=%#v", values, warnings)
 	}
 }

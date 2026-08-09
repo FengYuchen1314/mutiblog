@@ -22,7 +22,19 @@ func TestServiceWritesCompletedLocaleAndQueuesRender(t *testing.T) {
 	}
 	defer db.Close()
 	store := content.NewStore(filepath.Join(root, "content"))
-	article, err := store.CreateBundle(model.ContentPost, "zh-CN", model.FrontMatter{Title: "标题", Slug: "post", Description: "摘要", Status: model.StatusPublished, Author: "admin", SourceLocale: "zh-CN"}, "# 标题\n\n正文 `code`\n")
+	article, err := store.CreateBundle(
+		model.ContentPost,
+		"zh-CN",
+		model.FrontMatter{
+			Title:        "标题",
+			Slug:         "post",
+			Description:  "摘要",
+			Status:       model.StatusPublished,
+			Author:       "admin",
+			SourceLocale: "zh-CN",
+		},
+		"# 标题\n\n正文 `code`\n",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

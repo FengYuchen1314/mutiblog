@@ -109,6 +109,8 @@ find backend frontend themes -type f \( -name '*.go' -o -name '*.ts' -o -name '*
 #### T0 · 代码规范基线
 `[无依赖]` · **0.5 人日**
 
+> ✅ 已完成（2026-08-10）：Prettier/ESLint/gofmt 就绪，全仓超长行拆分完毕，`make lint` 通过，Go 测试全绿。
+
 **做什么**
 1. 按上面 §二 装 Prettier + ESLint，写配置文件
 2. `gofmt -w` 全部 Go 代码

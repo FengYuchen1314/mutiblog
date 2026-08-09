@@ -15,7 +15,19 @@ import (
 func TestRunAddsMissingCreatedAtAndDryRunDoesNotWrite(t *testing.T) {
 	root := t.TempDir()
 	store := content.NewStore(root)
-	article, err := store.CreateBundle(model.ContentPost, "en", model.FrontMatter{Title: "Old", Slug: "old", Author: "admin", SourceLocale: "en", Status: model.StatusDraft, Date: time.Now()}, "body")
+	article, err := store.CreateBundle(
+		model.ContentPost,
+		"en",
+		model.FrontMatter{
+			Title:        "Old",
+			Slug:         "old",
+			Author:       "admin",
+			SourceLocale: "en",
+			Status:       model.StatusDraft,
+			Date:         time.Now(),
+		},
+		"body",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

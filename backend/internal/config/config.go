@@ -251,7 +251,45 @@ func Load(root, file string) (*Config, []string, error) {
 }
 
 func defaults() Config {
-	return Config{Server: ServerConfig{Host: "0.0.0.0", Port: 8080, ServeStatic: true, GracefulTimeout: Duration(15 * time.Second)}, Site: SiteConfig{PostsPerPage: 10, ExcerptLength: 200, Timezone: "Asia/Shanghai"}, Render: RenderConfig{WorkerEnabled: true, WorkerCount: 1, Concurrency: 1, Timeout: Duration(30 * time.Second), KeepReleases: 3, PrettyURLs: true, MinifyHTML: true}, Markdown: MarkdownConfig{Katex: true, Mermaid: true, ExternalLinksNewTab: true, HeadingAnchors: true, TOCMinDepth: 2, TOCMaxDepth: 3}, AI: AIConfig{Timeout: Duration(120 * time.Second), Concurrency: 2, MaxRetries: 3, RateLimitRPM: 60, SegmentBudget: 2500}, Search: SearchConfig{Enabled: true, MaxIndexSizeMB: 3, BodyCharsPerDoc: 2000}, Index: IndexConfig{BodyResidentLimitMB: 64, BodyCacheMB: 32}, SEO: SEOConfig{GenerateSitemap: true, GenerateRSS: true, RSSItemCount: 20}, Security: SecurityConfig{SessionMaxAge: 604800, CookieSecure: "auto"}, Backup: BackupConfig{Keep: 10, IncludeMedia: true}, Log: LogConfig{Level: "info", Format: "json", AuditRetentionDays: 90}}
+	return Config{
+		Server: ServerConfig{
+			Host:            "0.0.0.0",
+			Port:            8080,
+			ServeStatic:     true,
+			GracefulTimeout: Duration(15 * time.Second),
+		},
+		Site: SiteConfig{PostsPerPage: 10, ExcerptLength: 200, Timezone: "Asia/Shanghai"},
+		Render: RenderConfig{
+			WorkerEnabled: true,
+			WorkerCount:   1,
+			Concurrency:   1,
+			Timeout:       Duration(30 * time.Second),
+			KeepReleases:  3,
+			PrettyURLs:    true,
+			MinifyHTML:    true,
+		},
+		Markdown: MarkdownConfig{
+			Katex:               true,
+			Mermaid:             true,
+			ExternalLinksNewTab: true,
+			HeadingAnchors:      true,
+			TOCMinDepth:         2,
+			TOCMaxDepth:         3,
+		},
+		AI: AIConfig{
+			Timeout:       Duration(120 * time.Second),
+			Concurrency:   2,
+			MaxRetries:    3,
+			RateLimitRPM:  60,
+			SegmentBudget: 2500,
+		},
+		Search:   SearchConfig{Enabled: true, MaxIndexSizeMB: 3, BodyCharsPerDoc: 2000},
+		Index:    IndexConfig{BodyResidentLimitMB: 64, BodyCacheMB: 32},
+		SEO:      SEOConfig{GenerateSitemap: true, GenerateRSS: true, RSSItemCount: 20},
+		Security: SecurityConfig{SessionMaxAge: 604800, CookieSecure: "auto"},
+		Backup:   BackupConfig{Keep: 10, IncludeMedia: true},
+		Log:      LogConfig{Level: "info", Format: "json", AuditRetentionDays: 90},
+	}
 }
 
 // applyDefaults keeps omitted fields stable when users keep a deliberately small config file.
@@ -325,7 +363,10 @@ func applyDefaults(c *Config) {
 	}
 }
 func (c *Config) resolvePaths(root string) {
-	for _, p := range []*string{&c.Paths.Content, &c.Paths.Data, &c.Paths.Media, &c.Paths.Themes, &c.Paths.Generated, &c.Paths.Cache} {
+	for _, p := range []*string{
+		&c.Paths.Content, &c.Paths.Data, &c.Paths.Media,
+		&c.Paths.Themes, &c.Paths.Generated, &c.Paths.Cache,
+	} {
 		if *p == "" {
 			continue
 		}
