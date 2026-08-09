@@ -9,6 +9,10 @@ import TranslationTasksPage from './features/i18n/TranslationTasksPage'
 import ThemeSettingsPage from './features/settings/ThemeSettingsPage'
 import SiteSettingsPage from './features/settings/SiteSettingsPage'
 import UserPage from './features/users/UserPage'
+import CategoryPage from './features/categories/CategoryPage'
+import TagPage from './features/tags/TagPage'
+import MenuPage from './features/menus/MenuPage'
+import LinkPage from './features/links/LinkPage'
 import ImportPage from './features/system/ImportPage'
 import BackupPage from './features/system/BackupPage'
 import SystemActivityPage from './features/system/SystemActivityPage'
@@ -66,6 +70,30 @@ const usersRoute = createRoute({
   component: UserPage,
 })
 
+const categoriesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/categories',
+  component: CategoryPage,
+})
+
+const tagsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/tags',
+  component: TagPage,
+})
+
+const menusRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/menus',
+  component: MenuPage,
+})
+
+const linksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/links',
+  component: LinkPage,
+})
+
 const importRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/import',
@@ -93,6 +121,10 @@ const routeTree = rootRoute.addChildren([
   themesRoute,
   settingsRoute,
   usersRoute,
+  categoriesRoute,
+  tagsRoute,
+  menusRoute,
+  linksRoute,
   importRoute,
   backupsRoute,
   activityRoute,

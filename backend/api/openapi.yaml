@@ -318,6 +318,11 @@ components:
     EnvelopeCategoryList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Category' } } } } } }
     EnvelopeTag: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Tag' } } }
     EnvelopeTagList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Tag' } } } } } }
+    EnvelopeMenu: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Menu' } } }
+    EnvelopeMenuList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Menu' } } } } } }
+    EnvelopeLink: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Link' } } }
+    EnvelopeLinkList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Link' } } } } } }
+    EnvelopeLinkGroupList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/LinkGroup' } } } } } }
     EnvelopeDeleteResult: { type: object, required: [data], properties: { data: { type: object, additionalProperties: true } } }
     EnvelopeMediaList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/MediaItem' } } } } } }
     EnvelopeMediaUpload: { $ref: '#/components/schemas/EnvelopeMediaList' }
@@ -353,6 +358,10 @@ components:
     LocalizedString: { type: object, additionalProperties: { type: string }, example: { zh-CN: 分类, en: Category } }
     Category: { type: object, required: [id], properties: { id: { type: string }, slug: { type: string }, parent: { type: string }, order: { type: integer }, color: { type: string }, name: { $ref: '#/components/schemas/LocalizedString' }, description: { $ref: '#/components/schemas/LocalizedString' } } }
     Tag: { type: object, required: [id], properties: { id: { type: string }, slug: { type: string }, name: { $ref: '#/components/schemas/LocalizedString' }, description: { $ref: '#/components/schemas/LocalizedString' } } }
+    Menu: { type: object, required: [id], properties: { id: { type: string }, name: { $ref: '#/components/schemas/LocalizedString' }, items: { type: array, items: { $ref: '#/components/schemas/MenuItem' } } } }
+    MenuItem: { type: object, properties: { id: { type: string }, type: { type: string }, ref: { type: string }, url: { type: string }, icon: { type: string }, target: { type: string }, label: { $ref: '#/components/schemas/LocalizedString' }, order: { type: integer }, children: { type: array, items: { $ref: '#/components/schemas/MenuItem' } } } }
+    Link: { type: object, required: [id, name], properties: { id: { type: string }, name: { type: string }, url: { type: string }, logo: { type: string }, group: { type: string }, order: { type: integer }, description: { $ref: '#/components/schemas/LocalizedString' } } }
+    LinkGroup: { type: object, required: [id], properties: { id: { type: string }, order: { type: integer }, name: { $ref: '#/components/schemas/LocalizedString' } } }
     MediaItem: { type: object, required: [path, name, url], properties: { path: { type: string }, name: { type: string }, url: { type: string }, mime: { type: string }, size: { type: integer }, isDir: { type: boolean }, modifiedAt: { type: string, format: date-time }, ok: { type: boolean }, error: { type: string } } }
     TranslationTask: { type: object, properties: { id: { type: integer }, articleID: { type: string }, sourceLocale: { type: string }, targetLocale: { type: string }, status: { type: string }, segmentsDone: { type: integer }, segmentsTotal: { type: integer }, tokensIn: { type: integer }, tokensOut: { type: integer }, error: { type: string } } }
     Backup: { type: object, properties: { path: { type: string }, name: { type: string }, size: { type: integer }, createdAt: { type: string, format: date-time } } }

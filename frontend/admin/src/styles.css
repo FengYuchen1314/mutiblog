@@ -586,3 +586,98 @@ button {
   display: flex;
   gap: 0.4rem;
 }
+.menus,
+.links-admin {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid #cbd5e1;
+}
+.menu-form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 760px;
+  margin-top: 1rem;
+}
+.menu-form label {
+  display: grid;
+  gap: 0.3rem;
+  color: #475569;
+}
+.menu-targets {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+.menu-items {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+.menu-item {
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.menu-item-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.menu-child {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed #e2e8f0;
+}
+.link-group-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.link-group-board {
+  margin: 1.25rem 0;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.link-board-list {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.link-board-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.link-board-item small {
+  display: block;
+  color: #64748b;
+}
+.link-board-item > div:last-child {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.link-form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 560px;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.link-form label {
+  display: grid;
+  gap: 0.3rem;
+  color: #475569;
+}

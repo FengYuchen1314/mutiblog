@@ -13,6 +13,10 @@ export default function Layout() {
         <Link to="/themes">主题</Link>
         <Link to="/settings">设置</Link>
         <Link to="/users">用户</Link>
+        <Link to="/categories">分类</Link>
+        <Link to="/tags">标签</Link>
+        <Link to="/menus">菜单</Link>
+        <Link to="/links">友链</Link>
         <Link to="/import">导入</Link>
         <Link to="/backups">备份</Link>
         <Link to="/activity">活动</Link>

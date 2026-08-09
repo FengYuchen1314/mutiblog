@@ -531,6 +531,10 @@ Lighthouse 文章页：Performance ≥ 90、Accessibility ≥ 95、SEO = 100。
 #### T10 · 菜单与友链管理
 `[T1]` · **1 人日**
 
+> ✅ 已完成（2026-08-10）：菜单页（自定义项 + 从文章/页面添加 + 二级子项 + 保存）；
+> 友链页（分组看板、跨组移动、编辑/删除、分组增删）。openapi.yaml 补齐
+> Menu/MenuItem/Link/LinkGroup schema，api-types 已重新生成并保持同步。
+
 - 菜单：左侧「可添加项」（页面/文章/分类/标签/自定义），右侧拖拽树（最多 2 层）
 - 友链：按分组看板，组内排序 + 跨组拖拽
 - 均已有后端 API（`/menus` `/links` `/reorder` `/groups`）
