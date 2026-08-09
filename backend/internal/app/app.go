@@ -494,6 +494,10 @@ func (a *App) Rebuild(ctx context.Context) error {
 		_ = os.RemoveAll(staging)
 		return err
 	}
+	if err := a.Render.PublishThemeAssets(staging); err != nil {
+		_ = os.RemoveAll(staging)
+		return err
+	}
 	meta, _ := json.MarshalIndent(a.currentReleaseFingerprint(), "", "  ")
 	if err := fsutil.AtomicWrite(filepath.Join(staging, ".release.json"), append(meta, '\n'), 0o644); err != nil {
 		_ = os.RemoveAll(staging)

@@ -94,6 +94,32 @@ function esc(v = '') {
     .replaceAll("'", '&#39;')
 }
 const noop = () => {}
+const foucScript =
+  '<script>try{var t=localStorage.getItem("theme");if(t==="dark"||(!t&&matchMedia(' +
+  '"(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}' +
+  'catch(e){}</script>'
+async function themeAssetUrls(themeDir) {
+  if (!themeDir) return { scripts: '', styles: '' }
+  try {
+    const manifestPath = path.join(themeDir, 'dist', 'manifest.json')
+    if (!fs.existsSync(manifestPath)) return { scripts: '', styles: '' }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    const scripts = []
+    const styles = []
+    for (const url of manifest.client || []) {
+      scripts.push(
+        '<script type="module" crossorigin src="/assets/' + path.basename(url) + '"></script>',
+      )
+    }
+    for (const url of manifest.css || []) {
+      styles.push('<link rel="stylesheet" href="/assets/' + path.basename(url) + '">')
+    }
+    return { scripts: scripts.join(''), styles: styles.join('') }
+  } catch (err) {
+    console.warn('theme assets:', err)
+    return { scripts: '', styles: '' }
+  }
+}
 function transformerAddLangLabel() {
   return {
     name: 'add-lang-label',
@@ -374,6 +400,8 @@ async function render(props) {
   }
   const themed = await themeMarkup(props, content)
   if (themed) content = themed
+  const themeUrls = await themeAssetUrls(props.themeDir)
+  const islandScripts = content.includes('data-island') ? themeUrls.scripts : ''
   return (
     '<!doctype html><html lang="' +
     esc(locale) +
@@ -385,6 +413,9 @@ async function render(props) {
     esc(title) +
     '</title>' +
     style +
+    themeUrls.styles +
+    islandScripts +
+    foucScript +
     '</head><body>' +
     content +
     '</body></html>'

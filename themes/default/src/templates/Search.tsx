@@ -2,25 +2,37 @@
 import Layout from '../components/Layout'
 import LocaleSwitcher from '../components/LocaleSwitcher'
 import { translate, type RenderProps } from '../lib/ctx'
+import Island from '../lib/Island'
 
 export default function Search(props: RenderProps) {
   const t = (key: string) => translate(props, key)
   return (
     <Layout props={props}>
       <main className="theme-default" data-kind={props.kind}>
-        <LocaleSwitcher props={props} />
+        <Island
+          name="LocaleSwitcher"
+          hydrate="load"
+          props={{ alternates: props.alternates, locale: props.locale }}
+        >
+          <LocaleSwitcher props={props} />
+        </Island>
         <h1>{props.title}</h1>
-        <label className="search-label" htmlFor="site-search">
-          {props.title}
-        </label>
-        <input
-          className="search-input"
-          id="site-search"
-          type="search"
-          placeholder={t('site.search')}
-          autoComplete="off"
-        />
-        <p className="search-hint">{t('site.search')}</p>
+        <Island
+          name="Search"
+          hydrate="idle"
+          props={{ indexURL: props.searchIndexURL, placeholder: t('site.search') }}
+        >
+          <label className="search-label" htmlFor="site-search">
+            {props.title}
+          </label>
+          <input
+            className="search-input"
+            id="site-search"
+            type="search"
+            placeholder={t('site.search')}
+            autoComplete="off"
+          />
+        </Island>
       </main>
     </Layout>
   )

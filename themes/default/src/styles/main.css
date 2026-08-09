@@ -231,3 +231,123 @@ a:hover {
 .not-found a {
   font-weight: 600;
 }
+
+.theme-toggle {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--card);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.locale-select {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.copy-code-btn {
+  position: absolute;
+  top: 0.45rem;
+  right: 4.2rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  background: var(--card);
+  color: var(--fg);
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.copy-code-btn:hover {
+  opacity: 1;
+}
+
+.search-island .search-results {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-island .search-results li {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-island .search-results p {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.8);
+  cursor: zoom-out;
+}
+
+.lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: 0.5rem;
+}
+
+.toc {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg-soft);
+  font-size: 0.9rem;
+}
+
+.toc ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.toc a {
+  color: var(--muted);
+}
+
+.toc a.active {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.back-to-top {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 90;
+  width: 2.6rem;
+  height: 2.6rem;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--card);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  font-size: 1.1rem;
+}
+
+.mermaid-rendered {
+  overflow-x: auto;
+}
+
+.mermaid-rendered svg {
+  max-width: 100%;
+  height: auto;
+}

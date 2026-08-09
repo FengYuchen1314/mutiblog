@@ -259,6 +259,11 @@ cd ../.. && ./blog-server rebuild && \
 #### T3 · Islands 客户端运行时
 `[T2]` · **1.5 人日**
 
+> ✅ 已完成（2026-08-10）：8 个 island（Mermaid/CopyCode/ThemeToggle/LocaleSwitcher/Search/
+> Lightbox/TocScrollSpy/BackToTop）按 load/idle/visible 策略挂载；引导包 1.5KB gzip；
+> FOUC 内联脚本防闪烁；渲染器按页面是否含 data-island 注入 module 脚本；Go 侧发布主题资源。
+> 静态验收全部通过；浏览器交互（mermaid SVG/复制按钮/深浅切换）需浏览器环境人工确认。
+
 现状：renderer 输出 `data-island="Mermaid"` 容器，**但没有任何 JS 去 hydrate**，图表永远不显示。
 
 **要实现**

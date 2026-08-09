@@ -27,6 +27,9 @@ export default defineConfig(({ mode }) => ({
               entryFileNames: 'client/[name]-[hash].js',
               chunkFileNames: 'client/[name]-[hash].js',
               assetFileNames: 'assets/[name]-[hash][extname]',
+              manualChunks: {
+                react: ['react', 'react-dom/client'],
+              },
             },
           },
         },

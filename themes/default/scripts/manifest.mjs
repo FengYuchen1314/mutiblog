@@ -17,12 +17,10 @@ const client = []
 const css = []
 
 for (const file of files) {
+  // 只注入顶层入口（bootstrap 与 style）；动态 chunk 由浏览器按相对路径加载。
+  if (!file.isEntry) continue
   if (file.file.endsWith('.js')) client.push('/' + file.file)
   if (file.file.endsWith('.css')) css.push('/' + file.file)
-  for (const item of file.assets || []) {
-    if (item.endsWith('.js')) client.push('/' + item)
-    if (item.endsWith('.css')) css.push('/' + item)
-  }
   for (const item of file.css || []) {
     css.push('/' + item)
   }

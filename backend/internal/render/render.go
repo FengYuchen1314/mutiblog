@@ -137,6 +137,43 @@ func (s *Service) themeSettings() map[string]any {
 	}
 	return values
 }
+
+// PublishThemeAssets copies the active theme's client bundles and assets into
+// the release's /assets directory so published pages can load the island
+// runtime (docs/09 §5.2). Missing directories are ignored.
+func (s *Service) PublishThemeAssets(target string) error {
+	s.mu.Lock()
+	dir := s.themeDir
+	s.mu.Unlock()
+	if dir == "" {
+		return nil
+	}
+	targetDir := filepath.Join(target, "assets")
+	if err := fsutil.EnsureDir(targetDir, 0o755); err != nil {
+		return err
+	}
+	for _, sub := range []string{"client", "assets"} {
+		src := filepath.Join(dir, "dist", sub)
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return err
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			source := filepath.Join(src, entry.Name())
+			dest := filepath.Join(targetDir, entry.Name())
+			if err := fsutil.HardLinkOrCopy(source, dest); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 func (s *Service) markdownOptions() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()

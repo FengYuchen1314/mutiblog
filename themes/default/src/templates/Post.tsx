@@ -3,6 +3,7 @@ import Layout from '../components/Layout'
 import Prose from '../components/Prose'
 import LocaleSwitcher from '../components/LocaleSwitcher'
 import { translate, type RenderProps } from '../lib/ctx'
+import Island from '../lib/Island'
 
 function formatDate(value: string) {
   const date = new Date(value)
@@ -15,10 +16,18 @@ function formatDate(value: string) {
 
 export default function Post(props: RenderProps) {
   const t = (key: string) => translate(props, key)
+  const settings = props.theme || {}
   return (
     <Layout props={props}>
       <main className="theme-default" data-kind={props.kind}>
-        <LocaleSwitcher props={props} />
+        <Island
+          name="LocaleSwitcher"
+          hydrate="load"
+          props={{ alternates: props.alternates, locale: props.locale }}
+        >
+          <LocaleSwitcher props={props} />
+        </Island>
+        {settings.showTOC && <Island name="TocScrollSpy" hydrate="visible" />}
         <article className="post-article">
           <header className="post-header">
             <h1>{props.title}</h1>

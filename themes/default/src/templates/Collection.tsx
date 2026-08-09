@@ -4,12 +4,19 @@ import LocaleSwitcher from '../components/LocaleSwitcher'
 import PostCard from '../components/PostCard'
 import Pagination from '../components/Pagination'
 import type { RenderProps } from '../lib/ctx'
+import Island from '../lib/Island'
 
 export default function Collection(props: RenderProps) {
   return (
     <Layout props={props}>
       <main className="theme-default" data-kind={props.kind}>
-        <LocaleSwitcher props={props} />
+        <Island
+          name="LocaleSwitcher"
+          hydrate="load"
+          props={{ alternates: props.alternates, locale: props.locale }}
+        >
+          <LocaleSwitcher props={props} />
+        </Island>
         <h1>{props.title}</h1>
         {props.description && <p className="collection-description">{props.description}</p>}
         <div className="post-grid">
