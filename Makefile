@@ -15,7 +15,7 @@ fmt:
 	cd frontend/admin && ./node_modules/.bin/prettier --write "src/**/*.{ts,tsx,css}"
 	cd frontend/renderer && ../admin/node_modules/.bin/prettier --write "*.js"
 	@if [ -d frontend/renderer/src ]; then cd frontend/renderer && ../admin/node_modules/.bin/prettier --write "src/**/*.{ts,js}"; fi
-	@if [ -d themes/default/src ]; then cd themes/default && ../admin/node_modules/.bin/prettier --write "src/**/*.{ts,tsx,css}"; fi
+	@if [ -d themes/default/src ]; then cd themes/default && ../../frontend/admin/node_modules/.bin/prettier --write "src/**/*.{ts,tsx,css}"; fi
 
 test: check-api-types
 	cd $(BACKEND) && $(GO) test ./...

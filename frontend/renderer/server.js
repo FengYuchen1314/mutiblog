@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { createElement } from 'react'
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
@@ -222,7 +223,9 @@ async function themeMarkup(props, html) {
       themeCache.set(entry, mod)
     }
     const template = mod.value.templates?.[props.kind]
-    if (template) return renderToStaticMarkup(template({ ...props, html }))
+    if (template) {
+      return renderToStaticMarkup(createElement(template, { ...props, html }))
+    }
     if (typeof mod.value.render === 'function') return await mod.value.render({ ...props, html })
     return ''
   } catch (err) {

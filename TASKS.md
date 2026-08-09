@@ -176,6 +176,10 @@ cd frontend/admin && pnpm build && pnpm eslint src --max-warnings 0
 #### T2 · 主题源码化
 `[T0]` · **2 人日** · **最重要的一个任务**
 
+> ✅ 已完成（2026-08-10）：themes/default 源码化（src/ + vite 双构建 + manifest.mjs），
+> 实现 5 个可达 kind 的模板（post/page/collection/search/not_found），SSR bundle 自包含 react，
+> 渲染器 themeMarkup 改为 createElement 渲染（修复 hooks 崩溃）。验收 grep 全部通过。
+
 现状：`themes/default/` 只有 `dist/ssr/entry.js`（13 行手写字符串拼接）。
 
 **目标结构**

@@ -122,6 +122,10 @@ export const templates = { post, page, collection, search, not_found }
 export function render(props) { return '<html string>' }
 ```
 
+> ⚠️ 实现修正（T2）：渲染器原先是 `renderToStaticMarkup(template(props))` 直接调用组件函数，
+> 组件内使用 hooks 会触发 "Invalid hook call"。已改为 `createElement(template, props)` 正规渲染。
+> 主题模板因此可以使用 React（SSR bundle 将 react 打进产物，避免与渲染器产生双 React 实例）。
+
 主题的 `dist/ssr/entry.js` 按 **mtime 缓存**，改了会自动重载。
 
 **主题只能控制 `<body>` 内容**。`<head>`、`<style>`、SEO 标签全部由 `server.js` 生成 —— 这是 B4 问题，T4 负责修正。
@@ -149,8 +153,8 @@ export function render(props) { return '<html string>' }
 
 | # | 规格说 | 实际是 | 处置 | 任务 |
 |---|---|---|---|---|
-| H1 | `docs/09 §1` React + TS 源码，Vite 双构建 | 只有 13 行手写 `dist/ssr/entry.js`，无 `src/` | **按规格改造** | T2 |
-| H2 | `docs/09` 11 个模板 | 5 个 kind 可达，`theme.yaml` 的声明是空头支票 | **先实现 5 个**，T8 拆分后补到 10 个 | T2 → T8 |
+| H1 | `docs/09 §1` React + TS 源码，Vite 双构建 | 只有 13 行手写 `dist/ssr/entry.js`，无 `src/` | ✅ 已完成（src/ + vite 双构建 + manifest，SSR bundle 自包含 react） | T2 |
+| H2 | `docs/09` 11 个模板 | 5 个 kind 可达，`theme.yaml` 的声明是空头支票 | ✅ 已完成 5 个可达 kind 的模板；T8 拆分后补到 10 个 | T2 → T8 |
 | H3 | `docs/09 §4.4` Islands + hydrate 策略 | 完全缺失（已发布页面 0 个 `<script>`） | **按规格改造** | T3 |
 | H4 | `docs/09 §3` settings.schema.json | ✅ 已存在且后台能渲染表单 | **保持** | — |
 | H5 | 主题可控制 `<head>` 与样式 | CSS/head 全在 `server.js` 里 | **按规格改造** | T4 |
