@@ -7,31 +7,62 @@
 
 ---
 
-## 0. 开工前必须先产出的东西（"第 0 批"）
+## 0. 第 0 批前置产出（**已完成 4/5**，2026-08-10 核实）
 
-**这套规格现在可以开工，但不能直接整份丢给模型。** 有五样东西规格里只有描述、没有实体，模型会各自发明，然后在批次之间对不上。必须先做完这一批（约 **2 人日**），再进 M0。
+> ⚠️ **本节写于动工之前。项目现已进入中期，M0~M11 的后端大部分已实现。**
+> 接手者请直接读 **[TASKS.md](../TASKS.md)** 与 **[docs/17 规格与实现对账](17-spec-vs-reality.md)**，
+> 本节仅用于确认基础设施是否齐备。
 
-| # | 产出物 | 为什么必须先做 | 交付形态 |
+| # | 产出物 | 状态 | 位置 |
 |---|---|---|---|
-| **0.1** | **锁定的依赖版本清单** | 规格里写的是 `chi v5`、`shiki` 这种粒度。Shiki v1 与 v3 的 API 不兼容（`getHighlighter` → `createHighlighter`），不同批次的模型选到不同版本就会互相打架 | `backend/go.mod` + 三个 `package.json` 的**完整版本号**，先跑通 `go mod download` 与 `npm ci` |
-| **0.2** | **`api/openapi.yaml` 骨架** | docs/07 是**给人看的表格**，不是机器可读的 schema。M2 产出 API、M3 前端消费，两个批次对字段名理解不一致就崩。这是前后端唯一的契约载体 | 至少覆盖 auth + posts + categories 的完整 schema；其余端点可留 stub 逐批补 |
-| **0.3** | **`internal/model` 的完整 Go 源文件** | 规格里的 struct 是**片段**（省略号、注释掉的字段）。它是所有包的依赖根，必须先定死 | 可编译的 `.go` 文件，含全部 struct + json/yaml tag + `LocalizedString` 的编解码 |
-| **0.4** | **testdata 生成器** | 多个验收标准引用了不存在的数据集："testdata/ 中的 20 篇多语言文章"、"1000 篇 × 4 语言"、"正文合计 200MB"。没有它，性能与索引类验收无法执行 | `backend/testdata/gen/main.go`，参数化生成规模可控的语料（含中日德文、代码块、公式、表格、mermaid） |
-| **0.5** | **「魔鬼测试文章」** | [docs/06 §9](06-ai-translation.md) 的 T1–T22 全部依赖它。它同时也是 M5 渲染验收（R1/R2）的输入 | 一个 `.md` 文件，包含全部 22 类元素，附一份"翻译后应保持不变的片段"清单 |
+| **0.1** | 锁定的依赖版本清单 | ✅ **已完成** | `backend/go.mod`（25 行）+ 各 `package.json`，版本已钉死 |
+| **0.2** | `api/openapi.yaml` | ✅ **已完成** | `backend/api/openapi.yaml`（359 行），`make api-types` 可生成 TS 类型 |
+| **0.3** | `internal/model` 完整源文件 | ✅ **已完成** | `backend/internal/model/model.go`（228 行） |
+| **0.4** | **testdata 生成器** | ❌ **仍缺失** | 目标：`backend/testdata/gen/main.go` |
+| **0.5** | 「魔鬼测试文章」 | ✅ **已完成** | `backend/testdata/fixtures/devil-test.zh-cn.md` + 同目录 `README.md`（验收判据表） |
 
-**0.1 的具体风险**：我在规格里对 Shiki transformer 的描述**已经出过一次错**（编造了不存在的 `transformerCopyButton`，见 [docs/04 §4.2 勘误](04-render-pipeline.md)）。这类错误只有在真正 `npm ci` 并跑通一次最小管线后才会暴露。**第 0 批必须包含一个 hello-world 级的端到端验证**：一段含代码块+公式的 Markdown → 经完整 unified 管线 → 输出 HTML。跑通了，M5 才有地基。
+### 0.4 是唯一还缺的一项
 
-### 0.6 建议的第 0 批交付顺序
+多条验收标准引用了不存在的数据集，导致**性能与索引类验收目前无法执行**：
+
+| 引用位置 | 需要的数据集 |
+|---|---|
+| `docs/11` M1 验收 | 「1000 篇 × 4 语言，冷启动 < 3s，内存 < 150MB」 |
+| `docs/03 §4.4` | 「正文合计 200MB，自动降级为 lazy 模式，RSS < 250MB」 |
+| `docs/04 §10` R9 | 「全量重建吞吐 ≥ 5 单元/秒/核」 |
+
+**建议实现**：
 
 ```
-① 建仓库骨架 + go.mod + 三个 package.json，全部装上并锁版本
-② 写 internal/model 全部类型，go build 通过
-③ 写最小 unified 管线 demo，验证 shiki/katex/gfm 实际可用   ← 会抓出规格里的 API 错误
-④ 从 model 生成 openapi.yaml 骨架，跑通 make api-types
-⑤ 写 testdata 生成器 + 魔鬼测试文章
+backend/testdata/gen/main.go
+
+  -posts N        生成 N 篇文章（默认 100）
+  -locales L,...  语言列表（默认 zh-CN,en,ja,de）
+  -size S         单篇正文平均字节数（默认 8k；测 lazy 模式用 70k）
+  -out DIR        输出目录
+  -seed N         随机种子，保证可重现
+
+内容要求：
+  · 中/日/德文混排，验证 CJK 字数统计
+  · 每篇随机含代码块 / 公式 / 表格 / mermaid
+  · 分类与标签从固定池中随机取，保证倒排索引有数据
+  · 日期分散在多个年月，保证归档索引有层级
 ```
 
-③ 是最有价值的一步——它用最小成本验证整条 Node 侧技术栈，而这正是规格中我最没把握的部分。
+### 0.5 魔鬼测试文章已就位
+
+`backend/testdata/fixtures/devil-test.zh-cn.md` 覆盖 22 类边界元素，同时服务两套验收：
+
+- **渲染验收**（`docs/04 §10` R1/R2）：代码块 / 公式 / mermaid / 表格对齐 / 脚注 / 任务列表 / 原始 HTML / 分隔线
+- **翻译验收**（`docs/06 §9` T1~T22）：文中 `## T1`~`## T22` 小节与验收表一一对应
+
+同目录 `README.md` 给出了**逐项判据表**（哪些内容必须逐字节不变）与失败排查对照表。
+
+### 0.6 历史记录：一个被验证的风险
+
+规格里对 Shiki transformer 的描述**曾经出过错**——编造了不存在的 `transformerCopyButton` 与 `transformerLineNumbers`（见 [docs/04 §4.2 勘误](04-render-pipeline.md)）。
+
+实现方最终没有踩这个坑（用了 CSS + island 方案），但这类错误说明：**规格中所有第三方 API 的细节，都只经过编写者的记忆检验，没有跑过代码。** 遇到规格与库实际 API 不符时，以库为准，并回头修正规格。
 
 ---
 
