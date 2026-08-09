@@ -155,6 +155,7 @@ func New(s *Server) http.Handler {
 		r.Route("/tags", func(r chi.Router) {
 			r.With(s.perm("post.read")).Get("/", s.tags)
 			r.With(s.perm("taxonomy.write")).Post("/", s.saveTag)
+			r.With(s.perm("taxonomy.write")).Post("/merge", s.mergeTags)
 			r.With(s.perm("taxonomy.write")).Put("/{id}", s.saveTag)
 			r.With(s.perm("taxonomy.write")).Delete("/{id}", s.deleteTag)
 		})
@@ -2626,6 +2627,71 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	s.Events.Publish(r.Context(), events.TagChanged{ID: id, Op: "deleted"})
 	s.queueStaticRefresh(r.Context())
 	ok(w, http.StatusOK, map[string]any{"removed": id, "articlesUpdated": changed})
+}
+
+// mergeTags replaces one tag with another across all articles and removes the
+// source tag. Articles are re-rendered via the queued static refresh.
+func (s *Server) mergeTags(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		From string `json:"from"`
+		Into string `json:"into"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fail(w, http.StatusBadRequest, "INVALID_JSON", "invalid request body")
+		return
+	}
+	if req.From == "" || req.Into == "" {
+		fail(w, http.StatusUnprocessableEntity, "INVALID_MERGE", "from and into are required")
+		return
+	}
+	if req.From == req.Into {
+		fail(w, http.StatusUnprocessableEntity, "INVALID_MERGE", "from and into must differ")
+		return
+	}
+	if _, exists := s.Index.Tag(req.From); !exists {
+		fail(w, http.StatusNotFound, "NOT_FOUND", "source tag not found")
+		return
+	}
+	if _, exists := s.Index.Tag(req.Into); !exists {
+		fail(w, http.StatusNotFound, "NOT_FOUND", "destination tag not found")
+		return
+	}
+	changed := 0
+	for _, article := range s.Index.Articles() {
+		source := article.Versions[article.Source]
+		if source == nil || !containsString(source.Front.Tags, req.From) {
+			continue
+		}
+		front := source.Front
+		front.Tags = replaceString(front.Tags, req.From, req.Into)
+		front.Updated = nowPtr()
+		if err := s.Content.SaveVersion(
+			article, article.Source, front, source.Body,
+			content.SaveOpts{BumpSourceRevision: true, Snapshot: true},
+		); err != nil {
+			fail(w, http.StatusInternalServerError, "TAG_MERGE_FAILED", err.Error())
+			return
+		}
+		for locale, version := range article.Versions {
+			if locale == article.Source {
+				continue
+			}
+			if err := s.Content.SaveVersion(article, locale, version.Front, version.Body, content.SaveOpts{}); err != nil {
+				fail(w, http.StatusInternalServerError, "TAG_MERGE_FAILED", err.Error())
+				return
+			}
+		}
+		s.Index.UpsertArticle(article)
+		changed++
+	}
+	if err := s.Taxonomy.Delete("tags", req.From); err != nil {
+		fail(w, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
+		return
+	}
+	_ = s.Index.ReloadTaxonomy(s.Taxonomy)
+	s.Events.Publish(r.Context(), events.TagChanged{ID: req.From, Op: "deleted"})
+	s.queueStaticRefresh(r.Context())
+	ok(w, http.StatusOK, map[string]any{"removed": req.From, "mergedInto": req.Into, "articlesUpdated": changed})
 }
 
 func containsString(values []string, wanted string) bool {

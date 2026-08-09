@@ -33,9 +33,7 @@ export default function Links(props: RenderProps) {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  {link.logo && (
-                    <img className="link-logo" src={link.logo} alt="" loading="lazy" />
-                  )}
+                  {link.logo && <img className="link-logo" src={link.logo} alt="" loading="lazy" />}
                   <strong>{link.name}</strong>
                   {link.description && <span>{link.description}</span>}
                 </a>

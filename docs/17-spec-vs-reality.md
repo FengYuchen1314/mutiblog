@@ -168,7 +168,7 @@ export function render(props) { return '<html string>' }
 | A2 | `docs/08 §1` Tailwind + shadcn/ui | 纯手写 CSS | **待定**，见 `TASKS.md` Q2 | T1 |
 | A3 | `docs/08 §1` 按 feature 分目录 | 16 个组件挤在 63 行单文件 | ✅ 已完成（features/components/api 拆分） | T1 |
 | A4 | `docs/08 §4` CodeMirror 编辑器 | ✅ 已实现（含自动保存、localStorage、修订、预览） | **保持** | — |
-| A5 | `docs/08 §5` 分类/标签/菜单/友链/多语言矩阵页 | 缺失 | **按规格改造** | T9~T13 |
+| A5 | `docs/08 §5` 分类/标签/菜单/友链/多语言矩阵页 | 缺失 | ✅ 部分完成：分类/标签页（T9）；菜单/友链 T10、多语言矩阵 T12 进行中 | T9~T13 |
 
 ### 3.4 可靠性（🟡）
 

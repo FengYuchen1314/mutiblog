@@ -500,3 +500,89 @@ button {
   text-decoration: none;
   font-size: 0.9rem;
 }
+.categories,
+.tags {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid #cbd5e1;
+}
+.category-list,
+.tag-list {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+.category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.category-row.selected {
+  border-color: #2563eb;
+}
+.category-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.category-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+.category-form,
+.tag-form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 560px;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.category-form label,
+.tag-form label {
+  display: grid;
+  gap: 0.3rem;
+  color: #475569;
+}
+.category-locale,
+.tag-locale {
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.category-locale h4,
+.tag-locale h4 {
+  margin: 0 0 0.5rem;
+}
+.tag-merge {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+.tag-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.tag-item small {
+  color: #64748b;
+}
+.tag-item > div {
+  margin-left: auto;
+  display: flex;
+  gap: 0.4rem;
+}

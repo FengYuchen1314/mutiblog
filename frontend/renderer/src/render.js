@@ -6,18 +6,9 @@ import { buildHtml } from './html.js'
 function fallbackContent(props, body) {
   const title = esc(props.title || 'Mutiblog')
   const items = (props.items || [])
-    .map(
-      (item) =>
-        '<li><a href="' +
-        esc(item.url) +
-        '">' +
-        esc(item.title) +
-        '</a></li>',
-    )
+    .map((item) => '<li><a href="' + esc(item.url) + '">' + esc(item.title) + '</a></li>')
     .join('')
-  const inner = items
-    ? '<ul>' + items + '</ul>'
-    : '<article>' + body + '</article>'
+  const inner = items ? '<ul>' + items + '</ul>' : '<article>' + body + '</article>'
   return (
     '<main style="max-width:760px;margin:2rem auto;padding:0 1rem;' +
     'font-family:system-ui,sans-serif;line-height:1.7">' +
