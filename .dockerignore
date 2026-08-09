@@ -1,0 +1,10 @@
+.git
+.pnpm-store
+frontend/admin/node_modules
+frontend/renderer/node_modules
+generated
+cache
+backups
+data/state.db*
+content/.drafts
+config/config.local.yaml

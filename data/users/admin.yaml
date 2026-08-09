@@ -1,0 +1,10 @@
+id: admin
+username: admin
+email: admin@example.test
+displayName: admin
+role: admin
+passwordHash: $argon2id$v=19$m=32768,t=4,p=2$i1OXg1upSIKrJGVMKSDevg$fQ2tx3cNpI9bZ1KOzE4Llxf+23UpeQUWYMLXDlqTIpY
+tokenVersion: 1
+locale: en
+createdAt: 2026-08-09T17:49:57.094217639Z
+disabled: false

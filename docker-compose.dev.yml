@@ -1,0 +1,8 @@
+# Development-only build override. Building frontend assets can require more
+# than 1 GB RAM; production hosts should use docker-compose.yml and a release image.
+services:
+  blog:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mutiblog:dev

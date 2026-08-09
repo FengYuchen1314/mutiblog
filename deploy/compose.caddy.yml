@@ -1,0 +1,23 @@
+# Overlay the root compose file. Mount generated/ rather than generated/public
+# so Caddy observes the public symlink after each atomic release switch.
+services:
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - blog
+    environment:
+      BLOG_DOMAIN: ${BLOG_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./generated:/srv/generated:ro
+      - ./media:/srv/media:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

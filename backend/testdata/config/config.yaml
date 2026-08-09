@@ -1,0 +1,27 @@
+server:
+  host: 127.0.0.1
+  port: 18080
+  baseURL: http://localhost:18080
+paths:
+  content: ./content
+  data: ./data
+  media: ./media
+  themes: ./themes
+  generated: ./generated
+  cache: ./cache
+i18n:
+  defaultLocale: en
+  sourceLocale: en
+  locales:
+    - code: en
+      name: English
+      urlPrefix: en
+      enabled: true
+security:
+  sessionSecret: 0123456789abcdef0123456789abcdef
+render:
+  workerEnabled: false
+  workerCommand: [node, ./renderer/server.js]
+  workerSocket: /private/tmp/mutiblog-e2e-render.sock
+  output: ./generated/public
+  timeout: 30s

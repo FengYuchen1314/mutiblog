@@ -1,0 +1,16 @@
+{
+  "$schema": "https://mutiblog.dev/theme-settings-schema/v1",
+  "groups": [
+    {"id":"general","label":{"zh-CN":"通用","en":"General"}},
+    {"id":"home","label":{"zh-CN":"首页","en":"Home"}},
+    {"id":"post","label":{"zh-CN":"文章","en":"Post"}}
+  ],
+  "fields": [
+    {"key":"accentColor","type":"color","group":"general","label":{"zh-CN":"主题色","en":"Accent color"},"default":"#2563eb"},
+    {"key":"bio","type":"i18n-textarea","group":"home","label":{"zh-CN":"个人简介","en":"Bio"},"default":{}},
+    {"key":"postsPerRow","type":"number","group":"home","label":{"zh-CN":"每行文章数","en":"Posts per row"},"min":1,"max":4,"default":2},
+    {"key":"showTOC","type":"boolean","group":"post","label":{"zh-CN":"显示目录","en":"Show table of contents"},"default":true},
+    {"key":"postLayout","type":"select","group":"post","label":{"zh-CN":"文章布局","en":"Post layout"},"options":[{"value":"wide","label":{"zh-CN":"宽","en":"Wide"}},{"value":"narrow","label":{"zh-CN":"窄","en":"Narrow"}}],"default":"narrow"},
+    {"key":"customCSS","type":"code","language":"css","group":"general","label":{"zh-CN":"自定义 CSS","en":"Custom CSS"},"default":"","advanced":true}
+  ]
+}

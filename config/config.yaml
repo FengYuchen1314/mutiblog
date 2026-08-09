@@ -1,0 +1,88 @@
+schemaVersion: 2
+server:
+  host: 0.0.0.0
+  port: 8080
+  baseURL: https://example.com
+  trustedProxies: [127.0.0.1]
+  serveStatic: true
+  gracefulTimeout: 15s
+paths:
+  content: ./content
+  data: ./data
+  media: ./media
+  themes: ./themes
+  generated: ./generated
+  cache: ./cache
+site:
+  title: My Blog
+  description: Personal Technology Blog
+  keywords: [blog, tech]
+  author: admin
+  copyright: "© 2026 My Blog"
+  postsPerPage: 10
+  excerptLength: 200
+  timezone: Asia/Shanghai
+i18n:
+  defaultLocale: zh-CN
+  sourceLocale: zh-CN
+  locales:
+    - code: zh-CN
+      name: 简体中文
+      urlPrefix: zh-cn
+      enabled: true
+  cookieName: preferred_locale
+  cookieMaxAge: 31536000
+  redirectRoot: true
+render:
+  workerEnabled: true
+  workerCommand: [node, ./renderer/server.js]
+  workerSocket: /tmp/blog-render.sock
+  workerCount: 1
+  concurrency: 1
+  timeout: 30s
+  output: ./generated/public
+  keepReleases: 3
+  prettyURLs: true
+  minifyHTML: true
+markdown:
+  katex: true
+  mermaid: true
+  externalLinksNewTab: true
+  headingAnchors: true
+  tocMinDepth: 2
+  tocMaxDepth: 3
+storage:
+  driver: local
+  local: { root: ./media, publicPrefix: /media }
+  image: { maxUploadSize: 20MB, allowedTypes: [image/jpeg, image/png, image/gif, image/webp, image/avif, image/svg+xml], stripEXIF: true }
+ai:
+  enabled: false
+  provider: openai-compatible
+  baseURL: https://api.deepseek.com/v1
+  apiKey: "${BLOG_AI_API_KEY}"
+  model: deepseek-chat
+  temperature: 0.2
+  maxTokensPerRequest: 4000
+  timeout: 120s
+  concurrency: 2
+  maxRetries: 3
+  rateLimitRPM: 60
+  segmentBudget: 2500
+theme: { active: default }
+search: { enabled: true, maxIndexSizeMB: 3, bodyCharsPerDoc: 2000 }
+index: { bodyResidentLimitMB: 64, bodyCacheMB: 32, forceMode: "" }
+comments: { enabled: false, provider: none, options: {} }
+seo:
+  generateSitemap: true
+  generateRSS: true
+  rssItemCount: 20
+  robotsTxt: "User-agent: *\nAllow: /\nSitemap: {{baseURL}}/sitemap.xml\n"
+cache: { htmlMaxAge: 300, htmlSMaxAge: 86400, htmlStaleWhileRevalidate: 604800, assetMaxAge: 31536000, mediaMaxAge: 86400, mediaSMaxAge: 2592000, purger: none }
+security:
+  sessionSecret: "${BLOG_SESSION_SECRET}"
+  sessionMaxAge: 604800
+  cookieSecure: auto
+  loginRateLimit: { attempts: 5, window: 15m, lockout: 30m }
+  apiRateLimit: { rps: 20, burst: 50 }
+backup: { dir: ./backups, keep: 10, includeMedia: true }
+log: { level: info, format: json, auditRetentionDays: 90 }

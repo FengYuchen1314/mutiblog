@@ -1,0 +1,359 @@
+openapi: 3.1.0
+info:
+  title: Mutiblog Admin API
+  version: 1.0.0
+  description: |
+    Contract for the file-backed Mutiblog administration API. Successful
+    responses are wrapped in `{data: ...}`; errors use `ErrorResponse`.
+servers:
+  - url: /
+tags:
+  - name: Auth
+  - name: Content
+  - name: Taxonomy
+  - name: Media
+  - name: Translation
+  - name: System
+paths:
+  /api/auth/status:
+    get:
+      tags: [Auth]
+      operationId: getAuthStatus
+      responses: { '200': { description: Authentication status, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeAuthStatus' } } } } }
+  /api/auth/setup:
+    post:
+      tags: [Auth]
+      operationId: setupAdmin
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SetupRequest' } } } }
+      responses: { '201': { description: First administrator created, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeUser' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } } }
+      responses: { '200': { description: Session established, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeUser' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      responses: { '204': { description: Session cleared } }
+  /api/auth/csrf:
+    get:
+      tags: [Auth]
+      operationId: getCSRFToken
+      responses: { '200': { description: CSRF token, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeCSRFToken' } } } } }
+  /api/admin/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      security: [{ sessionCookie: [] }]
+      responses: { '200': { description: Current user, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeUser' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/dashboard:
+    get:
+      tags: [System]
+      operationId: getDashboard
+      security: [{ sessionCookie: [] }]
+      responses: { '200': { description: Dashboard counts, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeDashboard' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/:
+    get:
+      tags: [Content]
+      operationId: listPosts
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/Locale' }, { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' }]
+      responses: { '200': { description: Posts, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopePostList' } } } }, default: { $ref: '#/components/responses/Error' } }
+    post:
+      tags: [Content]
+      operationId: createPost
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PostInput' } } } }
+      responses: { '201': { description: Draft created, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeID' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    get:
+      tags: [Content]
+      operationId: getPost
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/Locale' }]
+      responses: { '200': { description: Editable post, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopePostDetail' } } } }, default: { $ref: '#/components/responses/Error' } }
+    put:
+      tags: [Content]
+      operationId: updatePost
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PostInput' } } } }
+      responses: { '200': { description: Post saved, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeID' } } } }, '409': { $ref: '#/components/responses/EditConflict' }, default: { $ref: '#/components/responses/Error' } }
+    delete:
+      tags: [Content]
+      operationId: deletePost
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      responses: { '204': { description: Post deleted }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/draft:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    post:
+      tags: [Content]
+      operationId: savePostDraft
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PostInput' } } } }
+      responses: { '204': { description: Draft saved without publishing }, '409': { $ref: '#/components/responses/EditConflict' }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/publish:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    post:
+      tags: [Content]
+      operationId: publishPost
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/PublishRequest' } } } }
+      responses: { '202': { description: Render and translation jobs queued, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopePublishResult' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/unpublish:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    post:
+      tags: [Content]
+      operationId: unpublishPost
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      responses: { '200': { description: Content returned to draft, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeStatusResult' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/restore:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    post:
+      tags: [Content]
+      operationId: restorePost
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      responses: { '200': { description: Trashed content restored as draft, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeStatusResult' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/duplicate:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    post:
+      tags: [Content]
+      operationId: duplicatePost
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      responses: { '201': { description: Draft copy created, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeID' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/purge:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    delete:
+      tags: [Content]
+      operationId: purgePost
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      responses: { '204': { description: Trashed content permanently deleted }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/revisions:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    get:
+      tags: [Content]
+      operationId: listPostRevisions
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/Locale' }]
+      responses: { '200': { description: Revisions, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeRevisionList' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/revisions/{revision}:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }, { $ref: '#/components/parameters/Revision' }]
+    get:
+      tags: [Content]
+      operationId: getPostRevision
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/Locale' }]
+      responses: { '200': { description: Revision, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeRevisionDetail' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/revisions/{revision}/restore:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }, { $ref: '#/components/parameters/Revision' }]
+    post:
+      tags: [Content]
+      operationId: restorePostRevision
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      parameters: [{ $ref: '#/components/parameters/Locale' }]
+      responses: { '200': { description: Revision restored, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeRestoreResult' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/pages/:
+    get:
+      tags: [Content]
+      operationId: listPages
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/Locale' }, { $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PerPage' }]
+      responses: { '200': { description: Pages, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopePostList' } } } }, default: { $ref: '#/components/responses/Error' } }
+    post:
+      tags: [Content]
+      operationId: createPage
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PostInput' } } } }
+      responses: { '201': { description: Page created, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeID' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/pages/{id}:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    get: { tags: [Content], operationId: getPage, security: [{ sessionCookie: [] }], responses: { '200': { description: Page, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopePostDetail' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    put: { tags: [Content], operationId: updatePage, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PostInput' } } } }, responses: { '200': { description: Page saved, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeID' } } } }, '409': { $ref: '#/components/responses/EditConflict' }, default: { $ref: '#/components/responses/Error' } } }
+    delete: { tags: [Content], operationId: deletePage, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '204': { description: Page deleted }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/pages/{id}/publish:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    post: { tags: [Content], operationId: publishPage, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/PublishRequest' } } } }, responses: { '202': { description: Page queued, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopePublishResult' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/categories/:
+    get: { tags: [Taxonomy], operationId: listCategories, security: [{ sessionCookie: [] }], responses: { '200': { description: Categories, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeCategoryList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    post: { tags: [Taxonomy], operationId: createCategory, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Category' } } } }, responses: { '201': { description: Category saved, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeCategory' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/categories/{id}:
+    parameters: [{ $ref: '#/components/parameters/TaxonomyID' }]
+    put: { tags: [Taxonomy], operationId: updateCategory, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Category' } } } }, responses: { '200': { description: Category saved, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeCategory' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    delete: { tags: [Taxonomy], operationId: deleteCategory, security: [{ sessionCookie: [] }, { csrfToken: [] }], parameters: [{ name: migrateTo, in: query, schema: { type: string } }], responses: { '200': { description: Category removed, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeDeleteResult' } } } }, '409': { $ref: '#/components/responses/Error' }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/tags/:
+    get: { tags: [Taxonomy], operationId: listTags, security: [{ sessionCookie: [] }], responses: { '200': { description: Tags, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeTagList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    post: { tags: [Taxonomy], operationId: createTag, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Tag' } } } }, responses: { '201': { description: Tag saved, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeTag' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/tags/{id}:
+    parameters: [{ $ref: '#/components/parameters/TaxonomyID' }]
+    put: { tags: [Taxonomy], operationId: updateTag, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Tag' } } } }, responses: { '200': { description: Tag saved, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeTag' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    delete: { tags: [Taxonomy], operationId: deleteTag, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '200': { description: Tag removed, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeDeleteResult' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/media/:
+    get: { tags: [Media], operationId: listMedia, security: [{ sessionCookie: [] }], parameters: [{ name: dir, in: query, schema: { type: string } }], responses: { '200': { description: Media entries, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeMediaList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    delete: { tags: [Media], operationId: deleteMedia, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [paths], properties: { paths: { type: array, items: { type: string } } } } } } }, responses: { '204': { description: Media deleted }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/media/upload:
+    post: { tags: [Media], operationId: uploadMedia, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, properties: { dir: { type: string }, file: { type: array, items: { type: string, format: binary } } } } } } }, responses: { '201': { description: Upload results, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeMediaUpload' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/media/mkdir:
+    post: { tags: [Media], operationId: createMediaDirectory, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [dir], properties: { dir: { type: string } } } } } }, responses: { '204': { description: Directory created }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/translations/tasks:
+    get: { tags: [Translation], operationId: listTranslationTasks, security: [{ sessionCookie: [] }], responses: { '200': { description: Tasks, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeTranslationTaskList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    post: { tags: [Translation], operationId: createTranslationTask, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [articleID, targetLocale], properties: { articleID: { type: string }, targetLocale: { type: string }, force: { type: boolean } } } } } }, responses: { '202': { description: Translation queued, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeTranslationTask' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/translations/test:
+    post: { tags: [Translation], operationId: testTranslationProvider, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '200': { description: Provider reachable, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeProviderTest' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/preview/markdown:
+    post: { tags: [Content], operationId: previewMarkdown, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { type: object, properties: { body: { type: string }, markdown: { type: string } } } } } }, responses: { '200': { description: Rendered Markdown, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeMarkdownPreview' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/themes/:
+    get: { tags: [System], operationId: listThemes, security: [{ sessionCookie: [] }], responses: { '200': { description: Themes, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeAnyList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/themes/reload:
+    post: { tags: [System], operationId: reloadThemes, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '200': { description: Themes rediscovered, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeAnyList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/themes/{name}:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get: { tags: [System], operationId: getTheme, security: [{ sessionCookie: [] }], responses: { '200': { description: Theme manifest and effective settings, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/themes/{name}/settings:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get: { tags: [System], operationId: getThemeSettings, security: [{ sessionCookie: [] }], responses: { '200': { description: Settings, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    put: { tags: [System], operationId: updateThemeSettings, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }, responses: { '200': { description: Settings saved, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/themes/{name}/settings/reset:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    post: { tags: [System], operationId: resetThemeSettings, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '200': { description: Theme settings reset to defaults, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/themes/{name}/activate:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    post: { tags: [System], operationId: activateTheme, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '200': { description: Theme activated, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/backups/:
+    get: { tags: [System], operationId: listBackups, security: [{ sessionCookie: [] }], responses: { '200': { description: Backups, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeBackupList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    post: { tags: [System], operationId: createBackup, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '201': { description: Backup created, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeBackup' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/backups/{name}/download:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    get: { tags: [System], operationId: downloadBackup, security: [{ sessionCookie: [] }], responses: { '200': { description: Backup ZIP, content: { application/zip: { schema: { type: string, format: binary } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/backups/{name}:
+    parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    delete: { tags: [System], operationId: deleteBackup, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '204': { description: Backup removed }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/backups/restore:
+    post: { tags: [System], operationId: restoreBackup, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [name, confirm], properties: { name: { type: string }, confirm: { type: boolean, const: true } } } } } }, responses: { '200': { description: Backup restored; process restart recommended, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/settings/:
+    get:
+      tags: [System]
+      operationId: getSettings
+      security: [{ sessionCookie: [] }]
+      responses: { '200': { description: Effective settings with sensitive values masked, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeSettings' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/settings/{section}:
+    parameters: [{ name: section, in: path, required: true, schema: { type: string, enum: [site, i18n, render, markdown, storage, ai, search, comments, seo, cache, security, log] } }]
+    put:
+      tags: [System]
+      operationId: updateSettingsSection
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
+      responses: { '200': { description: Settings saved, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeSettingsUpdate' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/users/:
+    get: { tags: [System], operationId: listUsers, security: [{ sessionCookie: [] }], responses: { '200': { description: Users, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeUserList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    post: { tags: [System], operationId: createUser, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UserInput' } } } }, responses: { '201': { description: User created, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeUser' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/users/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    put: { tags: [System], operationId: updateUser, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UserInput' } } } }, responses: { '200': { description: User updated, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeUser' } } } }, default: { $ref: '#/components/responses/Error' } } }
+    delete: { tags: [System], operationId: deleteUser, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '204': { description: User deleted }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/users/{id}/password:
+    parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+    post: { tags: [System], operationId: resetUserPassword, security: [{ sessionCookie: [] }, { csrfToken: [] }], requestBody: { required: true, content: { application/json: { schema: { type: object, required: [password], properties: { password: { type: string, format: password } } } } } }, responses: { '204': { description: Password reset and existing sessions invalidated }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/import:
+    post:
+      tags: [Content]
+      operationId: createImport
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, required: [file], properties: { file: { type: string, format: binary }, defaultLocale: { type: string }, defaultStatus: { type: string, enum: [draft, published] }, dryRun: { type: boolean }, createMissingTaxonomy: { type: boolean, default: true } } } } } }
+      responses: { '202': { description: Import task queued, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeImportQueued' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/import/{jobId}:
+    parameters: [{ name: jobId, in: path, required: true, schema: { type: integer } }]
+    get:
+      tags: [Content]
+      operationId: getImportStatus
+      security: [{ sessionCookie: [] }]
+      responses: { '200': { description: Import progress and report, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeImportStatus' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/system/health:
+    get: { tags: [System], operationId: getSystemHealth, security: [{ sessionCookie: [] }], responses: { '200': { description: Health, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeHealth' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/system/logs:
+    get: { tags: [System], operationId: listSystemLogs, security: [{ sessionCookie: [] }], parameters: [{ name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }], responses: { '200': { description: Logs, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeLogList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/system/audit:
+    get: { tags: [System], operationId: listAuditLog, security: [{ sessionCookie: [] }], parameters: [{ name: actor, in: query, schema: { type: string } }, { name: action, in: query, schema: { type: string } }, { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }], responses: { '200': { description: Audit events, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeLogList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/system/index-errors:
+    get: { tags: [System], operationId: listIndexErrors, security: [{ sessionCookie: [] }], responses: { '200': { description: Content parsing errors, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeAnyList' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/system/stats:
+    get: { tags: [System], operationId: getSystemStats, security: [{ sessionCookie: [] }], responses: { '200': { description: Runtime statistics, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/system/reindex:
+    post: { tags: [System], operationId: rebuildIndex, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '200': { description: Index rebuilt, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } } }
+  /api/admin/system/restart-renderer:
+    post: { tags: [System], operationId: restartRenderer, security: [{ sessionCookie: [] }, { csrfToken: [] }], responses: { '200': { description: Renderer restarted, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } } }
+components:
+  securitySchemes:
+    sessionCookie: { type: apiKey, in: cookie, name: blog_session }
+    csrfToken: { type: apiKey, in: header, name: X-CSRF-Token }
+  parameters:
+    ArticleID: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    TaxonomyID: { name: id, in: path, required: true, schema: { type: string } }
+    Revision: { name: revision, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    Locale: { name: locale, in: query, schema: { type: string, example: zh-CN } }
+    Page: { name: page, in: query, schema: { type: integer, default: 1, minimum: 1 } }
+    PerPage: { name: perPage, in: query, schema: { type: integer, default: 20, minimum: 1, maximum: 100 } }
+  responses:
+    Error: { description: API error, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+    EditConflict: { description: Content changed by another editor, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  schemas:
+    Envelope: { type: object, required: [data], properties: { data: {} } }
+    EnvelopeAuthStatus: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/AuthStatus' } } }
+    EnvelopeCSRFToken: { type: object, required: [data], properties: { data: { type: object, required: [token], properties: { token: { type: string } } } } }
+    EnvelopeUser: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/User' } } }
+    EnvelopeImportQueued: { type: object, required: [data], properties: { data: { type: object, required: [jobId, phase], properties: { jobId: { type: integer }, phase: { type: string } } } } }
+    EnvelopeImportStatus: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/ImportStatus' } } }
+    EnvelopeUserList: { type: object, required: [data], properties: { data: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/User' } } } } } }
+    EnvelopeID: { type: object, required: [data], properties: { data: { type: object, required: [id], properties: { id: { type: string, format: uuid } } } } }
+    EnvelopeDashboard: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Dashboard' } } }
+    EnvelopePostList: { type: object, required: [data], properties: { data: { type: object, required: [items, total], properties: { items: { type: array, items: { $ref: '#/components/schemas/PostSummary' } }, total: { type: integer } } } } }
+    EnvelopePostDetail: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/PostDetail' } } }
+    EnvelopePublishResult: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/PublishResult' } } }
+    EnvelopeStatusResult: { type: object, required: [data], properties: { data: { type: object, required: [id, status], properties: { id: { type: string, format: uuid }, status: { type: string, enum: [draft, published, trashed] } } } } }
+    EnvelopeRevisionList: { type: object, required: [data], properties: { data: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/RevisionInfo' } } } } } }
+    EnvelopeRevisionDetail: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/RevisionDetail' } } }
+    EnvelopeRestoreResult: { type: object, required: [data], properties: { data: { type: object, properties: { id: { type: string }, locale: { type: string }, restoredRevision: { type: integer } } } } }
+    EnvelopeCategory: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Category' } } }
+    EnvelopeCategoryList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Category' } } } } } }
+    EnvelopeTag: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Tag' } } }
+    EnvelopeTagList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Tag' } } } } } }
+    EnvelopeDeleteResult: { type: object, required: [data], properties: { data: { type: object, additionalProperties: true } } }
+    EnvelopeMediaList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/MediaItem' } } } } } }
+    EnvelopeMediaUpload: { $ref: '#/components/schemas/EnvelopeMediaList' }
+    EnvelopeTranslationTask: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/TranslationTask' } } }
+    EnvelopeTranslationTaskList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/TranslationTask' } } } } } }
+    EnvelopeProviderTest: { type: object, required: [data], properties: { data: { type: object, properties: { provider: { type: string }, latencyMs: { type: integer } } } } }
+    EnvelopeMarkdownPreview: { type: object, required: [data], properties: { data: { type: object, required: [html], properties: { html: { type: string } } } } }
+    EnvelopeAnyList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: {} } } } } }
+    EnvelopeObject: { type: object, required: [data], properties: { data: { type: object, additionalProperties: true } } }
+    EnvelopeBackup: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Backup' } } }
+    EnvelopeBackupList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Backup' } } } } } }
+    EnvelopeSettings: { type: object, required: [data], properties: { data: { type: object, required: [values], properties: { values: { type: object, additionalProperties: true }, warnings: { type: array, items: { type: string } } } } } }
+    EnvelopeSettingsUpdate: { type: object, required: [data], properties: { data: { type: object, required: [section, requiresRestart], properties: { section: { type: string }, requiresRestart: { type: boolean } } } } }
+    EnvelopeHealth: { type: object, required: [data], properties: { data: { type: object, properties: { warnings: { type: array, items: { type: object, additionalProperties: { type: string } } } } } } }
+    EnvelopeLogList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/LogEntry' } } } } } }
+    ErrorResponse: { type: object, required: [error], properties: { error: { type: object, required: [code, message], properties: { code: { type: string }, message: { type: string }, requestId: { type: string }, details: { type: array, items: { type: object, additionalProperties: true } } } } } }
+    AuthStatus: { type: object, required: [setupRequired], properties: { setupRequired: { type: boolean }, authenticated: { type: boolean } } }
+    SetupRequest: { type: object, required: [username, email, password], properties: { username: { type: string }, email: { type: string, format: email }, password: { type: string, format: password }, locale: { type: string } } }
+    LoginRequest: { type: object, required: [username, password], properties: { username: { type: string }, password: { type: string, format: password }, remember: { type: boolean } } }
+    User: { type: object, required: [id, username, role], properties: { id: { type: string }, username: { type: string }, displayName: { type: string }, email: { type: string, format: email }, role: { type: string, enum: [admin, editor, author, translator] }, locale: { type: string }, disabled: { type: boolean } } }
+    UserInput: { type: object, properties: { username: { type: string }, email: { type: string, format: email }, displayName: { type: string }, role: { type: string, enum: [admin, editor, author, translator] }, password: { type: string, format: password }, locale: { type: string }, disabled: { type: boolean } } }
+    ImportReport: { type: object, required: [found, imported, skipped], properties: { found: { type: integer }, imported: { type: integer }, skipped: { type: integer }, failures: { type: array, items: { type: string } } } }
+    ImportStatus: { type: object, required: [jobId, status, phase], properties: { jobId: { type: integer }, status: { type: string, enum: [pending, running, done, failed] }, phase: { type: string }, createdAt: { type: string, format: date-time }, updatedAt: { type: string, format: date-time }, report: { $ref: '#/components/schemas/ImportReport' }, error: { type: string } } }
+    Dashboard: { type: object, additionalProperties: { type: integer }, example: { articles: 12, posts: 10, pages: 2, locales: 3 } }
+    PostInput: { type: object, required: [title, body], properties: { locale: { type: string }, baseHash: { type: string }, title: { type: string }, slug: { type: string }, description: { type: string }, body: { type: string }, categories: { type: array, items: { type: string } }, tags: { type: array, items: { type: string } } } }
+    PostSummary: { type: object, required: [id, title, slug, status, locale], properties: { id: { type: string, format: uuid }, title: { type: string }, slug: { type: string }, status: { type: string, enum: [draft, published, trashed] }, locale: { type: string }, date: { type: string, format: date-time } } }
+    PostDetail: { type: object, required: [id, locale, front, body, baseHash], properties: { id: { type: string, format: uuid }, locale: { type: string }, front: { $ref: '#/components/schemas/FrontMatter' }, body: { type: string }, baseHash: { type: string }, sourceRevision: { type: integer } } }
+    FrontMatter: { type: object, required: [title, slug, status], properties: { title: { type: string }, slug: { type: string }, description: { type: string }, status: { type: string }, categories: { type: array, items: { type: string } }, tags: { type: array, items: { type: string } }, date: { type: string, format: date-time } } }
+    PublishRequest: { type: object, properties: { publishAt: { type: string, format: date-time } } }
+    PublishResult: { type: object, properties: { id: { type: string }, queued: { type: integer }, jobID: { type: integer }, translationsQueued: { type: integer }, scheduled: { type: boolean }, publishAt: { type: string, format: date-time } } }
+    RevisionInfo: { type: object, properties: { revision: { type: integer }, locale: { type: string }, createdAt: { type: string, format: date-time }, path: { type: string } } }
+    RevisionDetail: { type: object, properties: { revision: { type: integer }, locale: { type: string }, front: { $ref: '#/components/schemas/FrontMatter' }, body: { type: string } } }
+    LocalizedString: { type: object, additionalProperties: { type: string }, example: { zh-CN: 分类, en: Category } }
+    Category: { type: object, required: [id], properties: { id: { type: string }, slug: { type: string }, parent: { type: string }, order: { type: integer }, color: { type: string }, name: { $ref: '#/components/schemas/LocalizedString' }, description: { $ref: '#/components/schemas/LocalizedString' } } }
+    Tag: { type: object, required: [id], properties: { id: { type: string }, slug: { type: string }, name: { $ref: '#/components/schemas/LocalizedString' }, description: { $ref: '#/components/schemas/LocalizedString' } } }
+    MediaItem: { type: object, required: [path, name, url], properties: { path: { type: string }, name: { type: string }, url: { type: string }, mime: { type: string }, size: { type: integer }, isDir: { type: boolean }, modifiedAt: { type: string, format: date-time }, ok: { type: boolean }, error: { type: string } } }
+    TranslationTask: { type: object, properties: { id: { type: integer }, articleID: { type: string }, sourceLocale: { type: string }, targetLocale: { type: string }, status: { type: string }, segmentsDone: { type: integer }, segmentsTotal: { type: integer }, tokensIn: { type: integer }, tokensOut: { type: integer }, error: { type: string } } }
+    Backup: { type: object, properties: { path: { type: string }, name: { type: string }, size: { type: integer }, createdAt: { type: string, format: date-time } } }
+    LogEntry: { type: object, properties: { id: { type: integer }, level: { type: string }, component: { type: string }, message: { type: string }, detail: { type: string }, createdAt: { type: string, format: date-time } } }

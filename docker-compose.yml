@@ -1,0 +1,17 @@
+services:
+  blog:
+    image: ${MUTIBLOG_IMAGE:-ghcr.io/fengyuchen/mutiblog:latest}
+    ports:
+      - "8080:8080"
+    environment:
+      # Optional. If omitted, entrypoint creates config/.secrets.yaml (0600).
+      BLOG_SESSION_SECRET: ${BLOG_SESSION_SECRET:-}
+      BLOG_AI_API_KEY: ${BLOG_AI_API_KEY:-}
+    volumes:
+      - ./content:/app/content
+      - ./data:/app/data
+      - ./media:/app/media
+      - ./config:/app/config
+      - ./generated:/app/generated
+      - ./backups:/app/backups
+    restart: unless-stopped

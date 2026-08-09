@@ -1,0 +1,23 @@
+# Derived artifacts
+/generated/
+/cache/
+/backend/bin/
+/themes/*/dist/
+node_modules/
+/blog-server
+/backups/
+
+# Tooling / OS
+.pnpm-store/
+.DS_Store
+
+# Runtime state
+/data/state.db
+/data/state.db-wal
+/data/state.db-shm
+
+# Drafts and local secrets
+/content/.drafts/
+/config/config.local.yaml
+/config/.secrets.yaml
+/deploy/.env

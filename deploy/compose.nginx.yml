@@ -1,0 +1,14 @@
+# Optional static edge. It shares generated/ and media/ with the CMS, so
+# already-published pages remain available if the Go container is stopped.
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - blog
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./generated:/app/generated:ro
+      - ./media:/app/media:ro
+    restart: unless-stopped

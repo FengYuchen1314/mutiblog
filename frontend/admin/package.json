@@ -1,0 +1,29 @@
+{
+  "name": "mutiblog-admin",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "api:types": "openapi-typescript ../../backend/api/openapi.yaml -o src/api/schema.d.ts"
+  },
+  "dependencies": {
+    "@codemirror/commands": "6.8.1",
+    "@codemirror/lang-markdown": "6.3.3",
+    "@codemirror/state": "6.5.2",
+    "@codemirror/theme-one-dark": "6.1.2",
+    "@codemirror/view": "6.38.2",
+    "@tanstack/react-query": "^5.62.7",
+    "@tanstack/react-router": "^1.91.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "openapi-typescript": "7.10.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.1"
+  }
+}

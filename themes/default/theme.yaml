@@ -1,0 +1,18 @@
+name: default
+displayName:
+  zh-CN: 默认主题
+  en: Default
+version: 1.0.0
+author: Mutiblog
+description:
+  zh-CN: 简洁、响应式的多语言默认主题
+  en: A clean responsive multilingual default theme
+templates: [home, post, page, category, category_list, tag, tag_list, archive, links, search, not_found]
+islands: [ThemeToggle, LocaleSwitcher, Search, CopyCode, Lightbox, Mermaid, Comments, TocScrollSpy, BackToTop]
+engine:
+  minVersion: 1.0.0
+pageTemplates:
+  - name: page
+    label: { zh-CN: 默认页面, en: Default }
+  - name: fullwidth
+    label: { zh-CN: 全宽页面, en: Full width }
