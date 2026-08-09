@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -33,6 +34,8 @@ type Service struct {
 	theme                map[string]any
 	themeName, themeDir  string
 	markdown             map[string]any
+	mediaDir             string
+	mediaPrefix          string
 	baseURL              string
 	defaultLocale        model.Locale
 	localePrefixes       map[model.Locale]string
@@ -109,14 +112,64 @@ func (s *Service) themeIdentity() (string, string) {
 
 // SetMarkdownOptions sends the site-level Markdown switches to the only HTML
 // renderer. Go deliberately never interprets Markdown itself.
-func (s *Service) SetMarkdownOptions(katex, externalLinksNewTab, headingAnchors bool) {
+func (s *Service) SetMarkdownOptions(katex, externalLinksNewTab, headingAnchors, sanitize bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.markdown = map[string]any{
 		"katex":               katex,
 		"externalLinksNewTab": externalLinksNewTab,
 		"headingAnchors":      headingAnchors,
+		"sanitize":            sanitize,
 	}
+}
+
+// SetMedia tells the renderer where to find image dimension sidecars.
+func (s *Service) SetMedia(dir, publicPrefix string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mediaDir = dir
+	s.mediaPrefix = strings.TrimRight(publicPrefix, "/")
+}
+
+var imageRefRE = regexp.MustCompile(`!\[[^\]]*\]\(([^)\s]+)\)|src="([^"]+)"`)
+
+// mediaDimensions scans Markdown for /media/ image references and reads their
+// dimension sidecars (media/.meta/<path>.json) so the renderer can inject
+// width/height attributes and avoid CLS.
+func (s *Service) mediaDimensions(markdown string) map[string]map[string]int {
+	s.mu.Lock()
+	mediaDir, mediaPrefix := s.mediaDir, s.mediaPrefix
+	s.mu.Unlock()
+	if mediaDir == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := map[string]map[string]int{}
+	for _, match := range imageRefRE.FindAllStringSubmatch(markdown, -1) {
+		raw := match[1]
+		if raw == "" {
+			raw = match[2]
+		}
+		url := strings.Split(raw, "#")[0]
+		if mediaPrefix == "" || !strings.HasPrefix(url, mediaPrefix+"/") || seen[url] {
+			continue
+		}
+		seen[url] = true
+		rel := strings.TrimPrefix(url, mediaPrefix+"/")
+		sidecar := filepath.Join(mediaDir, ".meta", filepath.FromSlash(rel)+".json")
+		data, err := os.ReadFile(sidecar)
+		if err != nil {
+			continue
+		}
+		var dims struct {
+			Width  int `json:"width"`
+			Height int `json:"height"`
+		}
+		if json.Unmarshal(data, &dims) == nil && dims.Width > 0 && dims.Height > 0 {
+			out[url] = map[string]int{"w": dims.Width, "h": dims.Height}
+		}
+	}
+	return out
 }
 func (s *Service) SetSiteOptions(baseURL string, defaultLocale model.Locale, prefixes map[model.Locale]string) {
 	s.mu.Lock()
@@ -333,6 +386,8 @@ func (s *Service) Render(ctx context.Context, article *model.Article, loc model.
 		)
 	}
 	themeName, themeDir := s.themeIdentity()
+	markdownOptions := s.markdownOptions()
+	markdownOptions["mediaDimensions"] = s.mediaDimensions(v.Body)
 	payload, _ := json.Marshal(
 		map[string]any{
 			"kind":        string(article.Type),
@@ -346,7 +401,7 @@ func (s *Service) Render(ctx context.Context, article *model.Article, loc model.
 			"theme":       s.themeSettings(),
 			"themeName":   themeName,
 			"themeDir":    themeDir,
-			"markdown":    s.markdownOptions(),
+			"markdown":    markdownOptions,
 			"canonical":   pathFor(loc, v.Front.Slug),
 			"alternates":  alternates,
 		},

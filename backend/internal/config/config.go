@@ -99,6 +99,7 @@ type MarkdownConfig struct {
 	Mermaid             bool `yaml:"mermaid"`
 	ExternalLinksNewTab bool `yaml:"externalLinksNewTab"`
 	HeadingAnchors      bool `yaml:"headingAnchors"`
+	Sanitize            bool `yaml:"sanitize"`
 	TOCMinDepth         int  `yaml:"tocMinDepth"`
 	TOCMaxDepth         int  `yaml:"tocMaxDepth"`
 }

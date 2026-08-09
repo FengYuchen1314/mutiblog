@@ -3,6 +3,8 @@ package media
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,5 +55,39 @@ func TestParseByteSize(t *testing.T) {
 	}
 	if _, err := ParseByteSize("20"); err == nil {
 		t.Fatal("missing unit should be rejected")
+	}
+}
+
+func TestPutWritesDimensionSidecar(t *testing.T) {
+	root := t.TempDir()
+	storage := NewLocal(root, "/media")
+	png, err := base64.StdEncoding.DecodeString(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Put(
+		context.Background(),
+		"2026/08/pixel.png",
+		bytes.NewReader(png),
+		int64(len(png)),
+		"image/png",
+	); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".meta", "2026", "08", "pixel.png.json"))
+	if err != nil {
+		t.Fatalf("sidecar missing: %v", err)
+	}
+	var dims struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	}
+	if err := json.Unmarshal(data, &dims); err != nil {
+		t.Fatal(err)
+	}
+	if dims.Width != 1 || dims.Height != 1 {
+		t.Fatalf("dims = %dx%d", dims.Width, dims.Height)
 	}
 }

@@ -146,7 +146,7 @@ export function render(props) { return '<html string>' }
 | R6 | `docs/04 §4.2` 勘误：`transformerCopyButton` 不存在 | 实现方未踩坑，用了 CSS + 计划中的 island | **保持** | — |
 | R7 | `docs/04 §7.3` 搜索用 MiniSearch + 索引 | renderer 内联 `.includes()` 子串匹配 | ✅ 已完成（单字母字段索引 + plainText 正文 + MiniSearch island + 体积护栏） | T5 |
 | R8 | `docs/04 §5.2` release + symlink 原子切换 | ✅ 已实现 | **保持** | — |
-| R9 | `docs/04 §4.2` 图片 `width`/`height` 注入 | 未实现 | **按规格改造** | T7 |
+| R9 | `docs/04 §4.2` 图片 `width`/`height` 注入 | 未实现 | ✅ 已完成（media 尺寸 sidecar + renderer rehype 插件注入 width/height/loading/decoding） | T7 |
 | R10 | `docs/04 §2` `AffectedUnits` 增量依赖计算 | ⚠️ 需单独核实覆盖度 | 做 T8 时一并检查，改完跑 `verify` | T8 |
 
 ### 3.2 主题系统（🔴）
@@ -178,7 +178,7 @@ export function render(props) { return '<html string>' }
 | C2 | `docs/12 §4` AI / 渲染器熔断器 | **缺失** | **按规格改造** | 建议并入 T7 |
 | C3 | `docs/12 §3.7` stall 检测 | 缺失 | 优先级低，可延后 | — |
 | C4 | `docs/12 §8` 编辑器三层保存 | 部分（有 localStorage + 服务端草稿，缺离线状态指示与冲突对话框） | 并入 T1 后续 | T1+ |
-| C5 | `docs/14 §4.3` 确定性渲染 | 无测试 | **按规格改造**（`verify` 的前提） | T7 |
+| C5 | `docs/14 §4.3` 确定性渲染 | 无测试 | ✅ 已完成（TestDeterministicRender 两次渲染逐字节一致） | T7 |
 
 ### 3.5 后端（🟢 无需改造）
 

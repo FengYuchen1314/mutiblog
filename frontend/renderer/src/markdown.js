@@ -10,6 +10,7 @@ import rehypeAutolinkHeadings from 'rehype-autolink-headings'
 import rehypeKatex from 'rehype-katex'
 import rehypeExternalLinks from 'rehype-external-links'
 import rehypeStringify from 'rehype-stringify'
+import rehypeSanitize from 'rehype-sanitize'
 import rehypeShiki from '@shikijs/rehype'
 import {
   transformerNotationHighlight,
@@ -135,6 +136,46 @@ function remarkMermaidToIsland() {
   }
 }
 
+function rehypeLargeCodeGuard(warnings) {
+  return (tree) => {
+    const walk = (node) => {
+      if (!node || typeof node !== 'object') return
+      if (node.type === 'element' && node.tagName === 'pre') {
+        const text = collectText(node)
+        if (text.length > 256 * 1024) {
+          const code = (node.children || []).find(
+            (child) => child.type === 'element' && child.tagName === 'code',
+          )
+          if (code) code.properties.className = []
+          warnings.push('code block exceeds 256KB; syntax highlighting skipped')
+        }
+      }
+      for (const child of node.children || []) walk(child)
+    }
+    walk(tree)
+  }
+}
+
+function rehypeImageDimensions(dimensions) {
+  if (!dimensions) return () => {}
+  return (tree) => {
+    const walk = (node) => {
+      if (!node || typeof node !== 'object') return
+      if (node.type === 'element' && node.tagName === 'img') {
+        const dim = dimensions[node.properties?.src]
+        if (dim?.w && dim?.h) {
+          node.properties.width = dim.w
+          node.properties.height = dim.h
+        }
+        node.properties.loading = node.properties.loading || 'lazy'
+        node.properties.decoding = node.properties.decoding || 'async'
+      }
+      for (const child of node.children || []) walk(child)
+    }
+    walk(tree)
+  }
+}
+
 function collectText(node) {
   let out = ''
   const walk = (n) => {
@@ -212,6 +253,9 @@ export async function renderMarkdown(source = '', options = {}) {
     .use(options.katex ? remarkMath : noop)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeRaw)
+    .use(options.sanitize ? rehypeSanitize : noop)
+    .use(rehypeLargeCodeGuard, warnings)
+    .use(rehypeImageDimensions, options.mediaDimensions)
     .use(rehypeSlug)
     .use(options.headingAnchors ? rehypeAutolinkHeadings : noop, {
       behavior: 'append',

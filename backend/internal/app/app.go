@@ -165,7 +165,13 @@ func New(opts Options) (*App, []string, error) {
 		output = filepath.Join(opts.Root, output)
 	}
 	renderer := render.New(opts.Root, cfg.Render.WorkerSocket, output, cfg.Render.WorkerCommand)
-	renderer.SetMarkdownOptions(cfg.Markdown.Katex, cfg.Markdown.ExternalLinksNewTab, cfg.Markdown.HeadingAnchors)
+	renderer.SetMarkdownOptions(
+		cfg.Markdown.Katex,
+		cfg.Markdown.ExternalLinksNewTab,
+		cfg.Markdown.HeadingAnchors,
+		cfg.Markdown.Sanitize,
+	)
+	renderer.SetMedia(cfg.Paths.Media, cfg.Storage.Local.PublicPrefix)
 	prefixes := make(map[model.Locale]string, len(cfg.I18n.Locales))
 	for _, locale := range cfg.I18n.Locales {
 		if locale.Enabled {

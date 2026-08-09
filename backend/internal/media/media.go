@@ -2,10 +2,12 @@
 package media
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/fengyuchen/mutiblog/internal/fsutil"
+	"image"
 	"io"
 	"mime"
 	"net/http"
@@ -16,6 +18,12 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+
+	"github.com/fengyuchen/mutiblog/internal/fsutil"
 )
 
 type Entry struct {
@@ -58,7 +66,29 @@ func (s *LocalStorage) Put(_ context.Context, path string, r io.Reader, size int
 	if kind == "image/svg+xml" {
 		data = sanitizeSVG(data)
 	}
-	return fsutil.AtomicWrite(target, data, 0o644)
+	if err := fsutil.AtomicWrite(target, data, 0o644); err != nil {
+		return err
+	}
+	return s.writeDimensionSidecar(path, data, kind)
+}
+
+// writeDimensionSidecar records raster image dimensions at
+// media/.meta/<path>.json so the renderer can inject width/height (CLS 防护).
+// SVG 与无法解码的文件不写 sidecar。
+func (s *LocalStorage) writeDimensionSidecar(path string, data []byte, kind string) error {
+	if kind == "image/svg+xml" {
+		return nil
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return nil
+	}
+	encoded, _ := json.Marshal(map[string]int{"width": cfg.Width, "height": cfg.Height})
+	sidecar := filepath.Join(s.root, ".meta", filepath.FromSlash(path)+".json")
+	if err := fsutil.EnsureDir(filepath.Dir(sidecar), 0o755); err != nil {
+		return err
+	}
+	return fsutil.AtomicWrite(sidecar, encoded, 0o644)
 }
 func (s *LocalStorage) Get(_ context.Context, path string) (io.ReadCloser, error) {
 	target, err := s.resolve(path)

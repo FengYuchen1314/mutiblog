@@ -49,6 +49,7 @@ markdown:
   mermaid: true
   externalLinksNewTab: true
   headingAnchors: true
+  sanitize: false
   tocMinDepth: 2
   tocMaxDepth: 3
 storage:

@@ -427,6 +427,11 @@ ls generated/releases/*/.meta/zh-cn/ | head
 #### T7 · 安全与质量补丁
 `[T4]` · **1 人日**
 
+> ✅ 已完成（2026-08-10）：rehype-sanitize（config.markdown.sanitize 控制）；
+> 图片尺寸注入（media/.meta sidecar + renderer 插件，E2E 验证 width/height/lazy）；
+> 超大代码块 >256KB 跳过 Shiki 并告警；确定性渲染测试通过。
+> 注：熔断器（C2）未纳入本任务，仍属未实现项。
+
 | 子项 | 做什么 | 依据 |
 |---|---|---|
 | **rehype-sanitize** | 加入管线，受 `config.markdown.sanitize` 控制（默认 `false`，多作者站点开启）。**评论渲染必须强制开启**（预留 `preset: "comment"`） | `docs/10 §3.1` |

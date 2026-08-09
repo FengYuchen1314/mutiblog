@@ -944,6 +944,7 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 			updated.Markdown.Katex,
 			updated.Markdown.ExternalLinksNewTab,
 			updated.Markdown.HeadingAnchors,
+			updated.Markdown.Sanitize,
 		)
 		prefixes := make(map[model.Locale]string, len(updated.I18n.Locales))
 		for _, locale := range updated.I18n.Locales {

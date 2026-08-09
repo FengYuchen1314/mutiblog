@@ -1,9 +1,13 @@
 package render
 
 import (
+	"bytes"
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/fengyuchen/mutiblog/internal/model"
 )
@@ -59,5 +63,64 @@ func TestRemoveDeletesOnlyTheContentUnit(t *testing.T) {
 	}
 	if got, err := os.ReadFile(neighbor); err != nil || string(got) != "keep" {
 		t.Fatalf("neighbor was changed: %q, %v", got, err)
+	}
+}
+
+// TestDeterministicRender renders the same article twice and asserts the
+// output is byte-identical (docs/14 §4.3, the premise of `verify`).
+func TestDeterministicRender(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendererEntry := filepath.Join(wd, "..", "..", "..", "frontend", "renderer", "src", "server.js")
+	if _, err := os.Stat(rendererEntry); err != nil {
+		t.Skip("renderer source not available")
+	}
+	output := t.TempDir()
+	socket := filepath.Join(os.TempDir(), fmt.Sprintf("render-det-%d.sock", time.Now().UnixNano()))
+	service := New("", socket, output, []string{"node", rendererEntry})
+	service.SetMarkdownOptions(true, true, true, false)
+	service.SetSiteOptions("https://blog.example.test", "zh-CN", map[model.Locale]string{
+		"zh-CN": "zh-cn",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := service.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	article := &model.Article{
+		ID:   model.ArticleID("deterministic-test"),
+		Type: model.ContentPost,
+		Versions: map[model.Locale]*model.ArticleVersion{
+			"zh-CN": {
+				Front: model.FrontMatter{
+					Title:  "确定性渲染",
+					Slug:   "deterministic",
+					Status: model.StatusPublished,
+				},
+				Body: "# 标题\n\n正文内容。\n\n```go\npackage main\n```\n",
+			},
+		},
+	}
+	first, err := service.Render(ctx, article, "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.Render(ctx, article, "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstData, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondData, err := os.ReadFile(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstData, secondData) {
+		t.Fatal("same article rendered differently across runs")
 	}
 }
