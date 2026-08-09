@@ -1039,12 +1039,13 @@ func (s *Server) posts(w http.ResponseWriter, r *http.Request) {
 		out = append(
 			out,
 			map[string]any{
-				"id":     article.ID,
-				"title":  version.Front.Title,
-				"slug":   version.Front.Slug,
-				"status": version.Front.Status,
-				"date":   version.Front.Date,
-				"locale": loc,
+				"id":             article.ID,
+				"title":          version.Front.Title,
+				"slug":           version.Front.Slug,
+				"status":         version.Front.Status,
+				"date":           version.Front.Date,
+				"locale":         loc,
+				"sourceRevision": article.SourceRev,
 			},
 		)
 	}

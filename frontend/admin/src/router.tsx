@@ -5,7 +5,7 @@ import DashboardPage from './features/dashboard/DashboardPage'
 import PostListPage from './features/posts/PostListPage'
 import PostEditorPage from './features/posts/PostEditorPage'
 import MediaPage from './features/media/MediaPage'
-import TranslationTasksPage from './features/i18n/TranslationTasksPage'
+import TranslationMatrixPage from './features/i18n/TranslationMatrixPage'
 import ThemeSettingsPage from './features/settings/ThemeSettingsPage'
 import SiteSettingsPage from './features/settings/SiteSettingsPage'
 import UserPage from './features/users/UserPage'
@@ -50,7 +50,7 @@ const mediaRoute = createRoute({
 const translationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/translations',
-  component: TranslationTasksPage,
+  component: TranslationMatrixPage,
 })
 
 const themesRoute = createRoute({

@@ -681,3 +681,84 @@ button {
   gap: 0.3rem;
   color: #475569;
 }
+.matrix {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid #cbd5e1;
+}
+.matrix-filters {
+  display: flex;
+  gap: 0.4rem;
+}
+.matrix-table {
+  margin-top: 1rem;
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.matrix-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.matrix-table th,
+.matrix-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+}
+.matrix-table th {
+  background: #f8fafc;
+}
+.matrix-table small {
+  display: block;
+  color: #64748b;
+}
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+}
+.badge-missing {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.badge-pending,
+.badge-translating {
+  background: #fef3c7;
+  color: #92400e;
+}
+.badge-completed {
+  background: #d1fae5;
+  color: #065f46;
+}
+.badge-failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.badge-stale {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.5);
+}
+.confirm-box {
+  width: min(440px, calc(100% - 2rem));
+  padding: 1.5rem;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+}
+.confirm-box .warn {
+  color: #b45309;
+  font-weight: 600;
+}
