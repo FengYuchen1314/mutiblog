@@ -129,6 +129,8 @@ make lint && cd backend && go test ./...
 #### T1 · 拆分 `frontend/admin/src/main.tsx`
 `[T0]` · **1.5 人日**
 
+> ✅ 已完成（2026-08-10）：main.tsx 拆分为 api/client+types、components/Layout+MarkdownEditor+UserContext、12 个 feature 页面与 router.tsx，启用 TanStack Router（URL 与页面一一对应）。构建/ESLint/行长检查通过；交互点击验收待浏览器环境确认。
+
 现状：63 行、16 个组件、最长行 5653 字符。
 
 **目标结构**

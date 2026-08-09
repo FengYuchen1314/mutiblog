@@ -1,0 +1,101 @@
+// 后台路由树：每个管理页面对应一个 URL，刷新后保持当前位置。
+import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import Layout from './components/Layout'
+import DashboardPage from './features/dashboard/DashboardPage'
+import PostListPage from './features/posts/PostListPage'
+import PostEditorPage from './features/posts/PostEditorPage'
+import MediaPage from './features/media/MediaPage'
+import TranslationTasksPage from './features/i18n/TranslationTasksPage'
+import ThemeSettingsPage from './features/settings/ThemeSettingsPage'
+import SiteSettingsPage from './features/settings/SiteSettingsPage'
+import UserPage from './features/users/UserPage'
+import ImportPage from './features/system/ImportPage'
+import BackupPage from './features/system/BackupPage'
+import SystemActivityPage from './features/system/SystemActivityPage'
+
+const rootRoute = createRootRoute({ component: Layout })
+
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/',
+  component: DashboardPage,
+})
+
+const postsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/posts',
+  component: PostListPage,
+})
+
+const postEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/posts/$id',
+  component: () => {
+    const { id } = postEditRoute.useParams()
+    return <PostEditorPage id={id} />
+  },
+})
+
+const mediaRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/media',
+  component: MediaPage,
+})
+
+const translationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/translations',
+  component: TranslationTasksPage,
+})
+
+const themesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/themes',
+  component: ThemeSettingsPage,
+})
+
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  component: SiteSettingsPage,
+})
+
+const usersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/users',
+  component: UserPage,
+})
+
+const importRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/import',
+  component: ImportPage,
+})
+
+const backupsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/backups',
+  component: BackupPage,
+})
+
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/activity',
+  component: SystemActivityPage,
+})
+
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  postsRoute,
+  postEditRoute,
+  mediaRoute,
+  translationsRoute,
+  themesRoute,
+  settingsRoute,
+  usersRoute,
+  importRoute,
+  backupsRoute,
+  activityRoute,
+])
+
+export const router = createRouter({ routeTree })
