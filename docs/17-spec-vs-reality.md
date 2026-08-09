@@ -138,7 +138,7 @@ export function render(props) { return '<html string>' }
 
 | # | 规格说 | 实际是 | 处置 | 任务 |
 |---|---|---|---|---|
-| R1 | `docs/04 §1.1` 定义 16 种 `UnitKind` | 只有 5 种 kind | **按规格改造**，但只拆到 `home/category/tag/archive/links` 这 5 个必要的，不必凑满 16 | T8 |
+| R1 | `docs/04 §1.1` 定义 16 种 `UnitKind` | 只有 5 种 kind | ✅ 已完成（拆出 home/category/tag/archive/links，collection 保留为兜底） | T8 |
 | R2 | `docs/04 §3.3` 请求含 `unit/site/seo/props` 嵌套结构 | 扁平字段，无 `site`/`seo` 对象 | **采纳现状**。嵌套结构收益不大，改造会波及所有渲染路径 | — |
 | R3 | `docs/04 §3.4` 响应含 `meta{plainText,toc,wordCount}` | 只有 `{html}` | ✅ 已完成（/render 返回 html+meta+warnings；plainText 写入 release/.meta） | T6 |
 | R4 | `docs/04 §4.4` React 两遍渲染 + Island | 只有 `renderToStaticMarkup`，无 island 运行时 | ✅ 已完成（SSR data-island 标记 + 客户端按策略引导；模板为纯函数故无需两遍渲染） | T3 |
@@ -154,7 +154,7 @@ export function render(props) { return '<html string>' }
 | # | 规格说 | 实际是 | 处置 | 任务 |
 |---|---|---|---|---|
 | H1 | `docs/09 §1` React + TS 源码，Vite 双构建 | 只有 13 行手写 `dist/ssr/entry.js`，无 `src/` | ✅ 已完成（src/ + vite 双构建 + manifest，SSR bundle 自包含 react） | T2 |
-| H2 | `docs/09` 11 个模板 | 5 个 kind 可达，`theme.yaml` 的声明是空头支票 | ✅ 已完成 5 个可达 kind 的模板；T8 拆分后补到 10 个 | T2 → T8 |
+| H2 | `docs/09` 11 个模板 | 5 个 kind 可达，`theme.yaml` 的声明是空头支票 | ✅ 已完成（10 个模板：home/post/page/category/tag/archive/links/collection/search/not_found） | T2 → T8 |
 | H3 | `docs/09 §4.4` Islands + hydrate 策略 | 完全缺失（已发布页面 0 个 `<script>`） | ✅ 已完成（8 个 island + load/idle/visible 策略 + FOUC 防护；引导包 1.5KB gzip） | T3 |
 | H4 | `docs/09 §3` settings.schema.json | ✅ 已存在且后台能渲染表单 | **保持** | — |
 | H5 | 主题可控制 `<head>` 与样式 | CSS/head 全在 `server.js` 里 | ✅ 已完成（server.js 拆分为 src/ 五模块；样式移交主题，渲染器只保留元数据与 FOUC） | T4 |

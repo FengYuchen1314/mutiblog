@@ -450,6 +450,12 @@ cd backend && go test ./internal/render/... -run Deterministic -v
 #### T8 · 拆分 collection + 主题模板补全
 `[T2]` · **2.5 人日** · ⚠️ **这是前后端联合任务，不是纯主题工作**
 
+> ✅ 已完成（2026-08-10）：Go 侧拆出 home/category/tag/archive/links 五种 kind
+> （RenderHomePage/RenderCategoryPage/RenderTagPage/RenderArchivePage/RenderLinksPage），
+> collection 保留为兜底；render_test 用 payload 捕获服务器断言 kind 与专属 props。
+> 主题补齐 Home/Category/Tag/Archive/Links 模板。验收：五类页面 data-kind 各异，
+> rebuild+verify 通过。注：TASKS 验收循环里 archive/ 应为 archives/；Lighthouse 需浏览器环境。
+
 **背景**：首页 / 分类 / 标签 / 归档 / 友链目前全部走同一个 `kind: "collection"`，payload 里没有任何字段能区分。**主题在物理上无法为它们渲染不同布局。**
 
 **第一步：Go 侧拆分 kind（先做，约 1 人日）**

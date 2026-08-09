@@ -855,7 +855,18 @@ func (a *App) translationTargets(source model.Locale) []model.Locale {
 func (a *App) renderLocale(ctx context.Context, loc model.Locale) error {
 	posts := a.Index.PublishedPosts(loc)
 	prefix := a.localePrefix(loc)
-	items := articleItems(posts, loc, prefix)
+	pinnedPosts := make([]*model.Article, 0, len(posts))
+	regularPosts := make([]*model.Article, 0, len(posts))
+	for _, article := range posts {
+		v := article.Versions[loc]
+		if v != nil && v.Front.Pinned {
+			pinnedPosts = append(pinnedPosts, article)
+		} else {
+			regularPosts = append(regularPosts, article)
+		}
+	}
+	items := articleItems(regularPosts, loc, prefix)
+	pinnedItems := articleItems(pinnedPosts, loc, prefix)
 	perPage := a.Config.Site.PostsPerPage
 	if perPage < 1 {
 		perPage = 10
@@ -874,8 +885,8 @@ func (a *App) renderLocale(ctx context.Context, loc model.Locale) error {
 			extraPaths = append(extraPaths, "/"+prefix+"/"+relative+"/")
 		}
 		pageLinks := paginationFor(prefix, page, totalPages)
-		if _, err := a.Render.RenderPaginatedCollection(
-			ctx, loc, a.Config.Site.Title, items[start:end], relative, pageLinks,
+		if _, err := a.Render.RenderHomePage(
+			ctx, loc, a.Config.Site.Title, items[start:end], pinnedItems, &pageLinks, relative,
 		); err != nil {
 			return err
 		}
@@ -983,8 +994,16 @@ func (a *App) localePrefix(locale model.Locale) string {
 
 func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix string, extraPaths *[]string) error {
 	postItems := func(posts []*model.Article) []render.HomeItem { return articleItems(posts, loc, prefix) }
+	url := func(relative string) string { return "/" + prefix + "/" + relative + "/" }
+
 	categories := a.Index.Categories()
 	categoryIndex := make([]render.HomeItem, 0, len(categories))
+	categoryByParent := map[string][]*model.Category{}
+	for _, category := range categories {
+		if category.Parent != "" {
+			categoryByParent[category.Parent] = append(categoryByParent[category.Parent], category)
+		}
+	}
 	for _, category := range categories {
 		slug := category.Slug
 		if slug == "" {
@@ -1011,12 +1030,47 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 				Status:   []model.Status{model.StatusPublished},
 			},
 		)
-		if _, err := a.Render.RenderCollection(ctx, loc, name, postItems(posts), relative); err != nil {
+		children := make([]render.HomeItem, 0)
+		for _, child := range categoryByParent[category.ID] {
+			childSlug := child.Slug
+			if childSlug == "" {
+				childSlug = child.ID
+			}
+			children = append(
+				children,
+				render.HomeItem{
+					Title: child.Name.Get(loc, model.Locale(childSlug)),
+					URL:   url("categories/" + childSlug),
+				},
+			)
+		}
+		breadcrumb := []render.BreadcrumbItem{
+			{Name: "Categories", URL: url("categories")},
+			{Name: name, URL: url(relative)},
+		}
+		props := render.CategoryProps{
+			ID:          category.ID,
+			Name:        name,
+			Slug:        slug,
+			Description: category.Description.Get(loc, ""),
+		}
+		if _, err := a.Render.RenderCategoryPage(
+			ctx, loc, name, props, breadcrumb, children, postItems(posts), relative,
+		); err != nil {
 			return err
 		}
 		*extraPaths = append(*extraPaths, "/"+prefix+"/"+relative+"/")
 	}
-	if _, err := a.Render.RenderCollection(ctx, loc, "Categories", categoryIndex, "categories"); err != nil {
+	if _, err := a.Render.RenderCategoryPage(
+		ctx,
+		loc,
+		"Categories",
+		render.CategoryProps{Name: "Categories", Slug: "categories"},
+		nil,
+		categoryIndex,
+		nil,
+		"categories",
+	); err != nil {
 		return err
 	}
 	*extraPaths = append(*extraPaths, "/"+prefix+"/categories/")
@@ -1049,12 +1103,25 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 				Status: []model.Status{model.StatusPublished},
 			},
 		)
-		if _, err := a.Render.RenderCollection(ctx, loc, name, postItems(posts), relative); err != nil {
+		props := render.TagProps{
+			ID:          tag.ID,
+			Name:        name,
+			Slug:        slug,
+			Description: tag.Description.Get(loc, ""),
+		}
+		if _, err := a.Render.RenderTagPage(ctx, loc, name, props, postItems(posts), relative); err != nil {
 			return err
 		}
 		*extraPaths = append(*extraPaths, "/"+prefix+"/"+relative+"/")
 	}
-	if _, err := a.Render.RenderCollection(ctx, loc, "Tags", tagIndex, "tags"); err != nil {
+	if _, err := a.Render.RenderTagPage(
+		ctx,
+		loc,
+		"Tags",
+		render.TagProps{Name: "Tags", Slug: "tags"},
+		tagIndex,
+		"tags",
+	); err != nil {
 		return err
 	}
 	*extraPaths = append(*extraPaths, "/"+prefix+"/tags/")
@@ -1068,44 +1135,85 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 			article,
 		)
 	}
-	keys := make([]monthKey, 0, len(months))
-	for key := range months {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		return keys[i].year > keys[j].year || (keys[i].year == keys[j].year && keys[i].month > keys[j].month)
-	})
-	archiveIndex := make([]render.HomeItem, 0, len(keys))
-	for _, key := range keys {
-		relative := fmt.Sprintf("archives/%04d/%02d", key.year, key.month)
-		title := fmt.Sprintf("%04d-%02d", key.year, key.month)
-		archiveIndex = append(
-			archiveIndex,
-			render.HomeItem{
-				Title:       title,
-				Description: fmt.Sprintf("%d posts", len(months[key])),
-				URL:         "/" + prefix + "/" + relative + "/",
+	yearCount := map[int]int{}
+	monthByYear := map[int][]render.ArchiveMonth{}
+	for key, articles := range months {
+		yearCount[key.year] += len(articles)
+		monthByYear[key.year] = append(
+			monthByYear[key.year],
+			render.ArchiveMonth{
+				Month: key.month,
+				Count: len(articles),
+				URL:   url(fmt.Sprintf("archives/%04d/%02d", key.year, key.month)),
 			},
 		)
-		if _, err := a.Render.RenderCollection(ctx, loc, title, postItems(months[key]), relative); err != nil {
+	}
+	years := make([]render.ArchiveYear, 0, len(yearCount))
+	for year, count := range yearCount {
+		monthList := monthByYear[year]
+		sort.Slice(monthList, func(i, j int) bool { return monthList[i].Month > monthList[j].Month })
+		years = append(years, render.ArchiveYear{Year: year, Count: count, Months: monthList})
+	}
+	sort.Slice(years, func(i, j int) bool { return years[i].Year > years[j].Year })
+	if _, err := a.Render.RenderArchivePage(
+		ctx, loc, "Archive", "all", 0, 0, years, nil, "archives",
+	); err != nil {
+		return err
+	}
+	*extraPaths = append(*extraPaths, "/"+prefix+"/archives/")
+	for key, articles := range months {
+		relative := fmt.Sprintf("archives/%04d/%02d", key.year, key.month)
+		title := fmt.Sprintf("%04d-%02d", key.year, key.month)
+		if _, err := a.Render.RenderArchivePage(
+			ctx, loc, title, "month", key.year, key.month, years, postItems(articles), relative,
+		); err != nil {
 			return err
 		}
 		*extraPaths = append(*extraPaths, "/"+prefix+"/"+relative+"/")
 	}
-	if _, err := a.Render.RenderCollection(ctx, loc, "Archive", archiveIndex, "archives"); err != nil {
-		return err
-	}
-	*extraPaths = append(*extraPaths, "/"+prefix+"/archives/")
 
 	links := a.Index.Links()
-	linkItems := make([]render.HomeItem, 0, len(links))
-	for _, link := range links {
-		linkItems = append(
-			linkItems,
-			render.HomeItem{Title: link.Name, Description: link.Description.Get(loc, ""), URL: link.URL},
-		)
+	linkGroups := a.Index.LinkGroups()
+	groupNames := map[string]string{}
+	for _, group := range linkGroups {
+		groupNames[group.ID] = group.Name.Get(loc, model.Locale(group.ID))
 	}
-	if _, err := a.Render.RenderCollection(ctx, loc, "Links", linkItems, "links"); err != nil {
+	groups := make([]render.LinkGroupItem, 0, len(linkGroups)+1)
+	ungrouped := render.LinkGroupItem{ID: "other", Name: "其他"}
+	for _, link := range links {
+		item := render.LinkItem{
+			Name:        link.Name,
+			URL:         link.URL,
+			Logo:        link.Logo,
+			Description: link.Description.Get(loc, ""),
+		}
+		if link.Group != "" && groupNames[link.Group] != "" {
+			placed := false
+			for i := range groups {
+				if groups[i].ID == link.Group {
+					groups[i].Links = append(groups[i].Links, item)
+					placed = true
+					break
+				}
+			}
+			if !placed {
+				groups = append(
+					groups,
+					render.LinkGroupItem{
+						ID:    link.Group,
+						Name:  groupNames[link.Group],
+						Links: []render.LinkItem{item},
+					},
+				)
+			}
+		} else {
+			ungrouped.Links = append(ungrouped.Links, item)
+		}
+	}
+	if len(ungrouped.Links) > 0 {
+		groups = append(groups, ungrouped)
+	}
+	if _, err := a.Render.RenderLinksPage(ctx, loc, "Links", groups, "links"); err != nil {
 		return err
 	}
 	*extraPaths = append(*extraPaths, "/"+prefix+"/links/")

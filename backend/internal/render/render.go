@@ -517,6 +517,46 @@ type HomeItem struct {
 	URL         string `json:"url"`
 }
 
+// CategoryProps carries the rendered category's own metadata.
+type CategoryProps struct {
+	ID, Name, Slug, Description string
+}
+
+// TagProps carries the rendered tag's own metadata.
+type TagProps struct {
+	ID, Name, Slug, Description string
+}
+
+// BreadcrumbItem is one step in a taxonomy breadcrumb trail.
+type BreadcrumbItem struct {
+	Name, URL string
+}
+
+// ArchiveYear groups months under a year for the archive timeline.
+type ArchiveYear struct {
+	Year   int            `json:"year"`
+	Count  int            `json:"count"`
+	Months []ArchiveMonth `json:"months"`
+}
+
+// ArchiveMonth is a single month entry in the archive timeline.
+type ArchiveMonth struct {
+	Month int    `json:"month"`
+	Count int    `json:"count"`
+	URL   string `json:"url"`
+}
+
+// LinkGroupItem is a named group of friend links.
+type LinkGroupItem struct {
+	ID, Name string
+	Links    []LinkItem
+}
+
+// LinkItem is a single friend link.
+type LinkItem struct {
+	Name, URL, Logo, Description string
+}
+
 type PaginationLink struct {
 	Page    int    `json:"page"`
 	URL     string `json:"url"`
@@ -530,6 +570,219 @@ type Pagination struct {
 
 func (s *Service) RenderHome(ctx context.Context, locale model.Locale, title string, items []HomeItem) (string, error) {
 	return s.RenderCollection(ctx, locale, title, items, "")
+}
+
+// renderPage POSTs a page payload to the Node renderer and atomically writes
+// the returned HTML to path.
+func (s *Service) renderPage(ctx context.Context, payload map[string]any, path string) error {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		"http://unix/render",
+		bytes.NewReader(encoded),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("renderer returned %s", res.Status)
+	}
+	var response struct {
+		HTML string `json:"html"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		return err
+	}
+	return fsutil.AtomicWrite(path, []byte(response.HTML), 0o644)
+}
+
+func (s *Service) pagePayload(
+	kind string,
+	locale model.Locale,
+	title string,
+	extra map[string]any,
+) map[string]any {
+	themeName, themeDir := s.themeIdentity()
+	payload := map[string]any{
+		"kind":      kind,
+		"title":     title,
+		"locale":    locale,
+		"theme":     s.themeSettings(),
+		"themeName": themeName,
+		"themeDir":  themeDir,
+	}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	return payload
+}
+
+// RenderHomePage writes the locale home with a dedicated "home" kind,
+// a separate pinned section, and static pagination.
+func (s *Service) RenderHomePage(
+	ctx context.Context,
+	locale model.Locale,
+	title string,
+	items, pinned []HomeItem,
+	pagination *Pagination,
+	relative string,
+) (string, error) {
+	canonical := s.siteURL(locale)
+	if relative != "" {
+		canonical = s.siteURL(locale, strings.Trim(relative, "/"))
+	}
+	payload := s.pagePayload(
+		"home",
+		locale,
+		title,
+		map[string]any{
+			"items":      items,
+			"pinned":     pinned,
+			"pagination": pagination,
+			"canonical":  canonical,
+			"alternates": s.collectionAlternates(relative),
+		},
+	)
+	path := filepath.Join(
+		s.Output(),
+		s.localePrefix(locale),
+		filepath.FromSlash(relative),
+		"index.html",
+	)
+	return path, s.renderPage(ctx, payload, path)
+}
+
+// RenderCategoryPage writes a category page with breadcrumb, children, and
+// its published posts.
+func (s *Service) RenderCategoryPage(
+	ctx context.Context,
+	locale model.Locale,
+	title string,
+	category CategoryProps,
+	breadcrumb []BreadcrumbItem,
+	children, items []HomeItem,
+	relative string,
+) (string, error) {
+	payload := s.pagePayload(
+		"category",
+		locale,
+		title,
+		map[string]any{
+			"category":   category,
+			"breadcrumb": breadcrumb,
+			"children":   children,
+			"items":      items,
+			"canonical":  s.siteURL(locale, strings.Trim(relative, "/")),
+			"alternates": s.collectionAlternates(relative),
+		},
+	)
+	path := filepath.Join(
+		s.Output(),
+		s.localePrefix(locale),
+		filepath.FromSlash(relative),
+		"index.html",
+	)
+	return path, s.renderPage(ctx, payload, path)
+}
+
+// RenderTagPage writes a tag page with its metadata and published posts.
+func (s *Service) RenderTagPage(
+	ctx context.Context,
+	locale model.Locale,
+	title string,
+	tag TagProps,
+	items []HomeItem,
+	relative string,
+) (string, error) {
+	payload := s.pagePayload(
+		"tag",
+		locale,
+		title,
+		map[string]any{
+			"tag":        tag,
+			"items":      items,
+			"canonical":  s.siteURL(locale, strings.Trim(relative, "/")),
+			"alternates": s.collectionAlternates(relative),
+		},
+	)
+	path := filepath.Join(
+		s.Output(),
+		s.localePrefix(locale),
+		filepath.FromSlash(relative),
+		"index.html",
+	)
+	return path, s.renderPage(ctx, payload, path)
+}
+
+// RenderArchivePage writes the archive timeline (scope "all") or a single
+// month listing (scope "month").
+func (s *Service) RenderArchivePage(
+	ctx context.Context,
+	locale model.Locale,
+	title, scope string,
+	year, month int,
+	years []ArchiveYear,
+	items []HomeItem,
+	relative string,
+) (string, error) {
+	payload := s.pagePayload(
+		"archive",
+		locale,
+		title,
+		map[string]any{
+			"scope":      scope,
+			"year":       year,
+			"month":      month,
+			"years":      years,
+			"items":      items,
+			"canonical":  s.siteURL(locale, strings.Trim(relative, "/")),
+			"alternates": s.collectionAlternates(relative),
+		},
+	)
+	path := filepath.Join(
+		s.Output(),
+		s.localePrefix(locale),
+		filepath.FromSlash(relative),
+		"index.html",
+	)
+	return path, s.renderPage(ctx, payload, path)
+}
+
+// RenderLinksPage writes the friend-link board grouped by group.
+func (s *Service) RenderLinksPage(
+	ctx context.Context,
+	locale model.Locale,
+	title string,
+	groups []LinkGroupItem,
+	relative string,
+) (string, error) {
+	payload := s.pagePayload(
+		"links",
+		locale,
+		title,
+		map[string]any{
+			"groups":     groups,
+			"canonical":  s.siteURL(locale, strings.Trim(relative, "/")),
+			"alternates": s.collectionAlternates(relative),
+		},
+	)
+	path := filepath.Join(
+		s.Output(),
+		s.localePrefix(locale),
+		filepath.FromSlash(relative),
+		"index.html",
+	)
+	return path, s.renderPage(ctx, payload, path)
 }
 
 // RenderNotFound produces the locale-scoped static fallback consumed by a
