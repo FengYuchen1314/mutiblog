@@ -732,6 +732,8 @@ func (s *Server) systemLogs(w http.ResponseWriter, r *http.Request) {
 	if limit > 500 {
 		limit = 500
 	}
+	level := strings.TrimSpace(r.URL.Query().Get("level"))
+	component := strings.TrimSpace(r.URL.Query().Get("component"))
 	type entry struct {
 		ID        int64  `json:"id"`
 		Level     string `json:"level"`
@@ -743,8 +745,9 @@ func (s *Server) systemLogs(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.State.Read().
 		QueryContext(
 			r.Context(),
-			"SELECT id,level,component,message,COALESCE(detail,''),created_at FROM system_log ORDER BY id DESC LIMIT ?",
-			limit,
+			"SELECT id,level,component,message,COALESCE(detail,''),created_at FROM system_log "+
+				"WHERE (?='' OR level=?) AND (?='' OR component=?) ORDER BY id DESC LIMIT ?",
+			level, level, component, component, limit,
 		)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "LOGS_READ_FAILED", "system logs could not be read")
@@ -1046,6 +1049,8 @@ func (s *Server) posts(w http.ResponseWriter, r *http.Request) {
 				"date":           version.Front.Date,
 				"locale":         loc,
 				"sourceRevision": article.SourceRev,
+				"categories":     version.Front.Categories,
+				"tags":           version.Front.Tags,
 			},
 		)
 	}

@@ -1222,6 +1222,8 @@ export interface components {
             /** Format: date-time */
             date?: string;
             sourceRevision?: number;
+            categories?: string[];
+            tags?: string[];
         };
         PostDetail: {
             /** Format: uuid */

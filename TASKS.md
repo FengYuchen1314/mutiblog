@@ -575,6 +575,11 @@ Lighthouse 文章页：Performance ≥ 90、Accessibility ≥ 95、SEO = 100。
 #### T13 · 回收站与日志页
 `[T1]` · **1 人日**
 
+> ✅ 已完成（2026-08-10）：回收站页（恢复/永久删除）；日志页（系统日志/审计双 Tab，
+> 级别/组件/操作者/动作筛选）；文章列表补齐状态 Tab、分类/标签/语言筛选与批量
+> 发布/删除操作条。后端 systemLogs 支持 level/component 筛选，posts 摘要含
+> categories/tags。
+
 - 回收站：列表 + 恢复 + 永久删除（后端 `/restore` `/purge` 已有）
 - 日志页：系统日志 + 审计日志双 Tab，按 level/component 筛选分页（后端 `/system/logs` `/system/audit` 已有）
 - 文章列表补齐：状态 Tab、分类/标签/语言筛选、批量操作条

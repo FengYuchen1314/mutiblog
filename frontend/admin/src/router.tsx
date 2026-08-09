@@ -14,6 +14,8 @@ import TagPage from './features/tags/TagPage'
 import MenuPage from './features/menus/MenuPage'
 import LinkPage from './features/links/LinkPage'
 import PagesPage from './features/pages/PagesPage'
+import TrashPage from './features/system/TrashPage'
+import LogPage from './features/system/LogPage'
 import ImportPage from './features/system/ImportPage'
 import BackupPage from './features/system/BackupPage'
 import SystemActivityPage from './features/system/SystemActivityPage'
@@ -101,6 +103,18 @@ const pagesRoute = createRoute({
   component: PagesPage,
 })
 
+const trashRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/trash',
+  component: TrashPage,
+})
+
+const logsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/logs',
+  component: LogPage,
+})
+
 const importRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/import',
@@ -133,6 +147,8 @@ const routeTree = rootRoute.addChildren([
   menusRoute,
   linksRoute,
   pagesRoute,
+  trashRoute,
+  logsRoute,
   importRoute,
   backupsRoute,
   activityRoute,

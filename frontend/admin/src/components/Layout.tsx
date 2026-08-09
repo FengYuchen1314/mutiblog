@@ -18,6 +18,8 @@ export default function Layout() {
         <Link to="/menus">菜单</Link>
         <Link to="/links">友链</Link>
         <Link to="/pages">页面</Link>
+        <Link to="/trash">回收站</Link>
+        <Link to="/logs">日志</Link>
         <Link to="/import">导入</Link>
         <Link to="/backups">备份</Link>
         <Link to="/activity">活动</Link>

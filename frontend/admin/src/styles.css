@@ -762,3 +762,49 @@ button {
   color: #b45309;
   font-weight: 600;
 }
+.post-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+.trash,
+.logs {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid #cbd5e1;
+}
+.log-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.log-filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+.log-list {
+  display: grid;
+  gap: 0.5rem;
+}
+.log-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 0.9rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.log-item span {
+  margin-left: 0.5rem;
+  color: #475569;
+}
+.log-item small {
+  color: #64748b;
+  white-space: nowrap;
+}
