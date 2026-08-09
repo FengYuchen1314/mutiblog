@@ -319,6 +319,10 @@ grep -c '<script' generated/public/zh-cn/404.html   # 应为 0 或仅 FOUC 脚�
 #### T4 · 渲染器瘦身与职责分离
 `[T2, T3]` · **1 人日**
 
+> ✅ 已完成（2026-08-10）：frontend/renderer 拆分 src/{server,markdown,render,html,theme}.js；
+> 内联 CSS/模板/搜索 JS 全部移除，主题负责样式与页面结构，渲染器保留 Markdown 管线、
+> SEO head 组装、主题加载缓存与单个内置兜底页。Go 侧 worker 路径更新，Dockerfile 同步。
+
 现状：`server.js` 152 行，但 `render()` 是一个 5040 字符的单行函数，内含整套 CSS + 6 种页面的 HTML 模板。
 
 **目标结构**

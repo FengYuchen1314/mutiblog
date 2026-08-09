@@ -157,7 +157,7 @@ export function render(props) { return '<html string>' }
 | H2 | `docs/09` 11 个模板 | 5 个 kind 可达，`theme.yaml` 的声明是空头支票 | ✅ 已完成 5 个可达 kind 的模板；T8 拆分后补到 10 个 | T2 → T8 |
 | H3 | `docs/09 §4.4` Islands + hydrate 策略 | 完全缺失（已发布页面 0 个 `<script>`） | ✅ 已完成（8 个 island + load/idle/visible 策略 + FOUC 防护；引导包 1.5KB gzip） | T3 |
 | H4 | `docs/09 §3` settings.schema.json | ✅ 已存在且后台能渲染表单 | **保持** | — |
-| H5 | 主题可控制 `<head>` 与样式 | CSS/head 全在 `server.js` 里 | **按规格改造** | T4 |
+| H5 | 主题可控制 `<head>` 与样式 | CSS/head 全在 `server.js` 里 | ✅ 已完成（server.js 拆分为 src/ 五模块；样式移交主题，渲染器只保留元数据与 FOUC） | T4 |
 
 ### 3.3 管理后台（🔴）
 

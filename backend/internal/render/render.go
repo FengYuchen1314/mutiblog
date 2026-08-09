@@ -212,7 +212,7 @@ func (s *Service) Start(ctx context.Context) error {
 	if len(args) > 0 && !filepath.IsAbs(args[0]) {
 		candidate := filepath.Join(s.root, args[0])
 		if _, err := os.Stat(candidate); os.IsNotExist(err) {
-			candidate = filepath.Join(s.root, "frontend", "renderer", "server.js")
+			candidate = filepath.Join(s.root, "frontend", "renderer", "src", "server.js")
 		}
 		args[0] = candidate
 	}

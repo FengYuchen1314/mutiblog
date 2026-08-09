@@ -10,7 +10,7 @@ FROM node:22-alpine AS renderer
 WORKDIR /src/frontend/renderer
 COPY frontend/renderer/package.json frontend/renderer/package-lock.json ./
 RUN npm ci --omit=dev
-COPY frontend/renderer/server.js ./server.js
+COPY frontend/renderer/src ./src
 
 FROM golang:1.23-alpine AS build
 WORKDIR /src
