@@ -39,5 +39,11 @@ export async function render(props) {
   if (!content) content = fallbackContent(props, body)
   const themeUrls = await themeAssetUrls(props.themeDir)
   const islandScripts = content.includes('data-island') ? themeUrls.scripts : ''
-  return buildHtml({ props, content, themeUrls, islandScripts })
+  const islands = [...new Set([...content.matchAll(/data-island="([^"]+)"/g)].map((m) => m[1]))]
+  const meta = { ...markdownResult.meta, islands }
+  return {
+    html: buildHtml({ props, content, themeUrls, islandScripts }),
+    meta,
+    warnings: markdownResult.warnings,
+  }
 }

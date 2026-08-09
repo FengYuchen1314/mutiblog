@@ -135,12 +135,76 @@ function remarkMermaidToIsland() {
   }
 }
 
+function collectText(node) {
+  let out = ''
+  const walk = (n) => {
+    if (!n || typeof n !== 'object') return
+    if (n.type === 'text' || n.type === 'raw') out += String(n.value)
+    for (const child of n.children || []) walk(child)
+  }
+  walk(node)
+  return out
+}
+
+function countWords(text) {
+  const cjk = (text.match(/[\u3400-\u4dbf\u4e00-\u9fff]/g) || []).length
+  const latin = (
+    text
+      .replace(/[\u3400-\u4dbf\u4e00-\u9fff]/g, ' ')
+      .match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) || []
+  ).length
+  return cjk + latin
+}
+
+function extractMeta(tree, html) {
+  const toc = []
+  const plain = []
+  const walk = (node, inCode) => {
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'element') {
+      const tag = node.tagName
+      const codeContext = inCode || tag === 'pre' || tag === 'code'
+      if ((tag === 'h2' || tag === 'h3') && node.properties?.id) {
+        const text = collectText(node).trim()
+        if (text) {
+          toc.push({
+            depth: tag === 'h2' ? 2 : 3,
+            id: node.properties.id,
+            text,
+            children: [],
+          })
+        }
+      }
+      for (const child of node.children || []) walk(child, codeContext)
+      return
+    }
+    if (node.type === 'text' || node.type === 'raw') {
+      if (!inCode) plain.push(String(node.value))
+      return
+    }
+    for (const child of node.children || []) walk(child, inCode)
+  }
+  walk(tree, false)
+  const plainText = plain.join(' ').replace(/\s+/g, ' ').trim()
+  const wordCount = countWords(plainText)
+  const islands = [...new Set([...html.matchAll(/data-island="([^"]+)"/g)].map((m) => m[1]))]
+  return {
+    plainText,
+    excerpt: plainText.slice(0, 160),
+    toc,
+    wordCount,
+    readingMinutes: Math.max(1, Math.round(wordCount / 300)),
+    islands,
+  }
+}
+
 /**
  * 渲染 Markdown 为 HTML。
- * 返回 { html }；options 支持 katex/mermaid/externalLinksNewTab/headingAnchors/shiki。
+ * 返回 { html, meta, warnings }；options 支持 katex/mermaid/externalLinksNewTab/headingAnchors/shiki。
  */
 export async function renderMarkdown(source = '', options = {}) {
   const warnings = []
+  let captured = null
   const file = await unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -173,8 +237,12 @@ export async function renderMarkdown(source = '', options = {}) {
       target: '_blank',
       rel: ['noopener', 'noreferrer'],
     })
+    .use(() => (tree) => {
+      captured = tree
+    })
     .use(rehypeStringify)
     .process(String(source))
   for (const warning of warnings) console.warn('markdown shiki:', warning)
-  return { html: String(file) }
+  const html = String(file)
+  return { html, meta: extractMeta(captured, html), warnings }
 }

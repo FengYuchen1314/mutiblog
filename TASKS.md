@@ -364,6 +364,11 @@ node -e "import('./frontend/renderer/src/markdown.js').then(m=>m.renderMarkdown(
 #### T5 · 真正的搜索索引
 `[T3]` · **1 人日**
 
+> ✅ 已完成（2026-08-10）：search-index.json 采用单字母字段 {i,t,d,u,c,g,p,dt}，
+> p 来自 renderer meta.plainText（截断到 bodyCharsPerDoc）；Search island 用 MiniSearch，
+> 首次输入才 fetch；超 maxIndexSizeMB 时丢弃 p 并告警。
+> 注：TASKS 验收命令写的 d['docs'] 与实际数组格式不符，以实际数组 + MiniSearch 为准。
+
 现状：renderer 内联 `.includes()` 子串匹配。
 
 **做什么**
@@ -384,6 +389,10 @@ python3 -c "import json;d=json.load(open('generated/public/zh-cn/search-index.js
 
 #### T6 · renderer 返回结构化元数据
 `[T4]` · **0.5 人日**
+
+> ✅ 已完成（2026-08-10）：/render 返回 {html, meta{plainText,excerpt,toc,wordCount,
+> readingMinutes,islands}, warnings}；plainText 排除代码块；Go 侧把 plainText 写入
+> <release>/.meta/<locale>/<id>.txt 供搜索索引复用。
 
 renderer 的 `/render` 响应目前只有 `{html}`，需要补齐（`docs/04 §3.4`）：
 

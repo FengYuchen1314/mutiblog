@@ -1,10 +1,13 @@
-// 搜索 island：首次输入时才拉取索引并做子串匹配（T5 升级为 MiniSearch）。
+// 搜索 island：首次输入时才拉取索引并用 MiniSearch 检索正文。
 import { useEffect, useRef, useState } from 'react'
+import MiniSearch from 'minisearch'
 
 type SearchDoc = {
-  title?: string
-  url?: string
-  description?: string
+  i?: string
+  t?: string
+  d?: string
+  u?: string
+  p?: string
 }
 
 export default function Search({
@@ -16,7 +19,7 @@ export default function Search({
 }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchDoc[]>([])
-  const indexRef = useRef<SearchDoc[] | null>(null)
+  const engineRef = useRef<MiniSearch<SearchDoc> | null>(null)
   useEffect(() => {
     let cancelled = false
     if (!query.trim()) {
@@ -24,20 +27,22 @@ export default function Search({
       return
     }
     const run = async () => {
-      if (!indexRef.current && indexURL) {
-        indexRef.current = await fetch(indexURL)
+      if (!engineRef.current && indexURL) {
+        const docs = await fetch(indexURL)
           .then((r) => (r.ok ? r.json() : []))
           .catch(() => [])
+        const engine = new MiniSearch<SearchDoc>({
+          fields: ['t', 'd', 'p'],
+          storeFields: ['i', 't', 'd', 'u', 'p'],
+          searchOptions: { prefix: true, fuzzy: 0.2 },
+        })
+        engine.addAll(docs)
+        engineRef.current = engine
       }
       if (cancelled) return
       const q = query.trim().toLowerCase()
-      const found = (indexRef.current || [])
-        .filter((doc) =>
-          String((doc.title || '') + ' ' + (doc.description || ''))
-            .toLowerCase()
-            .includes(q),
-        )
-        .slice(0, 20)
+      const found = engineRef.current ? engineRef.current.search(q) : []
+      setResults(found.map((hit) => hit as unknown as SearchDoc).slice(0, 20))
       setResults(found)
     }
     void run()
@@ -58,8 +63,8 @@ export default function Search({
       <ul className="search-results">
         {results.map((doc, index) => (
           <li key={index}>
-            <a href={doc.url}>{doc.title}</a>
-            {doc.description && <p>{doc.description}</p>}
+            <a href={doc.u}>{doc.t}</a>
+            {doc.d && <p>{doc.d}</p>}
           </li>
         ))}
       </ul>

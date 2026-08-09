@@ -140,11 +140,11 @@ export function render(props) { return '<html string>' }
 |---|---|---|---|---|
 | R1 | `docs/04 §1.1` 定义 16 种 `UnitKind` | 只有 5 种 kind | **按规格改造**，但只拆到 `home/category/tag/archive/links` 这 5 个必要的，不必凑满 16 | T8 |
 | R2 | `docs/04 §3.3` 请求含 `unit/site/seo/props` 嵌套结构 | 扁平字段，无 `site`/`seo` 对象 | **采纳现状**。嵌套结构收益不大，改造会波及所有渲染路径 | — |
-| R3 | `docs/04 §3.4` 响应含 `meta{plainText,toc,wordCount}` | 只有 `{html}` | **按规格改造**，搜索索引和 TOC 都依赖它 | T6 |
+| R3 | `docs/04 §3.4` 响应含 `meta{plainText,toc,wordCount}` | 只有 `{html}` | ✅ 已完成（/render 返回 html+meta+warnings；plainText 写入 release/.meta） | T6 |
 | R4 | `docs/04 §4.4` React 两遍渲染 + Island | 只有 `renderToStaticMarkup`，无 island 运行时 | ✅ 已完成（SSR data-island 标记 + 客户端按策略引导；模板为纯函数故无需两遍渲染） | T3 |
 | R5 | `docs/04 §4.2` Shiki + transformers | ✅ 已实现（含双主题 CSS 变量、语言标签、行号 CSS） | **保持** | — |
 | R6 | `docs/04 §4.2` 勘误：`transformerCopyButton` 不存在 | 实现方未踩坑，用了 CSS + 计划中的 island | **保持** | — |
-| R7 | `docs/04 §7.3` 搜索用 MiniSearch + 索引 | renderer 内联 `.includes()` 子串匹配 | **按规格改造** | T5 |
+| R7 | `docs/04 §7.3` 搜索用 MiniSearch + 索引 | renderer 内联 `.includes()` 子串匹配 | ✅ 已完成（单字母字段索引 + plainText 正文 + MiniSearch island + 体积护栏） | T5 |
 | R8 | `docs/04 §5.2` release + symlink 原子切换 | ✅ 已实现 | **保持** | — |
 | R9 | `docs/04 §4.2` 图片 `width`/`height` 注入 | 未实现 | **按规格改造** | T7 |
 | R10 | `docs/04 §2` `AffectedUnits` 增量依赖计算 | ⚠️ 需单独核实覆盖度 | 做 T8 时一并检查，改完跑 `verify` | T8 |

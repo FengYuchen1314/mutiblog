@@ -39,12 +39,14 @@ const server = http.createServer((req, res) => {
           (typeof props.markdown === 'string' ? props.markdown : '')
         const options =
           props.markdownOptions || (typeof props.markdown === 'object' ? props.markdown : {})
-        const html =
+        const result =
+          req.url === '/markdown' ? await renderMarkdown(source, options) : await render(props)
+        const payload =
           req.url === '/markdown'
-            ? (await renderMarkdown(source, options)).html
-            : await render(props)
+            ? { html: result.html }
+            : { html: result.html, meta: result.meta, warnings: result.warnings }
         res.writeHead(200, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ html }))
+        res.end(JSON.stringify(payload))
       } catch (err) {
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: String(err) }))

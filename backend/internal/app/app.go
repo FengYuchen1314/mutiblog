@@ -893,15 +893,17 @@ func (a *App) renderLocale(ctx context.Context, loc model.Locale) error {
 		}
 	}
 	generator := &feed.Generator{
-		Output:        a.Render.Output(),
-		BaseURL:       a.Config.Server.BaseURL,
-		SiteTitle:     a.Config.Site.Title,
-		Index:         a.Index,
-		ExtraURLs:     extraPaths,
-		Prefix:        prefix,
-		RobotsTxt:     a.Config.SEO.RobotsTxt,
-		Prefixes:      prefixes,
-		DefaultLocale: model.Locale(a.Config.I18n.DefaultLocale),
+		Output:          a.Render.Output(),
+		BaseURL:         a.Config.Server.BaseURL,
+		SiteTitle:       a.Config.Site.Title,
+		Index:           a.Index,
+		ExtraURLs:       extraPaths,
+		Prefix:          prefix,
+		RobotsTxt:       a.Config.SEO.RobotsTxt,
+		Prefixes:        prefixes,
+		DefaultLocale:   model.Locale(a.Config.I18n.DefaultLocale),
+		BodyCharsPerDoc: a.Config.Search.BodyCharsPerDoc,
+		MaxIndexSizeMB:  a.Config.Search.MaxIndexSizeMB,
 	}
 	return generator.Generate(
 		loc,

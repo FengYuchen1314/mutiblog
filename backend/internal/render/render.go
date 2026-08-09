@@ -367,6 +367,10 @@ func (s *Service) Render(ctx context.Context, article *model.Article, loc model.
 	}
 	var response struct {
 		HTML string `json:"html"`
+		Meta struct {
+			PlainText string `json:"plainText"`
+		} `json:"meta"`
+		Warnings []string `json:"warnings"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
 		return "", err
@@ -380,6 +384,15 @@ func (s *Service) Render(ctx context.Context, article *model.Article, loc model.
 	path := filepath.Join(parts...)
 	if err := fsutil.AtomicWrite(path, []byte(response.HTML), 0o644); err != nil {
 		return "", err
+	}
+	if response.Meta.PlainText != "" {
+		metaPath := filepath.Join(s.Output(), ".meta", string(loc), string(article.ID)+".txt")
+		if err := fsutil.AtomicWrite(metaPath, []byte(response.Meta.PlainText), 0o644); err != nil {
+			return "", err
+		}
+	}
+	if len(response.Warnings) > 0 {
+		slog.Warn("renderer warnings", "article", article.ID, "locale", loc, "warnings", response.Warnings)
 	}
 	return path, nil
 }

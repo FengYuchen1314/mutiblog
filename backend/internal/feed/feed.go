@@ -4,13 +4,16 @@ package feed
 import (
 	"encoding/json"
 	"encoding/xml"
-	"github.com/fengyuchen/mutiblog/internal/fsutil"
-	"github.com/fengyuchen/mutiblog/internal/index"
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/fengyuchen/mutiblog/internal/fsutil"
+	"github.com/fengyuchen/mutiblog/internal/index"
+	"github.com/fengyuchen/mutiblog/internal/model"
 )
 
 type Generator struct {
@@ -21,6 +24,8 @@ type Generator struct {
 	RobotsTxt                  string
 	Prefixes                   map[model.Locale]string
 	DefaultLocale              model.Locale
+	BodyCharsPerDoc            int
+	MaxIndexSizeMB             int
 }
 type rss struct {
 	XMLName xml.Name   `xml:"rss"`
@@ -37,6 +42,24 @@ type rssItem struct {
 	Link        string `xml:"link"`
 	Description string `xml:"description"`
 	PubDate     string `xml:"pubDate"`
+}
+
+// plainTextFor reads the renderer-published plain-text sidecar for one article
+// and truncates it to the configured search body budget.
+func (g *Generator) plainTextFor(loc model.Locale, id model.ArticleID) string {
+	if g.BodyCharsPerDoc <= 0 {
+		return ""
+	}
+	path := filepath.Join(g.Output, ".meta", string(loc), string(id)+".txt")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	text := strings.TrimSpace(string(raw))
+	if len([]rune(text)) > g.BodyCharsPerDoc {
+		text = string([]rune(text)[:g.BodyCharsPerDoc])
+	}
+	return text
 }
 
 func (g *Generator) Generate(loc model.Locale) error {
@@ -62,15 +85,21 @@ func (g *Generator) Generate(loc model.Locale) error {
 				PubDate:     v.Front.Date.Format(time.RFC1123Z),
 			},
 		)
-		search = append(
-			search,
-			map[string]string{
-				"id":          string(post.ID),
-				"title":       v.Front.Title,
-				"description": v.Front.Description,
-				"url":         "/" + prefix + "/posts/" + v.Front.Slug + "/",
-			},
-		)
+		entry := map[string]string{
+			"i":  string(post.ID),
+			"t":  v.Front.Title,
+			"d":  v.Front.Description,
+			"u":  "/" + prefix + "/posts/" + v.Front.Slug + "/",
+			"p":  g.plainTextFor(loc, post.ID),
+			"dt": v.Front.Date.Format(time.RFC3339),
+		}
+		if len(v.Front.Categories) > 0 {
+			entry["c"] = strings.Join(v.Front.Categories, ",")
+		}
+		if len(v.Front.Tags) > 0 {
+			entry["g"] = strings.Join(v.Front.Tags, ",")
+		}
+		search = append(search, entry)
 		urls = append(urls, sitemapURL{Loc: url, Alternates: g.articleAlternates(post)})
 	}
 	for _, extra := range g.ExtraURLs {
@@ -84,6 +113,15 @@ func (g *Generator) Generate(loc model.Locale) error {
 	)
 	rssData = append([]byte(xml.Header), rssData...)
 	searchData, _ := json.Marshal(search)
+	if g.MaxIndexSizeMB > 0 && int64(len(searchData)) > int64(g.MaxIndexSizeMB)<<20 {
+		for _, entry := range search {
+			delete(entry, "p")
+		}
+		searchData, _ = json.Marshal(search)
+		if int64(len(searchData)) > int64(g.MaxIndexSizeMB)<<20 {
+			slog.Warn("search index exceeds maxIndexSizeMB even without body text", "size", len(searchData))
+		}
+	}
 	var sitemap strings.Builder
 	sitemap.WriteString(
 		"<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset " +
