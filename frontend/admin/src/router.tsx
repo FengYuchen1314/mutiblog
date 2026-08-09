@@ -13,6 +13,7 @@ import CategoryPage from './features/categories/CategoryPage'
 import TagPage from './features/tags/TagPage'
 import MenuPage from './features/menus/MenuPage'
 import LinkPage from './features/links/LinkPage'
+import PagesPage from './features/pages/PagesPage'
 import ImportPage from './features/system/ImportPage'
 import BackupPage from './features/system/BackupPage'
 import SystemActivityPage from './features/system/SystemActivityPage'
@@ -94,6 +95,12 @@ const linksRoute = createRoute({
   component: LinkPage,
 })
 
+const pagesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/pages',
+  component: PagesPage,
+})
+
 const importRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/import',
@@ -125,6 +132,7 @@ const routeTree = rootRoute.addChildren([
   tagsRoute,
   menusRoute,
   linksRoute,
+  pagesRoute,
   importRoute,
   backupsRoute,
   activityRoute,

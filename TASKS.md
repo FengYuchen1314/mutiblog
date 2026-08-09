@@ -544,6 +544,9 @@ Lighthouse 文章页：Performance ≥ 90、Accessibility ≥ 95、SEO = 100。
 #### T11 · 独立页面（Pages）管理
 `[T1]` · **0.5 人日**
 
+> ✅ 已完成（2026-08-10）：/pages 页面管理（列表、新建、编辑、发布、删除），
+> 编辑器含模板/排序/显示在菜单字段，复用 MarkdownEditor。
+
 复用文章列表与编辑器组件，额外字段：`template`（从 `theme.yaml` 的 `pageTemplates` 读取）、`order`、`showInMenu`。
 
 ---

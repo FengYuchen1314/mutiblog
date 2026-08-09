@@ -4,3094 +4,3118 @@
  */
 
 export interface paths {
-    "/api/auth/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getAuthStatus"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/setup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["setupAdmin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["login"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["logout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/csrf": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getCSRFToken"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getCurrentUser"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/dashboard": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getDashboard"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listPosts"];
-        put?: never;
-        post: operations["createPost"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get: operations["getPost"];
-        put: operations["updatePost"];
-        post?: never;
-        delete: operations["deletePost"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}/draft": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["savePostDraft"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}/publish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["publishPost"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}/unpublish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["unpublishPost"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}/restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["restorePost"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}/duplicate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["duplicatePost"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}/purge": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: operations["purgePost"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}/revisions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get: operations["listPostRevisions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}/revisions/{revision}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-                revision: components["parameters"]["Revision"];
-            };
-            cookie?: never;
-        };
-        get: operations["getPostRevision"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/posts/{id}/revisions/{revision}/restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-                revision: components["parameters"]["Revision"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["restorePostRevision"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/pages/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listPages"];
-        put?: never;
-        post: operations["createPage"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/pages/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get: operations["getPage"];
-        put: operations["updatePage"];
-        post?: never;
-        delete: operations["deletePage"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/pages/{id}/publish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["publishPage"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/categories/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listCategories"];
-        put?: never;
-        post: operations["createCategory"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/categories/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["TaxonomyID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["updateCategory"];
-        post?: never;
-        delete: operations["deleteCategory"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/tags/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listTags"];
-        put?: never;
-        post: operations["createTag"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/tags/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["TaxonomyID"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["updateTag"];
-        post?: never;
-        delete: operations["deleteTag"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/media/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listMedia"];
-        put?: never;
-        post?: never;
-        delete: operations["deleteMedia"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/media/upload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["uploadMedia"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/media/mkdir": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["createMediaDirectory"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/translations/tasks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listTranslationTasks"];
-        put?: never;
-        post: operations["createTranslationTask"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/translations/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["testTranslationProvider"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/preview/markdown": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["previewMarkdown"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/themes/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listThemes"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/themes/reload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["reloadThemes"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/themes/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        get: operations["getTheme"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/themes/{name}/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        get: operations["getThemeSettings"];
-        put: operations["updateThemeSettings"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/themes/{name}/settings/reset": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["resetThemeSettings"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/themes/{name}/activate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["activateTheme"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/backups/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listBackups"];
-        put?: never;
-        post: operations["createBackup"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/backups/{name}/download": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        get: operations["downloadBackup"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/backups/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: operations["deleteBackup"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/backups/restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["restoreBackup"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/settings/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getSettings"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/settings/{section}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                section: "site" | "i18n" | "render" | "markdown" | "storage" | "ai" | "search" | "comments" | "seo" | "cache" | "security" | "log";
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["updateSettingsSection"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/users/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listUsers"];
-        put?: never;
-        post: operations["createUser"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/users/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["updateUser"];
-        post?: never;
-        delete: operations["deleteUser"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/users/{id}/password": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["resetUserPassword"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["createImport"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/import/{jobId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                jobId: number;
-            };
-            cookie?: never;
-        };
-        get: operations["getImportStatus"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/system/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getSystemHealth"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/system/logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listSystemLogs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/system/audit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listAuditLog"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/system/index-errors": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listIndexErrors"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/system/stats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getSystemStats"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/system/reindex": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["rebuildIndex"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/system/restart-renderer": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["restartRenderer"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-}
-export type webhooks = Record<string, never>;
-export interface components {
-    schemas: {
-        Envelope: {
-            data: unknown;
-        };
-        EnvelopeAuthStatus: {
-            data: components["schemas"]["AuthStatus"];
-        };
-        EnvelopeCSRFToken: {
-            data: {
-                token: string;
-            };
-        };
-        EnvelopeUser: {
-            data: components["schemas"]["User"];
-        };
-        EnvelopeImportQueued: {
-            data: {
-                jobId: number;
-                phase: string;
-            };
-        };
-        EnvelopeImportStatus: {
-            data: components["schemas"]["ImportStatus"];
-        };
-        EnvelopeUserList: {
-            data: {
-                items: components["schemas"]["User"][];
-            };
-        };
-        EnvelopeID: {
-            data: {
-                /** Format: uuid */
-                id: string;
-            };
-        };
-        EnvelopeDashboard: {
-            data: components["schemas"]["Dashboard"];
-        };
-        EnvelopePostList: {
-            data: {
-                items: components["schemas"]["PostSummary"][];
-                total: number;
-            };
-        };
-        EnvelopePostDetail: {
-            data: components["schemas"]["PostDetail"];
-        };
-        EnvelopePublishResult: {
-            data: components["schemas"]["PublishResult"];
-        };
-        EnvelopeStatusResult: {
-            data: {
-                /** Format: uuid */
-                id: string;
-                /** @enum {string} */
-                status: "draft" | "published" | "trashed";
-            };
-        };
-        EnvelopeRevisionList: {
-            data: {
-                items: components["schemas"]["RevisionInfo"][];
-            };
-        };
-        EnvelopeRevisionDetail: {
-            data: components["schemas"]["RevisionDetail"];
-        };
-        EnvelopeRestoreResult: {
-            data: {
-                id?: string;
-                locale?: string;
-                restoredRevision?: number;
-            };
-        };
-        EnvelopeCategory: {
-            data: components["schemas"]["Category"];
-        };
-        EnvelopeCategoryList: {
-            data: {
-                items?: components["schemas"]["Category"][];
-            };
-        };
-        EnvelopeTag: {
-            data: components["schemas"]["Tag"];
-        };
-        EnvelopeTagList: {
-            data: {
-                items?: components["schemas"]["Tag"][];
-            };
-        };
-        EnvelopeMenu: {
-            data: components["schemas"]["Menu"];
-        };
-        EnvelopeMenuList: {
-            data: {
-                items?: components["schemas"]["Menu"][];
-            };
-        };
-        EnvelopeLink: {
-            data: components["schemas"]["Link"];
-        };
-        EnvelopeLinkList: {
-            data: {
-                items?: components["schemas"]["Link"][];
-            };
-        };
-        EnvelopeLinkGroupList: {
-            data: {
-                items?: components["schemas"]["LinkGroup"][];
-            };
-        };
-        EnvelopeDeleteResult: {
-            data: {
-                [key: string]: unknown;
-            };
-        };
-        EnvelopeMediaList: {
-            data: {
-                items?: components["schemas"]["MediaItem"][];
-            };
-        };
-        EnvelopeMediaUpload: components["schemas"]["EnvelopeMediaList"];
-        EnvelopeTranslationTask: {
-            data: components["schemas"]["TranslationTask"];
-        };
-        EnvelopeTranslationTaskList: {
-            data: {
-                items?: components["schemas"]["TranslationTask"][];
-            };
-        };
-        EnvelopeProviderTest: {
-            data: {
-                provider?: string;
-                latencyMs?: number;
-            };
-        };
-        EnvelopeMarkdownPreview: {
-            data: {
-                html: string;
-            };
-        };
-        EnvelopeAnyList: {
-            data: {
-                items?: unknown[];
-            };
-        };
-        EnvelopeObject: {
-            data: {
-                [key: string]: unknown;
-            };
-        };
-        EnvelopeBackup: {
-            data: components["schemas"]["Backup"];
-        };
-        EnvelopeBackupList: {
-            data: {
-                items?: components["schemas"]["Backup"][];
-            };
-        };
-        EnvelopeSettings: {
-            data: {
-                values: {
-                    [key: string]: unknown;
-                };
-                warnings?: string[];
-            };
-        };
-        EnvelopeSettingsUpdate: {
-            data: {
-                section: string;
-                requiresRestart: boolean;
-            };
-        };
-        EnvelopeHealth: {
-            data: {
-                warnings?: {
-                    [key: string]: string;
-                }[];
-            };
-        };
-        EnvelopeLogList: {
-            data: {
-                items?: components["schemas"]["LogEntry"][];
-            };
-        };
-        ErrorResponse: {
-            error: {
-                code: string;
-                message: string;
-                requestId?: string;
-                details?: {
-                    [key: string]: unknown;
-                }[];
-            };
-        };
-        AuthStatus: {
-            setupRequired: boolean;
-            authenticated?: boolean;
-        };
-        SetupRequest: {
-            username: string;
-            /** Format: email */
-            email: string;
-            /** Format: password */
-            password: string;
-            locale?: string;
-        };
-        LoginRequest: {
-            username: string;
-            /** Format: password */
-            password: string;
-            remember?: boolean;
-        };
-        User: {
-            id: string;
-            username: string;
-            displayName?: string;
-            /** Format: email */
-            email?: string;
-            /** @enum {string} */
-            role: "admin" | "editor" | "author" | "translator";
-            locale?: string;
-            disabled?: boolean;
-        };
-        UserInput: {
-            username?: string;
-            /** Format: email */
-            email?: string;
-            displayName?: string;
-            /** @enum {string} */
-            role?: "admin" | "editor" | "author" | "translator";
-            /** Format: password */
-            password?: string;
-            locale?: string;
-            disabled?: boolean;
-        };
-        ImportReport: {
-            found: number;
-            imported: number;
-            skipped: number;
-            failures?: string[];
-        };
-        ImportStatus: {
-            jobId: number;
-            /** @enum {string} */
-            status: "pending" | "running" | "done" | "failed";
-            phase: string;
-            /** Format: date-time */
-            createdAt?: string;
-            /** Format: date-time */
-            updatedAt?: string;
-            report?: components["schemas"]["ImportReport"];
-            error?: string;
-        };
-        /**
-         * @example {
-         *       "articles": 12,
-         *       "posts": 10,
-         *       "pages": 2,
-         *       "locales": 3
-         *     }
-         */
-        Dashboard: {
-            [key: string]: number;
-        };
-        PostInput: {
-            locale?: string;
-            baseHash?: string;
-            title: string;
-            slug?: string;
-            description?: string;
-            body: string;
-            categories?: string[];
-            tags?: string[];
-        };
-        PostSummary: {
-            /** Format: uuid */
-            id: string;
-            title: string;
-            slug: string;
-            /** @enum {string} */
-            status: "draft" | "published" | "trashed";
-            locale: string;
-            /** Format: date-time */
-            date?: string;
-        };
-        PostDetail: {
-            /** Format: uuid */
-            id: string;
-            locale: string;
-            front: components["schemas"]["FrontMatter"];
-            body: string;
-            baseHash: string;
-            sourceRevision?: number;
-        };
-        FrontMatter: {
-            title: string;
-            slug: string;
-            description?: string;
-            status: string;
-            categories?: string[];
-            tags?: string[];
-            /** Format: date-time */
-            date?: string;
-        };
-        PublishRequest: {
-            /** Format: date-time */
-            publishAt?: string;
-        };
-        PublishResult: {
-            id?: string;
-            queued?: number;
-            jobID?: number;
-            translationsQueued?: number;
-            scheduled?: boolean;
-            /** Format: date-time */
-            publishAt?: string;
-        };
-        RevisionInfo: {
-            revision?: number;
-            locale?: string;
-            /** Format: date-time */
-            createdAt?: string;
-            path?: string;
-        };
-        RevisionDetail: {
-            revision?: number;
-            locale?: string;
-            front?: components["schemas"]["FrontMatter"];
-            body?: string;
-        };
-        /**
-         * @example {
-         *       "zh-CN": "分类",
-         *       "en": "Category"
-         *     }
-         */
-        LocalizedString: {
-            [key: string]: string;
-        };
-        Category: {
-            id: string;
-            slug?: string;
-            parent?: string;
-            order?: number;
-            color?: string;
-            name?: components["schemas"]["LocalizedString"];
-            description?: components["schemas"]["LocalizedString"];
-        };
-        Tag: {
-            id: string;
-            slug?: string;
-            name?: components["schemas"]["LocalizedString"];
-            description?: components["schemas"]["LocalizedString"];
-        };
-        Menu: {
-            id: string;
-            name?: components["schemas"]["LocalizedString"];
-            items?: components["schemas"]["MenuItem"][];
-        };
-        MenuItem: {
-            id?: string;
-            type?: string;
-            ref?: string;
-            url?: string;
-            icon?: string;
-            target?: string;
-            label?: components["schemas"]["LocalizedString"];
-            order?: number;
-            children?: components["schemas"]["MenuItem"][];
-        };
-        Link: {
-            id: string;
-            name: string;
-            url?: string;
-            logo?: string;
-            group?: string;
-            order?: number;
-            description?: components["schemas"]["LocalizedString"];
-        };
-        LinkGroup: {
-            id: string;
-            order?: number;
-            name?: components["schemas"]["LocalizedString"];
-        };
-        MediaItem: {
-            path: string;
-            name: string;
-            url: string;
-            mime?: string;
-            size?: number;
-            isDir?: boolean;
-            /** Format: date-time */
-            modifiedAt?: string;
-            ok?: boolean;
-            error?: string;
-        };
-        TranslationTask: {
-            id?: number;
-            articleID?: string;
-            sourceLocale?: string;
-            targetLocale?: string;
-            status?: string;
-            segmentsDone?: number;
-            segmentsTotal?: number;
-            tokensIn?: number;
-            tokensOut?: number;
-            error?: string;
-        };
-        Backup: {
-            path?: string;
-            name?: string;
-            size?: number;
-            /** Format: date-time */
-            createdAt?: string;
-        };
-        LogEntry: {
-            id?: number;
-            level?: string;
-            component?: string;
-            message?: string;
-            detail?: string;
-            /** Format: date-time */
-            createdAt?: string;
-        };
-    };
-    responses: {
-        /** @description API error */
-        Error: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-        /** @description Content changed by another editor */
-        EditConflict: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse"];
-            };
-        };
-    };
+  '/api/auth/status': {
     parameters: {
-        ArticleID: string;
-        TaxonomyID: string;
-        Revision: number;
-        Locale: string;
-        Page: number;
-        PerPage: number;
-    };
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['getAuthStatus']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/auth/setup': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['setupAdmin']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/auth/login': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['login']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/auth/logout': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['logout']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/auth/csrf': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['getCSRFToken']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/me': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['getCurrentUser']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/dashboard': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['getDashboard']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listPosts']
+    put?: never
+    post: operations['createPost']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get: operations['getPost']
+    put: operations['updatePost']
+    post?: never
+    delete: operations['deletePost']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}/draft': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['savePostDraft']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}/publish': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['publishPost']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}/unpublish': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['unpublishPost']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}/restore': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['restorePost']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}/duplicate': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['duplicatePost']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}/purge': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    delete: operations['purgePost']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}/revisions': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get: operations['listPostRevisions']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}/revisions/{revision}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+        revision: components['parameters']['Revision']
+      }
+      cookie?: never
+    }
+    get: operations['getPostRevision']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/posts/{id}/revisions/{revision}/restore': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+        revision: components['parameters']['Revision']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['restorePostRevision']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/pages/': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listPages']
+    put?: never
+    post: operations['createPage']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/pages/{id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get: operations['getPage']
+    put: operations['updatePage']
+    post?: never
+    delete: operations['deletePage']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/pages/{id}/publish': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['publishPage']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/categories/': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listCategories']
+    put?: never
+    post: operations['createCategory']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/categories/{id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['TaxonomyID']
+      }
+      cookie?: never
+    }
+    get?: never
+    put: operations['updateCategory']
+    post?: never
+    delete: operations['deleteCategory']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/tags/': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listTags']
+    put?: never
+    post: operations['createTag']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/tags/{id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['TaxonomyID']
+      }
+      cookie?: never
+    }
+    get?: never
+    put: operations['updateTag']
+    post?: never
+    delete: operations['deleteTag']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/media/': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listMedia']
+    put?: never
+    post?: never
+    delete: operations['deleteMedia']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/media/upload': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['uploadMedia']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/media/mkdir': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['createMediaDirectory']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/translations/tasks': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listTranslationTasks']
+    put?: never
+    post: operations['createTranslationTask']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/translations/test': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['testTranslationProvider']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/preview/markdown': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['previewMarkdown']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/themes/': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listThemes']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/themes/reload': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['reloadThemes']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/themes/{name}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    get: operations['getTheme']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/themes/{name}/settings': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    get: operations['getThemeSettings']
+    put: operations['updateThemeSettings']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/themes/{name}/settings/reset': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['resetThemeSettings']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/themes/{name}/activate': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['activateTheme']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/backups/': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listBackups']
+    put?: never
+    post: operations['createBackup']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/backups/{name}/download': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    get: operations['downloadBackup']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/backups/{name}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    delete: operations['deleteBackup']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/backups/restore': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['restoreBackup']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/settings/': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['getSettings']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/settings/{section}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        section:
+          | 'site'
+          | 'i18n'
+          | 'render'
+          | 'markdown'
+          | 'storage'
+          | 'ai'
+          | 'search'
+          | 'comments'
+          | 'seo'
+          | 'cache'
+          | 'security'
+          | 'log'
+      }
+      cookie?: never
+    }
+    get?: never
+    put: operations['updateSettingsSection']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/users/': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listUsers']
+    put?: never
+    post: operations['createUser']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/users/{id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    get?: never
+    put: operations['updateUser']
+    post?: never
+    delete: operations['deleteUser']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/users/{id}/password': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['resetUserPassword']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/import': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['createImport']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/import/{jobId}': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        jobId: number
+      }
+      cookie?: never
+    }
+    get: operations['getImportStatus']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/system/health': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['getSystemHealth']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/system/logs': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listSystemLogs']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/system/audit': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listAuditLog']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/system/index-errors': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['listIndexErrors']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/system/stats': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get: operations['getSystemStats']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/system/reindex': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['rebuildIndex']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/system/restart-renderer': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post: operations['restartRenderer']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
 }
-export type $defs = Record<string, never>;
+export type webhooks = Record<string, never>
+export interface components {
+  schemas: {
+    Envelope: {
+      data: unknown
+    }
+    EnvelopeAuthStatus: {
+      data: components['schemas']['AuthStatus']
+    }
+    EnvelopeCSRFToken: {
+      data: {
+        token: string
+      }
+    }
+    EnvelopeUser: {
+      data: components['schemas']['User']
+    }
+    EnvelopeImportQueued: {
+      data: {
+        jobId: number
+        phase: string
+      }
+    }
+    EnvelopeImportStatus: {
+      data: components['schemas']['ImportStatus']
+    }
+    EnvelopeUserList: {
+      data: {
+        items: components['schemas']['User'][]
+      }
+    }
+    EnvelopeID: {
+      data: {
+        /** Format: uuid */
+        id: string
+      }
+    }
+    EnvelopeDashboard: {
+      data: components['schemas']['Dashboard']
+    }
+    EnvelopePostList: {
+      data: {
+        items: components['schemas']['PostSummary'][]
+        total: number
+      }
+    }
+    EnvelopePostDetail: {
+      data: components['schemas']['PostDetail']
+    }
+    EnvelopePublishResult: {
+      data: components['schemas']['PublishResult']
+    }
+    EnvelopeStatusResult: {
+      data: {
+        /** Format: uuid */
+        id: string
+        /** @enum {string} */
+        status: 'draft' | 'published' | 'trashed'
+      }
+    }
+    EnvelopeRevisionList: {
+      data: {
+        items: components['schemas']['RevisionInfo'][]
+      }
+    }
+    EnvelopeRevisionDetail: {
+      data: components['schemas']['RevisionDetail']
+    }
+    EnvelopeRestoreResult: {
+      data: {
+        id?: string
+        locale?: string
+        restoredRevision?: number
+      }
+    }
+    EnvelopeCategory: {
+      data: components['schemas']['Category']
+    }
+    EnvelopeCategoryList: {
+      data: {
+        items?: components['schemas']['Category'][]
+      }
+    }
+    EnvelopeTag: {
+      data: components['schemas']['Tag']
+    }
+    EnvelopeTagList: {
+      data: {
+        items?: components['schemas']['Tag'][]
+      }
+    }
+    EnvelopeMenu: {
+      data: components['schemas']['Menu']
+    }
+    EnvelopeMenuList: {
+      data: {
+        items?: components['schemas']['Menu'][]
+      }
+    }
+    EnvelopeLink: {
+      data: components['schemas']['Link']
+    }
+    EnvelopeLinkList: {
+      data: {
+        items?: components['schemas']['Link'][]
+      }
+    }
+    EnvelopeLinkGroupList: {
+      data: {
+        items?: components['schemas']['LinkGroup'][]
+      }
+    }
+    EnvelopeDeleteResult: {
+      data: {
+        [key: string]: unknown
+      }
+    }
+    EnvelopeMediaList: {
+      data: {
+        items?: components['schemas']['MediaItem'][]
+      }
+    }
+    EnvelopeMediaUpload: components['schemas']['EnvelopeMediaList']
+    EnvelopeTranslationTask: {
+      data: components['schemas']['TranslationTask']
+    }
+    EnvelopeTranslationTaskList: {
+      data: {
+        items?: components['schemas']['TranslationTask'][]
+      }
+    }
+    EnvelopeProviderTest: {
+      data: {
+        provider?: string
+        latencyMs?: number
+      }
+    }
+    EnvelopeMarkdownPreview: {
+      data: {
+        html: string
+      }
+    }
+    EnvelopeAnyList: {
+      data: {
+        items?: unknown[]
+      }
+    }
+    EnvelopeObject: {
+      data: {
+        [key: string]: unknown
+      }
+    }
+    EnvelopeBackup: {
+      data: components['schemas']['Backup']
+    }
+    EnvelopeBackupList: {
+      data: {
+        items?: components['schemas']['Backup'][]
+      }
+    }
+    EnvelopeSettings: {
+      data: {
+        values: {
+          [key: string]: unknown
+        }
+        warnings?: string[]
+      }
+    }
+    EnvelopeSettingsUpdate: {
+      data: {
+        section: string
+        requiresRestart: boolean
+      }
+    }
+    EnvelopeHealth: {
+      data: {
+        warnings?: {
+          [key: string]: string
+        }[]
+      }
+    }
+    EnvelopeLogList: {
+      data: {
+        items?: components['schemas']['LogEntry'][]
+      }
+    }
+    ErrorResponse: {
+      error: {
+        code: string
+        message: string
+        requestId?: string
+        details?: {
+          [key: string]: unknown
+        }[]
+      }
+    }
+    AuthStatus: {
+      setupRequired: boolean
+      authenticated?: boolean
+    }
+    SetupRequest: {
+      username: string
+      /** Format: email */
+      email: string
+      /** Format: password */
+      password: string
+      locale?: string
+    }
+    LoginRequest: {
+      username: string
+      /** Format: password */
+      password: string
+      remember?: boolean
+    }
+    User: {
+      id: string
+      username: string
+      displayName?: string
+      /** Format: email */
+      email?: string
+      /** @enum {string} */
+      role: 'admin' | 'editor' | 'author' | 'translator'
+      locale?: string
+      disabled?: boolean
+    }
+    UserInput: {
+      username?: string
+      /** Format: email */
+      email?: string
+      displayName?: string
+      /** @enum {string} */
+      role?: 'admin' | 'editor' | 'author' | 'translator'
+      /** Format: password */
+      password?: string
+      locale?: string
+      disabled?: boolean
+    }
+    ImportReport: {
+      found: number
+      imported: number
+      skipped: number
+      failures?: string[]
+    }
+    ImportStatus: {
+      jobId: number
+      /** @enum {string} */
+      status: 'pending' | 'running' | 'done' | 'failed'
+      phase: string
+      /** Format: date-time */
+      createdAt?: string
+      /** Format: date-time */
+      updatedAt?: string
+      report?: components['schemas']['ImportReport']
+      error?: string
+    }
+    /**
+     * @example {
+     *       "articles": 12,
+     *       "posts": 10,
+     *       "pages": 2,
+     *       "locales": 3
+     *     }
+     */
+    Dashboard: {
+      [key: string]: number
+    }
+    PostInput: {
+      locale?: string
+      baseHash?: string
+      title: string
+      slug?: string
+      description?: string
+      body: string
+      categories?: string[]
+      tags?: string[]
+    }
+    PostSummary: {
+      /** Format: uuid */
+      id: string
+      title: string
+      slug: string
+      /** @enum {string} */
+      status: 'draft' | 'published' | 'trashed'
+      locale: string
+      /** Format: date-time */
+      date?: string
+    }
+    PostDetail: {
+      /** Format: uuid */
+      id: string
+      locale: string
+      front: components['schemas']['FrontMatter']
+      body: string
+      baseHash: string
+      sourceRevision?: number
+    }
+    FrontMatter: {
+      title: string
+      slug: string
+      description?: string
+      status: string
+      categories?: string[]
+      tags?: string[]
+      /** Format: date-time */
+      date?: string
+    }
+    PublishRequest: {
+      /** Format: date-time */
+      publishAt?: string
+    }
+    PublishResult: {
+      id?: string
+      queued?: number
+      jobID?: number
+      translationsQueued?: number
+      scheduled?: boolean
+      /** Format: date-time */
+      publishAt?: string
+    }
+    RevisionInfo: {
+      revision?: number
+      locale?: string
+      /** Format: date-time */
+      createdAt?: string
+      path?: string
+    }
+    RevisionDetail: {
+      revision?: number
+      locale?: string
+      front?: components['schemas']['FrontMatter']
+      body?: string
+    }
+    /**
+     * @example {
+     *       "zh-CN": "分类",
+     *       "en": "Category"
+     *     }
+     */
+    LocalizedString: {
+      [key: string]: string
+    }
+    Category: {
+      id: string
+      slug?: string
+      parent?: string
+      order?: number
+      color?: string
+      name?: components['schemas']['LocalizedString']
+      description?: components['schemas']['LocalizedString']
+    }
+    Tag: {
+      id: string
+      slug?: string
+      name?: components['schemas']['LocalizedString']
+      description?: components['schemas']['LocalizedString']
+    }
+    Menu: {
+      id: string
+      name?: components['schemas']['LocalizedString']
+      items?: components['schemas']['MenuItem'][]
+    }
+    MenuItem: {
+      id?: string
+      type?: string
+      ref?: string
+      url?: string
+      icon?: string
+      target?: string
+      label?: components['schemas']['LocalizedString']
+      order?: number
+      children?: components['schemas']['MenuItem'][]
+    }
+    Link: {
+      id: string
+      name: string
+      url?: string
+      logo?: string
+      group?: string
+      order?: number
+      description?: components['schemas']['LocalizedString']
+    }
+    LinkGroup: {
+      id: string
+      order?: number
+      name?: components['schemas']['LocalizedString']
+    }
+    MediaItem: {
+      path: string
+      name: string
+      url: string
+      mime?: string
+      size?: number
+      isDir?: boolean
+      /** Format: date-time */
+      modifiedAt?: string
+      ok?: boolean
+      error?: string
+    }
+    TranslationTask: {
+      id?: number
+      articleID?: string
+      sourceLocale?: string
+      targetLocale?: string
+      status?: string
+      segmentsDone?: number
+      segmentsTotal?: number
+      tokensIn?: number
+      tokensOut?: number
+      error?: string
+    }
+    Backup: {
+      path?: string
+      name?: string
+      size?: number
+      /** Format: date-time */
+      createdAt?: string
+    }
+    LogEntry: {
+      id?: number
+      level?: string
+      component?: string
+      message?: string
+      detail?: string
+      /** Format: date-time */
+      createdAt?: string
+    }
+  }
+  responses: {
+    /** @description API error */
+    Error: {
+      headers: {
+        [name: string]: unknown
+      }
+      content: {
+        'application/json': components['schemas']['ErrorResponse']
+      }
+    }
+    /** @description Content changed by another editor */
+    EditConflict: {
+      headers: {
+        [name: string]: unknown
+      }
+      content: {
+        'application/json': components['schemas']['ErrorResponse']
+      }
+    }
+  }
+  parameters: {
+    ArticleID: string
+    TaxonomyID: string
+    Revision: number
+    Locale: string
+    Page: number
+    PerPage: number
+  }
+  requestBodies: never
+  headers: never
+  pathItems: never
+}
+export type $defs = Record<string, never>
 export interface operations {
-    getAuthStatus: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Authentication status */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeAuthStatus"];
-                };
-            };
-        };
-    };
-    setupAdmin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetupRequest"];
-            };
-        };
-        responses: {
-            /** @description First administrator created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeUser"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    login: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LoginRequest"];
-            };
-        };
-        responses: {
-            /** @description Session established */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeUser"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    logout: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Session cleared */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    getCSRFToken: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description CSRF token */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeCSRFToken"];
-                };
-            };
-        };
-    };
-    getCurrentUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Current user */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeUser"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getDashboard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Dashboard counts */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeDashboard"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listPosts: {
-        parameters: {
-            query?: {
-                locale?: components["parameters"]["Locale"];
-                page?: components["parameters"]["Page"];
-                perPage?: components["parameters"]["PerPage"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Posts */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopePostList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    createPost: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PostInput"];
-            };
-        };
-        responses: {
-            /** @description Draft created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeID"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getPost: {
-        parameters: {
-            query?: {
-                locale?: components["parameters"]["Locale"];
-            };
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Editable post */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopePostDetail"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    updatePost: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PostInput"];
-            };
-        };
-        responses: {
-            /** @description Post saved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeID"];
-                };
-            };
-            409: components["responses"]["EditConflict"];
-            default: components["responses"]["Error"];
-        };
-    };
-    deletePost: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Post deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    savePostDraft: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PostInput"];
-            };
-        };
-        responses: {
-            /** @description Draft saved without publishing */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            409: components["responses"]["EditConflict"];
-            default: components["responses"]["Error"];
-        };
-    };
-    publishPost: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PublishRequest"];
-            };
-        };
-        responses: {
-            /** @description Render and translation jobs queued */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopePublishResult"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    unpublishPost: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Content returned to draft */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeStatusResult"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    restorePost: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Trashed content restored as draft */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeStatusResult"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    duplicatePost: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Draft copy created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeID"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    purgePost: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Trashed content permanently deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listPostRevisions: {
-        parameters: {
-            query?: {
-                locale?: components["parameters"]["Locale"];
-            };
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Revisions */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeRevisionList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getPostRevision: {
-        parameters: {
-            query?: {
-                locale?: components["parameters"]["Locale"];
-            };
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-                revision: components["parameters"]["Revision"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Revision */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeRevisionDetail"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    restorePostRevision: {
-        parameters: {
-            query?: {
-                locale?: components["parameters"]["Locale"];
-            };
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-                revision: components["parameters"]["Revision"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Revision restored */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeRestoreResult"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listPages: {
-        parameters: {
-            query?: {
-                locale?: components["parameters"]["Locale"];
-                page?: components["parameters"]["Page"];
-                perPage?: components["parameters"]["PerPage"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Pages */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopePostList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    createPage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PostInput"];
-            };
-        };
-        responses: {
-            /** @description Page created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeID"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getPage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Page */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopePostDetail"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    updatePage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PostInput"];
-            };
-        };
-        responses: {
-            /** @description Page saved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeID"];
-                };
-            };
-            409: components["responses"]["EditConflict"];
-            default: components["responses"]["Error"];
-        };
-    };
-    deletePage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Page deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    publishPage: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["ArticleID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PublishRequest"];
-            };
-        };
-        responses: {
-            /** @description Page queued */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopePublishResult"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listCategories: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Categories */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeCategoryList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    createCategory: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Category"];
-            };
-        };
-        responses: {
-            /** @description Category saved */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeCategory"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    updateCategory: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["TaxonomyID"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Category"];
-            };
-        };
-        responses: {
-            /** @description Category saved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeCategory"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    deleteCategory: {
-        parameters: {
-            query?: {
-                migrateTo?: string;
-            };
-            header?: never;
-            path: {
-                id: components["parameters"]["TaxonomyID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Category removed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeDeleteResult"];
-                };
-            };
-            409: components["responses"]["Error"];
-            default: components["responses"]["Error"];
-        };
-    };
-    listTags: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Tags */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeTagList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    createTag: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Tag"];
-            };
-        };
-        responses: {
-            /** @description Tag saved */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeTag"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    updateTag: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["TaxonomyID"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Tag"];
-            };
-        };
-        responses: {
-            /** @description Tag saved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeTag"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    deleteTag: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["parameters"]["TaxonomyID"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Tag removed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeDeleteResult"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listMedia: {
-        parameters: {
-            query?: {
-                dir?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Media entries */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeMediaList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    deleteMedia: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    paths: string[];
-                };
-            };
-        };
-        responses: {
-            /** @description Media deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    uploadMedia: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": {
-                    dir?: string;
-                    file?: string[];
-                };
-            };
-        };
-        responses: {
-            /** @description Upload results */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeMediaUpload"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    createMediaDirectory: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    dir: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Directory created */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listTranslationTasks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Tasks */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeTranslationTaskList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    createTranslationTask: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    articleID: string;
-                    targetLocale: string;
-                    force?: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Translation queued */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeTranslationTask"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    testTranslationProvider: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Provider reachable */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeProviderTest"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    previewMarkdown: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    body?: string;
-                    markdown?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Rendered Markdown */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeMarkdownPreview"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listThemes: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Themes */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeAnyList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    reloadThemes: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Themes rediscovered */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeAnyList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getTheme: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Theme manifest and effective settings */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeObject"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getThemeSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Settings */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeObject"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    updateThemeSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
-            };
-        };
-        responses: {
-            /** @description Settings saved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeObject"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    resetThemeSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Theme settings reset to defaults */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeObject"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    activateTheme: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Theme activated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeObject"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listBackups: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Backups */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeBackupList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    createBackup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Backup created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeBackup"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    downloadBackup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Backup ZIP */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/zip": string;
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    deleteBackup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Backup removed */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    restoreBackup: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    name: string;
-                    /** @constant */
-                    confirm: true;
-                };
-            };
-        };
-        responses: {
-            /** @description Backup restored; process restart recommended */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeObject"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getSettings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Effective settings with sensitive values masked */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeSettings"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    updateSettingsSection: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                section: "site" | "i18n" | "render" | "markdown" | "storage" | "ai" | "search" | "comments" | "seo" | "cache" | "security" | "log";
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
-            };
-        };
-        responses: {
-            /** @description Settings saved */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeSettingsUpdate"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listUsers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Users */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeUserList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    createUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UserInput"];
-            };
-        };
-        responses: {
-            /** @description User created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeUser"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    updateUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UserInput"];
-            };
-        };
-        responses: {
-            /** @description User updated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeUser"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    deleteUser: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description User deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    resetUserPassword: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: password */
-                    password: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Password reset and existing sessions invalidated */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    createImport: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": {
-                    /** Format: binary */
-                    file: string;
-                    defaultLocale?: string;
-                    /** @enum {string} */
-                    defaultStatus?: "draft" | "published";
-                    dryRun?: boolean;
-                    /** @default true */
-                    createMissingTaxonomy?: boolean;
-                };
-            };
-        };
-        responses: {
-            /** @description Import task queued */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeImportQueued"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getImportStatus: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                jobId: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Import progress and report */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeImportStatus"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getSystemHealth: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Health */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeHealth"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listSystemLogs: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Logs */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeLogList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listAuditLog: {
-        parameters: {
-            query?: {
-                actor?: string;
-                action?: string;
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Audit events */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeLogList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    listIndexErrors: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Content parsing errors */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeAnyList"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    getSystemStats: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Runtime statistics */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeObject"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    rebuildIndex: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Index rebuilt */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeObject"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
-    restartRenderer: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Renderer restarted */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EnvelopeObject"];
-                };
-            };
-            default: components["responses"]["Error"];
-        };
-    };
+  getAuthStatus: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Authentication status */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeAuthStatus']
+        }
+      }
+    }
+  }
+  setupAdmin: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetupRequest']
+      }
+    }
+    responses: {
+      /** @description First administrator created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeUser']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  login: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['LoginRequest']
+      }
+    }
+    responses: {
+      /** @description Session established */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeUser']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  logout: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Session cleared */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+    }
+  }
+  getCSRFToken: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description CSRF token */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeCSRFToken']
+        }
+      }
+    }
+  }
+  getCurrentUser: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Current user */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeUser']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getDashboard: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Dashboard counts */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeDashboard']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listPosts: {
+    parameters: {
+      query?: {
+        locale?: components['parameters']['Locale']
+        page?: components['parameters']['Page']
+        perPage?: components['parameters']['PerPage']
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Posts */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopePostList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  createPost: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PostInput']
+      }
+    }
+    responses: {
+      /** @description Draft created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeID']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getPost: {
+    parameters: {
+      query?: {
+        locale?: components['parameters']['Locale']
+      }
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Editable post */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopePostDetail']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  updatePost: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PostInput']
+      }
+    }
+    responses: {
+      /** @description Post saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeID']
+        }
+      }
+      409: components['responses']['EditConflict']
+      default: components['responses']['Error']
+    }
+  }
+  deletePost: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Post deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      default: components['responses']['Error']
+    }
+  }
+  savePostDraft: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PostInput']
+      }
+    }
+    responses: {
+      /** @description Draft saved without publishing */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      409: components['responses']['EditConflict']
+      default: components['responses']['Error']
+    }
+  }
+  publishPost: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PublishRequest']
+      }
+    }
+    responses: {
+      /** @description Render and translation jobs queued */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopePublishResult']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  unpublishPost: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Content returned to draft */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeStatusResult']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  restorePost: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Trashed content restored as draft */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeStatusResult']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  duplicatePost: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Draft copy created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeID']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  purgePost: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Trashed content permanently deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listPostRevisions: {
+    parameters: {
+      query?: {
+        locale?: components['parameters']['Locale']
+      }
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Revisions */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeRevisionList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getPostRevision: {
+    parameters: {
+      query?: {
+        locale?: components['parameters']['Locale']
+      }
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+        revision: components['parameters']['Revision']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Revision */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeRevisionDetail']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  restorePostRevision: {
+    parameters: {
+      query?: {
+        locale?: components['parameters']['Locale']
+      }
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+        revision: components['parameters']['Revision']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Revision restored */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeRestoreResult']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listPages: {
+    parameters: {
+      query?: {
+        locale?: components['parameters']['Locale']
+        page?: components['parameters']['Page']
+        perPage?: components['parameters']['PerPage']
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Pages */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopePostList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  createPage: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PostInput']
+      }
+    }
+    responses: {
+      /** @description Page created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeID']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getPage: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Page */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopePostDetail']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  updatePage: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PostInput']
+      }
+    }
+    responses: {
+      /** @description Page saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeID']
+        }
+      }
+      409: components['responses']['EditConflict']
+      default: components['responses']['Error']
+    }
+  }
+  deletePage: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Page deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      default: components['responses']['Error']
+    }
+  }
+  publishPage: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['ArticleID']
+      }
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'application/json': components['schemas']['PublishRequest']
+      }
+    }
+    responses: {
+      /** @description Page queued */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopePublishResult']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listCategories: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Categories */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeCategoryList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  createCategory: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Category']
+      }
+    }
+    responses: {
+      /** @description Category saved */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeCategory']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  updateCategory: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['TaxonomyID']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Category']
+      }
+    }
+    responses: {
+      /** @description Category saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeCategory']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  deleteCategory: {
+    parameters: {
+      query?: {
+        migrateTo?: string
+      }
+      header?: never
+      path: {
+        id: components['parameters']['TaxonomyID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Category removed */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeDeleteResult']
+        }
+      }
+      409: components['responses']['Error']
+      default: components['responses']['Error']
+    }
+  }
+  listTags: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Tags */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeTagList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  createTag: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Tag']
+      }
+    }
+    responses: {
+      /** @description Tag saved */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeTag']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  updateTag: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['TaxonomyID']
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Tag']
+      }
+    }
+    responses: {
+      /** @description Tag saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeTag']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  deleteTag: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: components['parameters']['TaxonomyID']
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Tag removed */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeDeleteResult']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listMedia: {
+    parameters: {
+      query?: {
+        dir?: string
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Media entries */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeMediaList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  deleteMedia: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': {
+          paths: string[]
+        }
+      }
+    }
+    responses: {
+      /** @description Media deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      default: components['responses']['Error']
+    }
+  }
+  uploadMedia: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'multipart/form-data': {
+          dir?: string
+          file?: string[]
+        }
+      }
+    }
+    responses: {
+      /** @description Upload results */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeMediaUpload']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  createMediaDirectory: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': {
+          dir: string
+        }
+      }
+    }
+    responses: {
+      /** @description Directory created */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listTranslationTasks: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Tasks */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeTranslationTaskList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  createTranslationTask: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': {
+          articleID: string
+          targetLocale: string
+          force?: boolean
+        }
+      }
+    }
+    responses: {
+      /** @description Translation queued */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeTranslationTask']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  testTranslationProvider: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Provider reachable */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeProviderTest']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  previewMarkdown: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': {
+          body?: string
+          markdown?: string
+        }
+      }
+    }
+    responses: {
+      /** @description Rendered Markdown */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeMarkdownPreview']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listThemes: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Themes */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeAnyList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  reloadThemes: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Themes rediscovered */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeAnyList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getTheme: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Theme manifest and effective settings */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeObject']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getThemeSettings: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Settings */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeObject']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  updateThemeSettings: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': {
+          [key: string]: unknown
+        }
+      }
+    }
+    responses: {
+      /** @description Settings saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeObject']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  resetThemeSettings: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Theme settings reset to defaults */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeObject']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  activateTheme: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Theme activated */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeObject']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listBackups: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Backups */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeBackupList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  createBackup: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Backup created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeBackup']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  downloadBackup: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Backup ZIP */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/zip': string
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  deleteBackup: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        name: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Backup removed */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      default: components['responses']['Error']
+    }
+  }
+  restoreBackup: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': {
+          name: string
+          /** @constant */
+          confirm: true
+        }
+      }
+    }
+    responses: {
+      /** @description Backup restored; process restart recommended */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeObject']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getSettings: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Effective settings with sensitive values masked */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeSettings']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  updateSettingsSection: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        section:
+          | 'site'
+          | 'i18n'
+          | 'render'
+          | 'markdown'
+          | 'storage'
+          | 'ai'
+          | 'search'
+          | 'comments'
+          | 'seo'
+          | 'cache'
+          | 'security'
+          | 'log'
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': {
+          [key: string]: unknown
+        }
+      }
+    }
+    responses: {
+      /** @description Settings saved */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeSettingsUpdate']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listUsers: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Users */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeUserList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  createUser: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UserInput']
+      }
+    }
+    responses: {
+      /** @description User created */
+      201: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeUser']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  updateUser: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UserInput']
+      }
+    }
+    responses: {
+      /** @description User updated */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeUser']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  deleteUser: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description User deleted */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      default: components['responses']['Error']
+    }
+  }
+  resetUserPassword: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': {
+          /** Format: password */
+          password: string
+        }
+      }
+    }
+    responses: {
+      /** @description Password reset and existing sessions invalidated */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      default: components['responses']['Error']
+    }
+  }
+  createImport: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'multipart/form-data': {
+          /** Format: binary */
+          file: string
+          defaultLocale?: string
+          /** @enum {string} */
+          defaultStatus?: 'draft' | 'published'
+          dryRun?: boolean
+          /** @default true */
+          createMissingTaxonomy?: boolean
+        }
+      }
+    }
+    responses: {
+      /** @description Import task queued */
+      202: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeImportQueued']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getImportStatus: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        jobId: number
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Import progress and report */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeImportStatus']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getSystemHealth: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Health */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeHealth']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listSystemLogs: {
+    parameters: {
+      query?: {
+        limit?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Logs */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeLogList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listAuditLog: {
+    parameters: {
+      query?: {
+        actor?: string
+        action?: string
+        limit?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Audit events */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeLogList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  listIndexErrors: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Content parsing errors */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeAnyList']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  getSystemStats: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Runtime statistics */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeObject']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  rebuildIndex: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Index rebuilt */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeObject']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
+  restartRenderer: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Renderer restarted */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EnvelopeObject']
+        }
+      }
+      default: components['responses']['Error']
+    }
+  }
 }

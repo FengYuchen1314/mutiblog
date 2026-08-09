@@ -17,6 +17,7 @@ export default function Layout() {
         <Link to="/tags">标签</Link>
         <Link to="/menus">菜单</Link>
         <Link to="/links">友链</Link>
+        <Link to="/pages">页面</Link>
         <Link to="/import">导入</Link>
         <Link to="/backups">备份</Link>
         <Link to="/activity">活动</Link>
