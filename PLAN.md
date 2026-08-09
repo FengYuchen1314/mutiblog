@@ -84,6 +84,14 @@ M12 Docker / Nginx / 缓存策略 / 性能验收
 | [docs/14-cli-and-lifecycle.md](docs/14-cli-and-lifecycle.md) | **CLI（含密码重置）、doctor、verify、版本升级与内容迁移、灾难恢复手册** | 后端 |
 | [docs/15-implementation-handoff.md](docs/15-implementation-handoff.md) | **如何把这套规格分批交付给实现模型：投喂清单、提示词模板、一致性保障、高危区域** | 调度者 |
 | [docs/16-social-features.md](docs/16-social-features.md) | **原生评论、邮件通知、友链自助申请、友链 RSS 聚合、版本更新（第 1.5 阶段，+21 人日）** | 全部 |
+| [docs/17-spec-vs-reality.md](docs/17-spec-vs-reality.md) | ⭐ **规格与实现对账：哪些已实现、哪些是幻觉、冲突时听谁的** | **执行者必读** |
+
+> ## ⚠️ 动工前先读这两份
+>
+> 1. **[docs/17-spec-vs-reality.md](docs/17-spec-vs-reality.md)** —— 前 16 份规格写的是**设计意图**，实现已在渲染层与前端走了另一条路。直接照规格写会去实现**不存在的接口**（例如 `docs/04 §3.4` 的 `meta` 响应、16 种 UnitKind、11 个主题模板——实际只有 5 种 kind、响应只有 `{html}`）。
+> 2. **[TASKS.md](TASKS.md)** —— 16 个任务的执行计划、依赖顺序与验收命令。
+>
+> 冲突时的权威顺序：`docs/17 的处置列` > `TASKS.md` > **有测试覆盖的实际代码** > `docs/01~16`。
 
 > ⚠️ **`docs/13` 优先级高于前 12 份文档**。它是按真实部署路径逐步走查后写的修订集，凡与前面文档冲突处，**以 docs/13 为准**。其中 P1/P2/P3/P6/P13/P25/P26 是会导致部署失败或数据错误的硬缺陷。
 
