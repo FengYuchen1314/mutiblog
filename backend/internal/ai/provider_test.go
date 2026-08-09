@@ -53,3 +53,35 @@ func TestOpenAICompatibleFallsBackFromJSONMode(t *testing.T) {
 		t.Fatalf("usage=%+v", usage)
 	}
 }
+
+func TestBaseURLNormalization(t *testing.T) {
+	for _, input := range []string{
+		"https://api.example.test/v1",
+		"https://api.example.test/v1/",
+		"https://api.example.test/v1/chat/completions",
+		"https://api.example.test/v1/chat/completions/",
+	} {
+		p, err := NewOpenAICompatible(config.AIConfig{BaseURL: input, APIKey: "k", Model: "m", Timeout: config.Duration(time.Second)})
+		if err != nil {
+			t.Fatalf("%s: %v", input, err)
+		}
+		if p.baseURL != "https://api.example.test/v1" {
+			t.Fatalf("%s -> baseURL %q", input, p.baseURL)
+		}
+	}
+}
+
+func TestProviderStatusDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"nope"}`, http.StatusNotFound)
+	}))
+	defer server.Close()
+	p, err := NewOpenAICompatible(config.AIConfig{BaseURL: server.URL, APIKey: "k", Model: "m", Timeout: config.Duration(time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.Translate(context.Background(), []Segment{{Text: "Hello"}}, "en", "zh-CN", "title")
+	if err == nil || !strings.Contains(err.Error(), "端点未找到") {
+		t.Fatalf("err=%v", err)
+	}
+}

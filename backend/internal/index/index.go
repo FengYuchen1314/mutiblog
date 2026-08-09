@@ -258,6 +258,20 @@ func (ix *Index) Article(id model.ArticleID) (*model.Article, bool) {
 	a, ok := ix.articles[id]
 	return a, ok
 }
+
+// ArticleByDir returns the article currently indexed for a bundle directory,
+// or false when the bundle is not indexed. It is used by the watcher to
+// snapshot the pre-edit state before an external change replaces it.
+func (ix *Index) ArticleByDir(bundle string) (*model.Article, bool) {
+	ix.mu.RLock()
+	defer ix.mu.RUnlock()
+	for _, article := range ix.articles {
+		if article.BundleDir == bundle {
+			return article, true
+		}
+	}
+	return nil, false
+}
 func (ix *Index) Articles() []*model.Article {
 	ix.mu.RLock()
 	defer ix.mu.RUnlock()

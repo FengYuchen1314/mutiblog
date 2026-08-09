@@ -2,6 +2,7 @@ package content
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"

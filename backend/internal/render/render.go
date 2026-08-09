@@ -10,6 +10,7 @@ import (
 	"github.com/fengyuchen/mutiblog/internal/fsutil"
 	"github.com/fengyuchen/mutiblog/internal/model"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -193,6 +194,7 @@ func (s *Service) Start(ctx context.Context) error {
 		res, err := s.client.Do(req)
 		if err == nil && res.StatusCode == 200 {
 			res.Body.Close()
+			s.warmup()
 			return nil
 		}
 		if res != nil {
@@ -205,6 +207,20 @@ func (s *Service) Start(ctx context.Context) error {
 	s.cmd = nil
 	s.runningSocket = ""
 	return fmt.Errorf("renderer worker did not become healthy")
+}
+
+// warmup runs the full Markdown pipeline once so the first real publish does
+// not pay for highlighter and theme initialization (docs/13 P17). Failure is
+// deliberately non-blocking.
+func (s *Service) warmup() {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		const sample = "# Warmup\n\n```go\npackage main\n\nfunc main() {}\n```\n\n$x^2$\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"
+		if _, err := s.Markdown(ctx, sample); err != nil {
+			slog.Warn("renderer warmup failed", "err", err)
+		}
+	}()
 }
 func (s *Service) Close() error {
 	s.mu.Lock()

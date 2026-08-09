@@ -540,6 +540,45 @@ func TestRootLocaleRedirectAndStaticFiles(t *testing.T) {
 	}
 }
 
+func TestGoDirectModeServesMedia(t *testing.T) {
+	root := t.TempDir()
+	mediaDir := filepath.Join(root, "media")
+	if err := os.MkdirAll(filepath.Join(mediaDir, "2026", "08"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("media-bytes")
+	if err := os.WriteFile(filepath.Join(mediaDir, "2026", "08", "pixel.png"), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	users, err := auth.OpenUsers(filepath.Join(root, "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Paths.Media = mediaDir
+	cfg.Paths.Generated = filepath.Join(root, "generated")
+	cfg.Storage.Local.PublicPrefix = "/media"
+	cfg.Server.ServeStatic = true
+	cfg.Server.TrustedProxies = []string{"127.0.0.1"}
+	cfg.I18n.DefaultLocale = "en"
+	cfg.I18n.CookieName = "locale"
+	cfg.I18n.Locales = []config.LocaleConfig{{Code: "en", URLPrefix: "en", Enabled: true}}
+	h := New(&Server{Config: cfg, Users: users, Index: index.New(index.Options{ContentRoot: filepath.Join(root, "content")}), Content: content.NewStore(filepath.Join(root, "content")), Events: events.New(nil)})
+
+	req := httptest.NewRequest(http.MethodGet, "/media/2026/08/pixel.png", nil)
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusOK || res.Body.String() != "media-bytes" {
+		t.Fatalf("media serve = %d %q", res.Code, res.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/media/../../etc/passwd", nil)
+	res = httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("traversal serve = %d", res.Code)
+	}
+}
+
 func TestLoginRateLimitAndOriginValidation(t *testing.T) {
 	root := t.TempDir()
 	users, err := auth.OpenUsers(filepath.Join(root, "data"))

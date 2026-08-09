@@ -75,7 +75,10 @@ func (q *Queue) Enqueue(ctx context.Context, j Job) (int64, error) {
 				// Workers resolve the current bundle from the index, so a job already
 				// running will render the newest saved content rather than an obsolete
 				// payload. Keeping a single job makes repeated Publish idempotent.
-				_, err = tx.Exec("UPDATE jobs SET payload=?,priority=MIN(priority,?),updated_at=? WHERE id=?", string(j.Payload), j.Priority, now, existing)
+				// run_after slides forward on every arrival so a deferred
+				// re-render (e.g. the hreflang merge window) coalesces bursts
+				// into a single job that runs after the last request.
+				_, err = tx.Exec("UPDATE jobs SET payload=?,priority=MIN(priority,?),run_after=?,updated_at=? WHERE id=?", string(j.Payload), j.Priority, j.RunAfter.UTC().Format(time.RFC3339Nano), now, existing)
 				id = existing
 				return err
 			}

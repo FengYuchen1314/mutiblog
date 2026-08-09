@@ -17,6 +17,11 @@ import (
 
 var ErrManualProtected = errors.New("translation is manually maintained")
 
+// hreflangMergeWindow defers sibling-locale re-renders so a burst of
+// completed translations coalesces into one sweep instead of O(N²) renders
+// (docs/13 P21). jobs.Enqueue slides run_after forward on each arrival.
+const hreflangMergeWindow = 30 * time.Second
+
 type Task struct {
 	ID             int64           `json:"id"`
 	ArticleID      model.ArticleID `json:"articleID"`
@@ -143,6 +148,16 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) error {
 	}
 	s.Index.UpsertArticle(article)
 	_, _ = s.Jobs.Enqueue(ctx, jobs.Job{Kind: "render", DedupeKey: string(article.ID) + ":" + string(target), Payload: mustJSON(map[string]string{"articleID": string(article.ID), "locale": string(target)}), Priority: 10})
+	// hreflang alternates are symmetric: every other locale page must list the
+	// freshly translated version. Coalesce those refreshes into one deferred
+	// render per locale within the merge window.
+	for loc := range article.Versions {
+		if loc == target {
+			continue
+		}
+		payload := mustJSON(map[string]string{"articleID": string(article.ID), "locale": string(loc)})
+		_, _ = s.Jobs.Enqueue(ctx, jobs.Job{Kind: "render", DedupeKey: "hreflang:" + string(article.ID) + ":" + string(loc), Payload: payload, Priority: 20, RunAfter: time.Now().Add(hreflangMergeWindow)})
+	}
 	_, err = s.DB.Write().ExecContext(ctx, "UPDATE translation_tasks SET status='completed',segments_total=?,segments_done=?,tokens_in=?,tokens_out=?,provider=?,model=?,finished_at=?,error=NULL WHERE id=?", lenMustSegments(source.Body), lenMustSegments(source.Body), result.Usage.PromptTokens, result.Usage.CompletionTokens, s.Provider.Name(), providerModel(s.Provider), time.Now().UTC().Format(time.RFC3339Nano), payload.TaskID)
 	return err
 }

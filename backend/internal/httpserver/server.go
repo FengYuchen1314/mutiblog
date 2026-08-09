@@ -218,6 +218,25 @@ func (s *Server) staticHandler() http.Handler {
 	root := filepath.Join(s.Config.Paths.Generated, "public")
 	files := http.FileServer(http.Dir(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mediaPrefix := s.Config.Storage.Local.PublicPrefix
+		if mediaPrefix != "" {
+			mediaPrefix = "/" + strings.Trim(mediaPrefix, "/")
+			if mediaPrefix != "/" && strings.HasPrefix(r.URL.Path, mediaPrefix+"/") {
+				rel := strings.TrimPrefix(r.URL.Path, mediaPrefix+"/")
+				candidate, err := fsutil.SafeJoin(s.Config.Paths.Media, rel)
+				if err != nil {
+					http.NotFound(w, r)
+					return
+				}
+				info, statErr := os.Stat(candidate)
+				if statErr != nil || info.IsDir() {
+					http.NotFound(w, r)
+					return
+				}
+				http.ServeFile(w, r, candidate)
+				return
+			}
+		}
 		rel := strings.TrimPrefix(filepath.Clean(r.URL.Path), "/")
 		if rel != "" {
 			candidate, err := fsutil.SafeJoin(root, rel)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -53,7 +54,12 @@ func NewOpenAICompatible(cfg config.AIConfig) (*OpenAICompatible, error) {
 	if maxRetries <= 0 {
 		maxRetries = 3
 	}
-	return &OpenAICompatible{baseURL: strings.TrimRight(cfg.BaseURL, "/"), apiKey: cfg.APIKey, model: cfg.Model, prompt: cfg.SystemPromptOverride, temperature: cfg.Temperature, maxTokens: cfg.MaxTokensPerRequest, maxRetries: maxRetries, rpm: cfg.RateLimitRPM, client: &http.Client{Timeout: timeout}}, nil
+	baseURL := strings.TrimSpace(cfg.BaseURL)
+	// docs/13 P9: users paste all four spellings; only the /v1 form is right.
+	baseURL = strings.TrimRight(baseURL, "/")
+	baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &OpenAICompatible{baseURL: baseURL, apiKey: cfg.APIKey, model: cfg.Model, prompt: cfg.SystemPromptOverride, temperature: cfg.Temperature, maxTokens: cfg.MaxTokensPerRequest, maxRetries: maxRetries, rpm: cfg.RateLimitRPM, client: &http.Client{Timeout: timeout}}, nil
 }
 
 func (p *OpenAICompatible) Name() string     { return "openai-compatible" }
@@ -157,6 +163,17 @@ func (p *OpenAICompatible) request(ctx context.Context, segments []string, src, 
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	response, err := p.client.Do(req)
 	if err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return nil, Usage{}, 0, 0, fmt.Errorf("AI 请求超时：请检查服务器网络或代理设置（%w）", err)
+		}
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "tls") || strings.Contains(lower, "x509") || strings.Contains(lower, "certificate") || strings.Contains(lower, "handshake") {
+			return nil, Usage{}, 0, 0, fmt.Errorf("TLS 握手失败，可能是中间人代理或证书问题（%w）", err)
+		}
+		if strings.Contains(lower, "no such host") || strings.Contains(lower, "dns") || strings.Contains(lower, "lookup") {
+			return nil, Usage{}, 0, 0, fmt.Errorf("无法解析域名 %s，请检查 Base URL（%w）", p.baseURL, err)
+		}
 		return nil, Usage{}, 0, 0, fmt.Errorf("AI provider request failed: %w", err)
 	}
 	defer response.Body.Close()
@@ -169,6 +186,14 @@ func (p *OpenAICompatible) request(ctx context.Context, segments []string, src, 
 		message := strings.TrimSpace(string(data))
 		if len(message) > 512 {
 			message = message[:512]
+		}
+		switch response.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf("API Key 无效或无权访问该模型（HTTP %d）：%s", response.StatusCode, message)
+		case http.StatusNotFound:
+			return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf("端点未找到（HTTP 404）：请检查 Base URL 是否需要以 /v1 结尾。原始响应：%s", message)
+		case http.StatusTooManyRequests:
+			return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf("AI 服务限流（HTTP 429），请稍后重试或降低并发：%s", message)
 		}
 		return nil, Usage{}, response.StatusCode, retryAfter, fmt.Errorf("AI provider returned HTTP %d: %s", response.StatusCode, message)
 	}

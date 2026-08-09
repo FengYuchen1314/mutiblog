@@ -111,6 +111,37 @@ func TestQueueStats(t *testing.T) {
 	}
 }
 
+func TestQueueDedupeSlidesRunAfter(t *testing.T) {
+	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	q := New(db)
+	base := time.Now()
+	first, err := q.Enqueue(context.Background(), Job{Kind: "render", DedupeKey: "hreflang:x:en", Payload: []byte(`{"v":1}`), RunAfter: base.Add(30 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second arrival inside the merge window must slide the run time
+	// forward instead of creating a second job (docs/13 P21).
+	later := base.Add(60 * time.Second)
+	second, err := q.Enqueue(context.Background(), Job{Kind: "render", DedupeKey: "hreflang:x:en", Payload: []byte(`{"v":2}`), RunAfter: later})
+	if err != nil || first != second {
+		t.Fatalf("ids %d %d err %v", first, second, err)
+	}
+	job, err := q.Get(context.Background(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.RunAfter.Before(later.Add(-time.Second)) || job.RunAfter.After(later.Add(time.Second)) {
+		t.Fatalf("run_after=%v, want ~%v", job.RunAfter, later)
+	}
+	if string(job.Payload) != `{"v":2}` {
+		t.Fatalf("payload=%s", job.Payload)
+	}
+}
+
 func TestQueueRetriesAndReclaimsWithoutConsumingAttempts(t *testing.T) {
 	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {

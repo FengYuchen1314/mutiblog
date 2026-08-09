@@ -79,10 +79,8 @@ func New(opts Options) (*App, []string, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	if opts.Dev {
-		if err := ensureDevSecret(opts.Root); err != nil {
-			return nil, nil, err
-		}
+	if err := ensureSessionSecret(opts.Root); err != nil {
+		return nil, nil, err
 	}
 	cfg, warnings, err := config.Load(opts.Root, opts.ConfigFile)
 	if err != nil {
@@ -124,19 +122,6 @@ func New(opts Options) (*App, []string, error) {
 		_ = db.Close()
 		return nil, warnings, err
 	}
-	bus.Subscribe("BundleChanged", func(_ context.Context, e events.Event) error {
-		change := e.(events.BundleChanged)
-		article, err := contentStore.LoadBundle(change.Dir)
-		if err == nil {
-			ix.UpsertArticle(article)
-		}
-		return err
-	})
-	bus.Subscribe("BundleRemoved", func(_ context.Context, e events.Event) error {
-		ix.RemoveBundle(e.(events.BundleRemoved).Dir)
-		return nil
-	})
-	bus.Subscribe("TaxonomyChanged", func(_ context.Context, e events.Event) error { return ix.ReloadTaxonomy(taxonomyStore) })
 	mediaStore := media.NewLocal(cfg.Paths.Media, cfg.Storage.Local.PublicPrefix)
 	themeStore := theme.NewStore(cfg.Paths.Themes, cfg.Paths.Data)
 	if active, themeErr := themeStore.Get(cfg.Theme.Active); themeErr != nil || theme.Compatible(active.Manifest, theme.EngineVersion) != nil {
@@ -171,6 +156,73 @@ func New(opts Options) (*App, []string, error) {
 		warnings = append(warnings, "theme settings: "+err.Error())
 	}
 	queue := jobs.New(db)
+	enqueueRender := func(articleID model.ArticleID, loc model.Locale) {
+		payload, _ := json.Marshal(map[string]string{"articleID": string(articleID), "locale": string(loc)})
+		if _, err := queue.Enqueue(context.Background(), jobs.Job{Kind: "render", DedupeKey: string(articleID) + ":" + string(loc), Payload: payload, Priority: 10}); err != nil {
+			opts.Logger.Warn("external change render was not queued", "article", articleID, "locale", loc, "err", err)
+		}
+	}
+	enqueueLocaleRefresh := func(loc model.Locale) {
+		payload, _ := json.Marshal(map[string]string{"locale": string(loc)})
+		if _, err := queue.Enqueue(context.Background(), jobs.Job{Kind: "render", DedupeKey: "locale:" + string(loc), Payload: payload, Priority: 30}); err != nil {
+			opts.Logger.Warn("locale refresh was not queued", "locale", loc, "err", err)
+		}
+	}
+	// External edits (vim, git pull) refresh the index and the published HTML,
+	// but must never auto-trigger AI translation (P29).
+	bus.Subscribe("BundleChanged", func(_ context.Context, e events.Event) error {
+		change := e.(events.BundleChanged)
+		before, _ := ix.ArticleByDir(change.Dir)
+		article, err := contentStore.LoadBundle(change.Dir)
+		if err != nil {
+			if before != nil {
+				ix.RemoveBundle(change.Dir)
+				for _, loc := range publishedLocales(before) {
+					if removeErr := renderer.Remove(before, loc); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+						opts.Logger.Warn("removing externally deleted article failed", "article", before.ID, "locale", loc, "err", removeErr)
+					}
+					enqueueLocaleRefresh(loc)
+				}
+			}
+			return nil
+		}
+		ix.UpsertArticle(article)
+		for _, loc := range publishedLocales(article) {
+			enqueueRender(article.ID, loc)
+		}
+		return nil
+	})
+	bus.Subscribe("BundleRemoved", func(_ context.Context, e events.Event) error {
+		change := e.(events.BundleRemoved)
+		before, _ := ix.ArticleByDir(change.Dir)
+		ix.RemoveBundle(change.Dir)
+		if before != nil {
+			for _, loc := range publishedLocales(before) {
+				if removeErr := renderer.Remove(before, loc); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+					opts.Logger.Warn("removing externally deleted article failed", "article", before.ID, "locale", loc, "err", removeErr)
+				}
+				enqueueLocaleRefresh(loc)
+			}
+		} else {
+			for _, locale := range cfg.I18n.Locales {
+				if locale.Enabled {
+					enqueueLocaleRefresh(model.Locale(locale.Code))
+				}
+			}
+		}
+		return nil
+	})
+	bus.Subscribe("TaxonomyChanged", func(_ context.Context, e events.Event) error {
+		if err := ix.ReloadTaxonomy(taxonomyStore); err != nil {
+			return err
+		}
+		for _, locale := range cfg.I18n.Locales {
+			if locale.Enabled {
+				enqueueLocaleRefresh(model.Locale(locale.Code))
+			}
+		}
+		return nil
+	})
 	var translator *ai.Service
 	if cfg.AI.Enabled {
 		provider, err := ai.NewOpenAICompatible(cfg.AI)
@@ -476,6 +528,12 @@ func (a *App) consumeRenders(ctx context.Context) {
 			// feed pages, but it must never recreate the removed content unit.
 			if version != nil && version.Front.Status == model.StatusPublished {
 				if _, err := a.Render.Render(ctx, article, model.Locale(payload.Locale)); err != nil {
+					stopHeartbeat()
+					_ = a.Jobs.Fail(ctx, job.ID, err)
+					continue
+				}
+			} else if version == nil || version.Front.Status != model.StatusPublished {
+				if err := a.Render.Remove(article, model.Locale(payload.Locale)); err != nil && !errors.Is(err, os.ErrNotExist) {
 					stopHeartbeat()
 					_ = a.Jobs.Fail(ctx, job.ID, err)
 					continue
@@ -837,21 +895,67 @@ func (a *App) renderTaxonomy(ctx context.Context, loc model.Locale, prefix strin
 	*extraPaths = append(*extraPaths, "/"+prefix+"/links/")
 	return nil
 }
-func ensureDevSecret(root string) error {
-	if os.Getenv("BLOG_SESSION_SECRET") != "" {
+// ensureSessionSecret implements the P5 startup contract: environment wins,
+// then config/.secrets.yaml, then a freshly generated 48-byte secret persisted
+// atomically with mode 0600. The process must never fail to start because the
+// secret file is missing or read-only.
+func ensureSessionSecret(root string) error {
+	if os.Getenv("BLOG_SESSION_SECRET") != "" || os.Getenv("BLOG_SECURITY_SESSIONSECRET") != "" {
 		return nil
 	}
-	path := filepath.Join(root, "cache", "dev-session-secret")
-	if b, err := os.ReadFile(path); err == nil && len(b) >= 32 {
-		return os.Setenv("BLOG_SESSION_SECRET", string(b))
+	dir := filepath.Join(root, "config")
+	path := filepath.Join(dir, ".secrets.yaml")
+	if b, err := os.ReadFile(path); err == nil {
+		if secret := secretFromYAML(b); secret != "" {
+			return os.Setenv("BLOG_SESSION_SECRET", secret)
+		}
 	}
-	raw := make([]byte, 48)
-	if _, err := rand.Read(raw); err != nil {
+	secret := ""
+	if b, err := os.ReadFile(filepath.Join(root, "cache", "dev-session-secret")); err == nil && len(b) >= 32 {
+		secret = strings.TrimSpace(string(b))
+	}
+	if secret == "" {
+		raw := make([]byte, 48)
+		if _, err := rand.Read(raw); err != nil {
+			return err
+		}
+		secret = base64.RawURLEncoding.EncodeToString(raw)
+	}
+	if err := fsutil.EnsureDir(dir, 0o755); err != nil {
 		return err
 	}
-	secret := base64.RawURLEncoding.EncodeToString(raw)
-	if err := fsutil.AtomicWrite(path, []byte(secret), 0o600); err != nil {
-		return err
+	if err := fsutil.AtomicWrite(path, []byte("sessionSecret: "+secret+"\n"), 0o600); err != nil {
+		// A read-only config directory must not block startup; the ephemeral
+		// secret is still valid for the lifetime of this process.
+		slog.Warn("cannot persist session secret; it will change on restart", "path", path, "err", err)
+	} else {
+		slog.Info("generated a persistent session secret; do not commit config/.secrets.yaml", "path", path)
 	}
 	return os.Setenv("BLOG_SESSION_SECRET", secret)
+}
+
+func secretFromYAML(b []byte) string {
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		rest, ok := strings.CutPrefix(line, "sessionSecret:")
+		if !ok {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(rest), `"'`)
+	}
+	return ""
+}
+
+func publishedLocales(article *model.Article) []model.Locale {
+	var out []model.Locale
+	if article == nil {
+		return out
+	}
+	for loc, version := range article.Versions {
+		if version != nil && version.Front.Status == model.StatusPublished {
+			out = append(out, loc)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
