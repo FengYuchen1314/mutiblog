@@ -12,6 +12,13 @@ COPY frontend/renderer/package.json frontend/renderer/package-lock.json ./
 RUN npm ci --omit=dev
 COPY frontend/renderer/src ./src
 
+FROM node:22-alpine AS theme
+WORKDIR /src/themes/default
+COPY themes/default/package.json themes/default/package-lock.json ./
+RUN npm ci
+COPY themes/default/ ./
+RUN NODE_OPTIONS=--max-old-space-size=2048 npm run build && rm -rf node_modules
+
 FROM golang:1.23-alpine AS build
 WORKDIR /src
 ARG VERSION=dev
@@ -26,7 +33,7 @@ RUN apk add --no-cache ca-certificates tzdata su-exec && addgroup -S -g 1001 blo
 WORKDIR /app
 COPY --from=build /out/blog-server /app/blog-server
 COPY --from=renderer /src/frontend/renderer /app/renderer
-COPY themes /app/themes
+COPY --from=theme /src/themes/default /app/themes/default
 COPY config/config.yaml /app/config.default.yaml
 COPY deploy/entrypoint.sh /app/entrypoint.sh
 RUN mkdir -p /app/content /app/data /app/media /app/config /app/generated /app/cache /app/backups /app/renderer \

@@ -265,7 +265,17 @@ func (s *Service) Start(ctx context.Context) error {
 	if len(args) > 0 && !filepath.IsAbs(args[0]) {
 		candidate := filepath.Join(s.root, args[0])
 		if _, err := os.Stat(candidate); os.IsNotExist(err) {
-			candidate = filepath.Join(s.root, "frontend", "renderer", "src", "server.js")
+			fallbacks := []string{
+				filepath.Join(s.root, "frontend", "renderer", "src", "server.js"),
+				filepath.Join(s.root, "renderer", "src", "server.js"),
+			}
+			candidate = fallbacks[0]
+			for _, fallback := range fallbacks {
+				if _, err := os.Stat(fallback); err == nil {
+					candidate = fallback
+					break
+				}
+			}
 		}
 		args[0] = candidate
 	}

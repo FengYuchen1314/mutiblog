@@ -52,14 +52,49 @@ docker compose -f docker-compose.yml -f deploy/compose.nginx.yml up -d
 | CLI | 🟢 可用 | `doctor` `verify` `rebuild` `migrate` `admin *` `backup *` `import` `export` |
 | i18n（协商 / hreflang） | 🟢 可用 | Cookie → Accept-Language → IP → 默认 |
 | AI 翻译 | 🟡 部分 | 分段器 / provider / 队列已有；**缺熔断器** |
-| Markdown 渲染 | 🟡 部分 | Shiki + KaTeX + GFM 已有；**缺 sanitize、图片尺寸、TOC 元数据** |
-| **主题系统** | 🔴 待建 | **只有 13 行的 dist 占位，无源码** |
-| **Islands（交互组件）** | 🔴 待建 | **无客户端运行时，Mermaid 图表不显示** |
-| **管理后台 UI** | 🔴 部分 | 有登录 / 文章 / 编辑器 / 媒体 / 设置；**缺分类、标签、菜单、友链、多语言矩阵** |
-| 搜索 | 🔴 待建 | 当前是子串匹配，非真索引 |
+| Markdown 渲染 | 🟢 可用 | Shiki 双主题 + KaTeX + GFM + sanitize（可配置）+ 图片尺寸注入 + 超大代码块防护 |
+| **主题系统** | 🟢 可用 | React + TS 源码，vite 双构建（SSR/客户端），10 个模板，`themes/README.md` |
+| **Islands（交互组件）** | 🟢 可用 | 8 个 island（Mermaid/CopyCode/深浅切换/搜索/灯箱/TOC/返回顶部/语言切换），按需加载 |
+| **管理后台 UI** | 🟢 可用 | 路由化：文章/媒体/分类/标签/菜单/友链/页面/翻译矩阵/回收站/日志/主题/设置/用户/导入/备份 |
+| 搜索 | 🟢 可用 | MiniSearch 正文检索，单字母压缩索引，体积护栏 |
+| 代码规范 | 🟢 可用 | 行长 ≤120、Prettier/ESLint/gofmt、`make fmt` / `make lint` |
 | 评论 / 邮件 / 友链申请 / RSS 聚合 | ⚪ 未开始 | 第 1.5 阶段，见 `docs/16` |
 
 **详细对账见 [`docs/17-spec-vs-reality.md`](docs/17-spec-vs-reality.md)。**
+
+---
+
+## 开发环境搭建
+
+依赖：Go 1.23+、Node 20+、pnpm（`corepack enable`）。
+
+```sh
+# 后端测试（Go 测试需能绑定本地端口/socket）
+cd backend && go build ./... && go test ./...
+
+# 前端
+cd frontend/admin && pnpm install
+cd ../renderer && npm install
+cd ../themes/default && npm install
+
+# 格式化与静态检查（全仓行长 ≤120）
+make fmt
+GOCACHE=... make lint
+
+# 本地运行（--dev 自动生成会话密钥）
+./blog-server --dev
+
+# 发布与校验
+./blog-server rebuild && ./blog-server verify
+```
+
+### 主题开发入门
+
+主题源码在 `themes/default/src/`，构建命令 `cd themes/default && npm run build`（产出
+`dist/ssr/entry.js` + `dist/client/*` + `dist/manifest.json`，dist 不入库）。渲染器按
+`templates[kind]` 契约调用主题模板，接收**扁平 props**（见 `themes/README.md`）。
+改完主题后执行 `./blog-server rebuild` 全站重渲染。交互组件按 island 规范写在
+`src/islands/`，在模板里用 `<Island name="..." hydrate="load|idle|visible" />` 挂载。
 
 ---
 

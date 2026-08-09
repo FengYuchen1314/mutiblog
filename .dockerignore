@@ -8,3 +8,4 @@ backups
 data/state.db*
 content/.drafts
 config/config.local.yaml
+themes/*/dist

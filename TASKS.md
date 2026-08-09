@@ -593,6 +593,11 @@ Lighthouse 文章页：Performance ≥ 90、Accessibility ≥ 95、SEO = 100。
 #### T14 · CI 与类型一致性
 `[T0]` · **1 人日**
 
+> ✅ 已完成（2026-08-10）：新增 .github/workflows/ci.yml（gofmt/vet/go test、
+> 行长 ≤120 检查、admin pnpm 构建、主题 npm 构建、openapi→TS 生成后 cmp 一致性、
+> rebuild + verify）。注：`verify --sample 50` 的 --sample 参数并不存在，CI 使用
+> 完整 verify。
+
 `.github/workflows/ci.yml`：
 ```yaml
 - gofmt 检查 + go vet + go test ./...
@@ -608,6 +613,13 @@ Lighthouse 文章页：Performance ≥ 90、Accessibility ≥ 95、SEO = 100。
 
 #### T15 · 文档与部署校准
 `[全部]` · **1 人日**
+
+> ✅ 已完成（2026-08-10）：README 状态表更新 + 开发环境搭建 + 主题开发入门；
+> themes/README.md 主题开发文档（目录约定、扁平 props 契约、Island 用法、构建调试）；
+> Dockerfile 新增主题构建阶段（NODE_OPTIONS 防 OOM），镜像内发布流程验证通过
+> （主题/Shiki/island 生效）；修复容器内渲染器路径回退。docs/13 走查：
+> W1/W2 容器首次启动+安装通过；W4 发布验证通过；W6 缓存破坏已实现；W7 Caddy 配置齐备；
+> W8 指纹重建已验证；W3/W5 依赖真实 AI key，需上线后人工验证。
 
 1. `README.md` 补：功能进度表、开发环境搭建、主题开发入门
 2. `themes/README.md`：主题开发文档（目录约定、props 契约、Island 用法、构建命令）

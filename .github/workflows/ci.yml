@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Go format / vet / test
+        run: |
+          cd backend
+          gofmt -l ./cmd ./internal | (! grep .)
+          go vet ./...
+          go test ./...
+
+      - name: Line length check (<=120)
+        run: |
+          find backend frontend themes -type f \( -name '*.go' -o -name '*.ts' -o -name '*.tsx' \) \
+            -not -path '*/node_modules/*' -not -path '*/dist/*' -not -name '*.d.ts' \
+            | xargs awk 'length > 120 {print FILENAME":"FNR" ("length")"}' | (! grep .)
+
+      - name: Admin frontend build
+        working-directory: frontend/admin
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          ./node_modules/.bin/vite build
+
+      - name: Theme build
+        working-directory: themes/default
+        run: |
+          npm ci
+          npm run build
+
+      - name: API types are committed
+        run: |
+          cd frontend/admin
+          ./node_modules/.bin/openapi-typescript ../../backend/api/openapi.yaml -o /tmp/schema.d.ts
+          cmp /tmp/schema.d.ts src/api/schema.d.ts
+
+      - name: Build binary and verify static output
+        run: |
+          cd backend && CGO_ENABLED=0 go build -o ../blog-server ./cmd/blog
+          cd ..
+          ./blog-server rebuild
+          ./blog-server verify
