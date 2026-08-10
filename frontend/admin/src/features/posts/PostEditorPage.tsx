@@ -1,7 +1,7 @@
 // 文章编辑器：多语言标签栏、自动保存、预览、发布与修订列表。
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { api, csrf } from '../../api/client'
+import { api, ApiError, csrf } from '../../api/client'
 import type { EditorPost } from '../../api/types'
 import MarkdownEditor from '../../components/MarkdownEditor'
 import LanguageTabs, { type LocaleInfo } from '../../components/LanguageTabs'
@@ -25,6 +25,8 @@ export default function PostEditorPage({ id, locale }: { id: string; locale: str
   const [revisions, setRevisions] = useState<number[]>([])
   const [manualConfirm, setManualConfirm] = useState(false)
   const [skipManualConfirm, setSkipManualConfirm] = useState(false)
+  const [conflict, setConflict] = useState<EditorPost | null>(null)
+  const [offline, setOffline] = useState(!navigator.onLine)
   const [title, setTitle] = useState('')
   const [slug, setSlug] = useState('')
   const [description, setDescription] = useState('')
@@ -94,12 +96,77 @@ export default function PostEditorPage({ id, locale }: { id: string; locale: str
       setError('')
       return true
     } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && !draft) {
+        try {
+          const latest = await api(
+            '/api/admin/posts/' + id + '?locale=' + encodeURIComponent(locale),
+          )
+          setConflict(latest)
+        } catch {
+          setError('保存冲突，且无法读取服务器版本。')
+        }
+        return false
+      }
       setError(e instanceof Error ? e.message : '保存失败')
       return false
     } finally {
       setSaving(false)
     }
   }
+
+  const keepMine = async () => {
+    if (!post) return
+    setConflict(null)
+    try {
+      const token = await csrf()
+      await api('/api/admin/posts/' + id, {
+        method: 'PUT',
+        headers: { 'X-CSRF-Token': token },
+        body: JSON.stringify({ ...payload(), baseHash: '' }),
+      })
+      localStorage.removeItem(localKey)
+      setDirty(false)
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '覆盖保存失败')
+    }
+  }
+
+  const useServer = () => {
+    if (!conflict) return
+    setTitle(conflict.front.title)
+    setSlug(conflict.front.slug)
+    setDescription(conflict.front.description || '')
+    setBody(conflict.body)
+    setCategories((conflict.front.categories || []).join(', '))
+    setTags((conflict.front.tags || []).join(', '))
+    setDirty(false)
+    localStorage.removeItem(localKey)
+    setConflict(null)
+  }
+
+  const downloadMine = () => {
+    const content =
+      '---\ntitle: ' + title + '\nslug: ' + slug + '\nlocale: ' + locale + '\n---\n\n' + body
+    const blob = new Blob([content], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = slug + '.' + locale + '.md'
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  useEffect(() => {
+    const onOnline = () => setOffline(false)
+    const onOffline = () => setOffline(true)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [])
 
   const requestSave = async () => {
     const derived = matrix != null && locale !== matrix.source
@@ -233,7 +300,9 @@ export default function PostEditorPage({ id, locale }: { id: string; locale: str
         <button type="button" onClick={() => navigate({ to: '/posts' })}>
           ← 返回文章
         </button>
-        <span>{saving ? '正在保存…' : dirty ? '未保存的更改' : '已保存'}</span>
+        <span className={'sync-state' + (offline ? ' offline' : '')}>
+          {offline ? '离线' : saving ? '保存中…' : dirty ? '未同步' : '已同步'}
+        </span>
         <button type="button" onClick={previewMarkdown}>
           预览
         </button>
@@ -349,6 +418,41 @@ export default function PostEditorPage({ id, locale }: { id: string; locale: str
               </button>
               <button type="button" className="secondary" onClick={() => setManualConfirm(false)}>
                 取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {conflict && (
+        <div className="confirm-overlay">
+          <div className="confirm-box conflict-box">
+            <h3>内容冲突</h3>
+            <p>这篇文章在你编辑期间被其他编辑器修改过。</p>
+            <div className="conflict-columns">
+              <div>
+                <strong>你的版本</strong>
+                <pre>{body.slice(0, 200) || '（空）'}</pre>
+              </div>
+              <div>
+                <strong>服务器版本</strong>
+                <pre>{conflict.body.slice(0, 200) || '（空）'}</pre>
+              </div>
+              <div>
+                <strong>差异</strong>
+                <pre>
+                  你的 {body.length} 字符 · 服务器 {conflict.body.length} 字符
+                </pre>
+              </div>
+            </div>
+            <div className="theme-actions">
+              <button type="button" onClick={() => void keepMine()}>
+                保留我的
+              </button>
+              <button type="button" className="secondary" onClick={useServer}>
+                使用服务器的
+              </button>
+              <button type="button" className="secondary" onClick={downloadMine}>
+                下载我的副本
               </button>
             </div>
           </div>

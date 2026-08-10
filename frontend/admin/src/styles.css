@@ -901,3 +901,34 @@ button {
   color: #9a3412;
   font-size: 0.9rem;
 }
+.sync-state {
+  margin-right: auto;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+.sync-state.offline {
+  color: #b45309;
+  font-weight: 600;
+}
+.conflict-columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+  margin: 0.75rem 0;
+}
+.conflict-columns pre {
+  margin: 0.35rem 0 0;
+  padding: 0.5rem;
+  max-height: 180px;
+  overflow: auto;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}
+@media (max-width: 720px) {
+  .conflict-columns {
+    grid-template-columns: 1fr;
+  }
+}

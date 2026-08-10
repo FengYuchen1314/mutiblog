@@ -154,6 +154,12 @@ cd backend && go test ./internal/ai/... -run Breaker -v
 ### 🟠 R3 · 编辑器冲突对话框
 `预估 0.5 人日` · 规格 `docs/12 §8.5`
 
+> ✅ 已完成（2026-08-10）：api/client 抛 ApiError{status,code}；PostEditorPage
+> 捕获 409 → 三栏对话框（你的版本/服务器版本/差异）+ 保留我的（空 baseHash
+> 覆盖）/使用服务器的/下载我的副本（Blob .md）；顶栏同步状态指示器
+> （已同步/保存中/未同步/离线，online/offline 监听，离线可写不弹框）。
+> 实测：旧 hash 保存 409、空 baseHash 覆盖 200；浏览器双标签点击验收待人工。
+
 **现状**：`baseHash` 已经在发送（`PostEditorPage.tsx:44`、`PagesPage.tsx:81`），但**前端没有处理 409 响应**。乐观并发做了一半。
 
 **要实现**：收到 409 时弹三栏对话框

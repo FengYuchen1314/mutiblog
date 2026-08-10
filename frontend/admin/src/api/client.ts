@@ -3,6 +3,17 @@ import type { components } from './schema'
 
 type Envelope = components['schemas']
 
+/** API 错误：携带 HTTP 状态码与后端错误 code。 */
+export class ApiError extends Error {
+  status: number
+  code: string
+  constructor(status: number, code: string, message: string) {
+    super(message)
+    this.status = status
+    this.code = code
+  }
+}
+
 /**
  * 请求后端 JSON API。
  * 返回响应体 data 字段；非 2xx 时抛出带后端错误消息的 Error。
@@ -18,7 +29,13 @@ export async function api(path: string, init?: RequestInit) {
     ...init,
   })
   const data = await r.json().catch(() => null)
-  if (!r.ok) throw new Error(data?.error?.message || 'Request failed')
+  if (!r.ok) {
+    throw new ApiError(
+      r.status,
+      data?.error?.code || 'UNKNOWN',
+      data?.error?.message || 'Request failed',
+    )
+  }
   return data?.data
 }
 
