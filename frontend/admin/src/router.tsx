@@ -156,4 +156,7 @@ const routeTree = rootRoute.addChildren([
   activityRoute,
 ])
 
-export const router = createRouter({ routeTree })
+// The SPA is served from /admin/ (see vite.config.ts `base`), so the router
+// must be told the same prefix — otherwise <Link to="/x"> navigates to the
+// site root and the backend's public 404 page renders instead of this app.
+export const router = createRouter({ routeTree, basepath: '/admin' })

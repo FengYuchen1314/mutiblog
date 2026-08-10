@@ -21,7 +21,8 @@ export default function UserPage() {
   }, [])
   const create = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const form = new FormData(e.currentTarget)
+    const target = e.currentTarget
+    const form = new FormData(target)
     try {
       const token = await csrf()
       await api('/api/admin/users/', {
@@ -35,7 +36,7 @@ export default function UserPage() {
           locale: 'zh-CN',
         }),
       })
-      e.currentTarget.reset()
+      target.reset()
       setNotice('用户已创建。')
       refresh()
     } catch (e) {

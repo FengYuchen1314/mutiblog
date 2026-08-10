@@ -55,7 +55,8 @@ export default function PagesPage() {
   }
   const create = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const form = new FormData(e.currentTarget)
+    const target = e.currentTarget
+    const form = new FormData(target)
     try {
       const token = await csrf()
       await api('/api/admin/pages/', {
@@ -63,7 +64,7 @@ export default function PagesPage() {
         headers: { 'X-CSRF-Token': token },
         body: JSON.stringify({ title: form.get('title'), body: '', locale: 'zh-CN' }),
       })
-      e.currentTarget.reset()
+      target.reset()
       refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : '创建页面失败')

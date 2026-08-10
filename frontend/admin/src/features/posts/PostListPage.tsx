@@ -21,7 +21,8 @@ export default function PostListPage() {
   useEffect(refresh, [locale])
   const create = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const f = new FormData(e.currentTarget)
+    const form = e.currentTarget
+    const f = new FormData(form)
     try {
       const token = await csrf()
       await api('/api/admin/posts/', {
@@ -29,7 +30,7 @@ export default function PostListPage() {
         headers: { 'X-CSRF-Token': token },
         body: JSON.stringify({ title: f.get('title'), body: f.get('body'), locale: 'zh-CN' }),
       })
-      e.currentTarget.reset()
+      form.reset()
       refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : '创建失败')

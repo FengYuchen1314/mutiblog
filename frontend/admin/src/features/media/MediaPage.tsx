@@ -15,7 +15,8 @@ export default function MediaPage() {
   useEffect(refresh, [dir])
   const upload = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const form = new FormData(e.currentTarget)
+    const target = e.currentTarget
+    const form = new FormData(target)
     form.set('dir', dir)
     try {
       const token = await csrf()
@@ -30,7 +31,7 @@ export default function MediaPage() {
           ? failed.map((x: MediaItem) => x.name + ': ' + x.error).join('；')
           : '上传成功',
       )
-      e.currentTarget.reset()
+      target.reset()
       refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : '上传失败')

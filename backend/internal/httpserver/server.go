@@ -12,10 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -140,6 +142,33 @@ func (s *Server) siteCSP() string {
 	return csp
 }
 
+// adminSPAHandler serves the embedded admin build and falls back to
+// index.html for any request path that doesn't map to a real embedded file.
+// The admin app is a client-side router (see frontend/admin/src/router.tsx),
+// so a hard refresh or a direct link to e.g. /admin/media must still return
+// the app shell — plain http.FileServer alone 404s on those paths.
+//
+// The fallback rewrites the path to the *directory* "/admin/", not
+// "/admin/index.html": net/http's FileServer unconditionally 301-redirects
+// any request whose path ends in "/index.html" to "./", so serving the file
+// directly here would bounce every SPA route back through a redirect instead
+// of returning the app shell.
+func adminSPAHandler(embedded fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(embedded))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rel := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if info, err := fs.Stat(embedded, rel); err != nil || info.IsDir() {
+			fallback := *r
+			u := *r.URL
+			u.Path = "/admin/"
+			fallback.URL = &u
+			fileServer.ServeHTTP(w, &fallback)
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
 func New(s *Server) http.Handler {
 	if s.limiter == nil {
 		s.limiter = newRateLimiter()
@@ -157,7 +186,7 @@ func New(s *Server) http.Handler {
 	r.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/", http.StatusPermanentRedirect)
 	})
-	r.Handle("/admin/*", http.FileServer(http.FS(web.Admin)))
+	r.Handle("/admin/*", adminSPAHandler(web.Admin))
 	r.Get(
 		"/healthz",
 		func(w http.ResponseWriter, r *http.Request) { ok(w, http.StatusOK, map[string]bool{"ok": true}) },
