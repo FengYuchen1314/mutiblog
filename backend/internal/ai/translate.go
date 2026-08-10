@@ -30,6 +30,7 @@ func TranslateMarkdown(
 	src, dst model.Locale,
 	title string,
 	budget int,
+	progress ...func(done, total int),
 ) (TranslationResult, error) {
 	segs, err := Extract(markdown, ExtractOpts{})
 	if err != nil {
@@ -40,6 +41,7 @@ func TranslateMarkdown(
 	}
 	translated := make([]string, len(segs))
 	var warnings []string
+	done := 0
 	for _, batch := range Batch(segs, budget) {
 		values, failed, err := translateBatch(ctx, provider, batch, src, dst, title)
 		if err != nil {
@@ -49,6 +51,10 @@ func TranslateMarkdown(
 			translated[segment.Index] = values[i]
 		}
 		warnings = append(warnings, failed...)
+		done += len(batch)
+		if len(progress) > 0 && progress[0] != nil {
+			progress[0](done, len(segs))
+		}
 	}
 	if len(warnings)*5 > len(segs) {
 		return TranslationResult{}, fmt.Errorf(

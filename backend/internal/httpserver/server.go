@@ -179,6 +179,8 @@ func New(s *Server) http.Handler {
 		r.With(s.perm("log.read")).Get("/system/audit", s.systemAudit)
 		r.With(s.perm("log.read")).Get("/system/index-errors", s.indexErrors)
 		r.With(s.perm("log.read")).Get("/system/stats", s.systemStats)
+		r.With(s.perm("post.read")).Get("/system/events", s.systemEvents)
+		r.With(s.perm("post.read")).Get("/system/activity", s.systemActivity)
 		r.With(s.perm("render.rebuild")).Post("/system/reindex", s.reindex)
 		r.With(s.perm("render.rebuild")).Post("/system/restart-renderer", s.restartRenderer)
 		r.With(s.perm("post.read")).Post("/preview/markdown", s.previewMarkdown)
@@ -257,6 +259,7 @@ func New(s *Server) http.Handler {
 		r.Route("/translations", func(r chi.Router) {
 			r.With(s.perm("post.read")).Get("/tasks", s.translationTasks)
 			r.With(s.perm("post.translate")).Post("/tasks", s.createTranslationTask)
+			r.With(s.perm("post.translate")).Post("/tasks/{id}/cancel", s.cancelTranslationTask)
 			r.With(s.perm("post.read")).Get("/breaker", s.breakerStatus)
 			r.With(s.perm("post.translate")).Post("/reset-breaker", s.resetBreaker)
 			r.With(s.perm("post.translate")).Post("/test", s.testTranslationProvider)
@@ -1948,6 +1951,149 @@ func (s *Server) resetBreaker(w http.ResponseWriter, r *http.Request) {
 	}
 	s.AI.ResetBreaker()
 	ok(w, http.StatusOK, map[string]any{"state": "closed"})
+}
+
+// activitySnapshot summarizes render/translation activity for live progress
+// UIs. Stall detection is derived from started timestamps client-side.
+func (s *Server) activitySnapshot(ctx context.Context) map[string]any {
+	jobStats := jobs.Stats{}
+	var oldestRender *string
+	if s.Jobs != nil {
+		if stats, err := s.Jobs.Stats(ctx); err == nil {
+			jobStats = stats
+		}
+		row := s.State.Read().QueryRowContext(
+			ctx,
+			"SELECT MIN(locked_at) FROM jobs WHERE kind='render' AND status='running'",
+		)
+		var raw sql.NullString
+		if row.Scan(&raw) == nil && raw.Valid {
+			oldestRender = &raw.String
+		}
+	}
+	tasks := make([]map[string]any, 0)
+	if s.State != nil {
+		rows, err := s.State.Read().QueryContext(
+			ctx,
+			"SELECT id,article_id,target_locale,status,segments_total,segments_done,"+
+				"COALESCE(started_at,''),COALESCE(error,'') FROM translation_tasks "+
+				"WHERE status IN ('pending','translating') ORDER BY id DESC LIMIT 50",
+		)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var item struct {
+					ID            int64  `json:"id"`
+					ArticleID     string `json:"articleID"`
+					Target        string `json:"targetLocale"`
+					Status        string `json:"status"`
+					SegmentsTotal int    `json:"segmentsTotal"`
+					SegmentsDone  int    `json:"segmentsDone"`
+					StartedAt     string `json:"startedAt"`
+					Error         string `json:"error"`
+				}
+				if err := rows.Scan(
+					&item.ID, &item.ArticleID, &item.Target, &item.Status,
+					&item.SegmentsTotal, &item.SegmentsDone, &item.StartedAt, &item.Error,
+				); err == nil {
+					tasks = append(tasks, map[string]any{
+						"id":            item.ID,
+						"articleID":     item.ArticleID,
+						"targetLocale":  item.Target,
+						"status":        item.Status,
+						"segmentsTotal": item.SegmentsTotal,
+						"segmentsDone":  item.SegmentsDone,
+						"startedAt":     item.StartedAt,
+						"error":         item.Error,
+					})
+				}
+			}
+		}
+	}
+	return map[string]any{
+		"jobs": map[string]any{
+			"pending":           jobStats.Pending,
+			"running":           jobStats.Running,
+			"failed":            jobStats.Failed,
+			"oldestRenderStart": oldestRender,
+		},
+		"translations": tasks,
+	}
+}
+
+// systemActivity returns the same JSON snapshot used by SSE for degraded
+// polling fallback.
+func (s *Server) systemActivity(w http.ResponseWriter, r *http.Request) {
+	ok(w, http.StatusOK, s.activitySnapshot(r.Context()))
+}
+
+// systemEvents streams render/translation activity as Server-Sent Events.
+func (s *Server) systemEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		fail(w, http.StatusInternalServerError, "SSE_UNSUPPORTED", "streaming unsupported")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+	ctx := r.Context()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		data, err := json.Marshal(s.activitySnapshot(ctx))
+		if err != nil {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+			return
+		}
+		flusher.Flush()
+	}
+}
+
+// cancelTranslationTask marks a queued/running translation as cancelled.
+func (s *Server) cancelTranslationTask(w http.ResponseWriter, r *http.Request) {
+	if s.State == nil {
+		fail(w, http.StatusServiceUnavailable, "STATE_UNAVAILABLE", "runtime state unavailable")
+		return
+	}
+	id := parseInt(chi.URLParam(r, "id"), 0)
+	if id <= 0 {
+		fail(w, http.StatusBadRequest, "INVALID_ID", "invalid task id")
+		return
+	}
+	var jobID sql.NullInt64
+	_ = s.State.Read().QueryRowContext(
+		r.Context(),
+		"SELECT job_id FROM translation_tasks WHERE id=?",
+		id,
+	).Scan(&jobID)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := s.State.Write().ExecContext(
+		r.Context(),
+		"UPDATE translation_tasks SET status='failed',error='cancelled',finished_at=? "+
+			"WHERE id=? AND status IN ('pending','translating')",
+		now,
+		id,
+	)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, "CANCEL_FAILED", err.Error())
+		return
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		fail(w, http.StatusConflict, "NOT_ACTIVE", "task is not active")
+		return
+	}
+	if jobID.Valid && s.Jobs != nil {
+		_ = s.Jobs.Fail(r.Context(), jobID.Int64, errors.New("cancelled"))
+	}
+	ok(w, http.StatusOK, map[string]any{"id": id, "status": "cancelled"})
 }
 func (s *Server) testTranslationProvider(w http.ResponseWriter, r *http.Request) {
 	if s.AI == nil || s.AI.Provider == nil {

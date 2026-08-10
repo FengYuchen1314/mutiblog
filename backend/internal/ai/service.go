@@ -181,6 +181,15 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) error {
 		model.Locale(payload.Target),
 		source.Front.Title,
 		s.Budget,
+		func(done, total int) {
+			_, _ = s.DB.Write().ExecContext(
+				ctx,
+				"UPDATE translation_tasks SET segments_done=?,segments_total=? WHERE id=?",
+				done,
+				total,
+				payload.TaskID,
+			)
+		},
 	)
 	if err != nil {
 		if errors.Is(err, ErrCircuitOpen) {

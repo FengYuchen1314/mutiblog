@@ -1,5 +1,6 @@
 // 后台布局：侧边栏导航 + 内容出口（路由页面渲染于此）。
 import { Link, Outlet } from '@tanstack/react-router'
+import ActivityIndicator from './ActivityIndicator'
 
 export default function Layout() {
   return (
@@ -23,6 +24,7 @@ export default function Layout() {
         <Link to="/import">导入</Link>
         <Link to="/backups">备份</Link>
         <Link to="/activity">活动</Link>
+        <ActivityIndicator />
       </aside>
       <section>
         <Outlet />

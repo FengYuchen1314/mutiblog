@@ -206,6 +206,14 @@ python3 -c "import json;d=json.load(open('generated/public/zh-cn/search-index.js
 ### 🟡 R5 · 渲染器与翻译的可观测性
 `预估 0.75 人日` · 规格 `docs/12 §1、§3.7`
 
+> ✅ 已完成（2026-08-10）：SSE 进度流（GET /api/admin/system/events，2s 推送
+> jobs 统计 + 活跃翻译任务，前端 EventSource，断线降级 5s 轮询 + 提示）；
+> stall 检测（前端按 started_at>180s 标 stalled，黄条 + 取消按钮，不自动杀）；
+> 真进度（TranslateMarkdown 分批回调写 segments_done/total；进行中显示
+> 「正在分析文章结构…」不确定态；ETA EMA 平滑）；取消端点
+> POST /translations/tasks/{id}/cancel。实测：SSE 事件、activity JSON、
+> 60 段长文 translating 60/60 → completed 60/60、取消置 failed/cancelled。
+
 当前缺三样，都是「用户不知道系统在干什么」的问题：
 
 | 子项 | 要求 |

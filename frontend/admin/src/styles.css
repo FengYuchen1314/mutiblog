@@ -932,3 +932,90 @@ button {
     grid-template-columns: 1fr;
   }
 }
+.activity-indicator {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid #334155;
+  display: grid;
+  gap: 0.25rem;
+  color: #cbd5e1;
+  font-size: 0.8rem;
+}
+.activity-indicator .busy {
+  color: #fbbf24;
+  font-weight: 700;
+}
+.activity-indicator .degraded {
+  color: #fbbf24;
+}
+.activity-indicator small {
+  color: #64748b;
+}
+.task-progress-panel {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.task-progress-panel h3 {
+  margin: 0 0 0.75rem;
+}
+.task-progress {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid #f1f5f9;
+}
+.task-progress.stalled {
+  background: #fffbeb;
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+.task-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.85rem;
+}
+.task-progress-head span {
+  color: #64748b;
+}
+.progress-track {
+  height: 8px;
+  border-radius: 4px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+.task-progress.stalled .progress-fill,
+.task-progress.stalled .progress-track {
+  background: #fcd34d;
+}
+.progress-indeterminate {
+  height: 100%;
+  width: 40%;
+  background: #94a3b8;
+  border-radius: 4px;
+  animation: indeterminate 1.2s infinite linear;
+}
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+.task-stalled-note {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #92400e;
+  font-size: 0.85rem;
+}

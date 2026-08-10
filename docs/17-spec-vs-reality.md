@@ -203,6 +203,7 @@ export function render(props) { return '<html string>' }
 | R2 | `docs/12 §4` AI 熔断器 | 缺失 | ✅ 已完成（closed/open/half-open、连续 5 次失败、60s 翻倍上限 15min、半开试探、打开时任务留 pending 不耗 attempts、手动重置端点 + 后台橙色横幅倒计时）；`-run Breaker` 单测全过 |
 | R3 | `docs/12 §8.5` 编辑器冲突对话框 | baseHash 已发送但 409 未处理 | ✅ 已完成（api() 抛 ApiError{status,code}；409 弹三栏对话框：你的版本/服务器版本/差异 + 保留我的（空 baseHash 覆盖）/使用服务器的/下载我的副本（Blob）；同步状态指示器 已同步/保存中/未同步/离线，离线可写不弹阻塞框）；后端 409 与覆盖语义实测通过 |
 | R4 | `docs/04 §7.3` 搜索索引 c/g 字段 | 缺 c/g（且旧实现存 id 非显示名） | ✅ 已完成（feed.Generator.displayNames 把分类/标签 id 解析为显示名写入 c/g；Search island MiniSearch fields 加 c/g）；实测 c=显示名、g=回退 id |
+| R5 | `docs/12 §1、§3.7` 渲染器与翻译可观测性 | 缺 SSE/stall/真进度 | ✅ 已完成（GET /system/events SSE 2s 推送 jobs+translations 活动快照、GET /system/activity 降级轮询、TranslateMarkdown 进度回调写 segments_done/total、POST /tasks/{id}/cancel、前端顶栏活动指示器+断线降级提示、任务进度条/不确定态「正在分析文章结构…」/180s stalled 黄条+取消/EMA ETA）；SSE/真进度/取消实测通过 |
 
 **不要重写这些。** 24 个包测试全绿是本项目最有价值的资产。
 

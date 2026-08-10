@@ -1,5 +1,6 @@
 // 多语言翻译矩阵：文章×语言状态一览、筛选、批量触发与成本确认。
 import { useEffect, useMemo, useState } from 'react'
+import { useRef } from 'react'
 import { api, csrf, type API } from '../../api/client'
 
 type PostSummary = API['PostSummary'] & { sourceRevision?: number }
@@ -50,6 +51,8 @@ export default function TranslationMatrixPage() {
   })
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const etaRef = useRef<Record<number, { last: number; eta: number }>>({})
+  const nowRef = useRef(Date.now())
   const refresh = () =>
     Promise.all([
       api('/api/admin/posts/?locale=zh-CN&perPage=200'),
@@ -139,6 +142,46 @@ export default function TranslationMatrixPage() {
   }
   const estimateTokens = taskCount * 4000
   const estimateMinutes = Math.ceil((taskCount * 45) / 60)
+  const activeTasks = tasks.filter(
+    (task) => task.status === 'pending' || task.status === 'translating',
+  )
+  const estimateEta = (task: Task) => {
+    const now = Date.now()
+    nowRef.current = now
+    const total = task.segmentsTotal || 0
+    const done = task.segmentsDone || 0
+    if (total <= 0 || done <= 0) return null
+    const previous = etaRef.current[task.id || 0]
+    const elapsed = previous ? (now - previous.last) / 1000 : 0
+    const rate = elapsed > 0 ? (done - (previous.done || 0)) / elapsed : 0
+    const remaining = total - done
+    const instant = rate > 0 ? remaining / rate : null
+    const eta =
+      instant != null
+        ? previous && previous.eta != null
+          ? previous.eta * 0.7 + instant * 0.3
+          : instant
+        : null
+    etaRef.current[task.id || 0] = { last: now, done, eta: eta as number | null }
+    return eta
+  }
+  const cancelTask = async (task: Task) => {
+    try {
+      const token = await csrf()
+      await api('/api/admin/translations/tasks/' + task.id + '/cancel', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': token },
+      })
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '取消任务失败')
+    }
+  }
+  const formatEta = (seconds: number | null) => {
+    if (seconds == null) return ''
+    const minutes = Math.max(1, Math.round(seconds / 60))
+    return '约 ' + minutes + ' 分钟'
+  }
   return (
     <section className="matrix">
       <div className="activity-heading">
@@ -243,6 +286,57 @@ export default function TranslationMatrixPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {activeTasks.length > 0 && (
+        <div className="task-progress-panel">
+          <h3>活动翻译任务</h3>
+          {activeTasks.map((task) => {
+            const stalled =
+              task.status === 'translating' &&
+              Boolean(task.startedAt) &&
+              Date.now() - new Date(task.startedAt).getTime() > 180 * 1000
+            const total = task.segmentsTotal || 0
+            const done = task.segmentsDone || 0
+            const percent = total > 0 ? Math.round((done / total) * 100) : 0
+            const eta = estimateEta(task)
+            return (
+              <div key={task.id} className={'task-progress' + (stalled ? ' stalled' : '')}>
+                <div className="task-progress-head">
+                  <strong>
+                    {task.articleID} → {task.targetLocale}
+                  </strong>
+                  <span>
+                    {task.status === 'pending'
+                      ? '排队中'
+                      : total > 0
+                        ? percent + '%' + (eta != null ? ' · ' + formatEta(eta) : '')
+                        : '正在分析文章结构…'}
+                  </span>
+                </div>
+                <div className="progress-track">
+                  {task.status === 'translating' && total > 0 ? (
+                    <div className="progress-fill" style={{ width: percent + '%' }} />
+                  ) : (
+                    <div className="progress-indeterminate" />
+                  )}
+                </div>
+                {stalled && (
+                  <div className="task-stalled-note">
+                    任务超过 180 秒无进展
+                    <button type="button" className="danger" onClick={() => void cancelTask(task)}>
+                      取消
+                    </button>
+                  </div>
+                )}
+                {!stalled && task.status === 'translating' && (
+                  <button type="button" className="secondary" onClick={() => void cancelTask(task)}>
+                    取消
+                  </button>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </section>
