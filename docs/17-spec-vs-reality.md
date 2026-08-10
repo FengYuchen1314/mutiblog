@@ -202,6 +202,7 @@ export function render(props) { return '<html string>' }
 | R1b | `docs/08 §4.5` 编辑器语言标签栏 | zh-CN 硬编码、无版本切换 | ✅ 已完成（GET /{id}/locales 语言矩阵；标签栏徽章 原文/✓/⚠过期/✎人工/⏳/✕/＋；locale 走 URL search 刷新保持；派生语言权威字段禁用+锁；过期黄条+更新翻译；添加语言三选一；保存确认）。判据 3/4/5 真实 API + deepseek AI 实测通过；判据 1/2 代码实现，浏览器点击待人工 |
 | R2 | `docs/12 §4` AI 熔断器 | 缺失 | ✅ 已完成（closed/open/half-open、连续 5 次失败、60s 翻倍上限 15min、半开试探、打开时任务留 pending 不耗 attempts、手动重置端点 + 后台橙色横幅倒计时）；`-run Breaker` 单测全过 |
 | R3 | `docs/12 §8.5` 编辑器冲突对话框 | baseHash 已发送但 409 未处理 | ✅ 已完成（api() 抛 ApiError{status,code}；409 弹三栏对话框：你的版本/服务器版本/差异 + 保留我的（空 baseHash 覆盖）/使用服务器的/下载我的副本（Blob）；同步状态指示器 已同步/保存中/未同步/离线，离线可写不弹阻塞框）；后端 409 与覆盖语义实测通过 |
+| R4 | `docs/04 §7.3` 搜索索引 c/g 字段 | 缺 c/g（且旧实现存 id 非显示名） | ✅ 已完成（feed.Generator.displayNames 把分类/标签 id 解析为显示名写入 c/g；Search island MiniSearch fields 加 c/g）；实测 c=显示名、g=回退 id |
 
 **不要重写这些。** 24 个包测试全绿是本项目最有价值的资产。
 

@@ -32,8 +32,8 @@ export default function Search({
           .then((r) => (r.ok ? r.json() : []))
           .catch(() => [])
         const engine = new MiniSearch<SearchDoc>({
-          fields: ['t', 'd', 'p'],
-          storeFields: ['i', 't', 'd', 'u', 'p'],
+          fields: ['t', 'd', 'p', 'c', 'g'],
+          storeFields: ['i', 't', 'd', 'u', 'p', 'c', 'g'],
           searchOptions: { prefix: true, fuzzy: 0.2 },
         })
         engine.addAll(docs)

@@ -184,6 +184,10 @@ cd backend && go test ./internal/ai/... -run Breaker -v
 ### 🟡 R4 · 搜索索引补分类与标签
 `预估 0.25 人日`
 
+> ✅ 已完成（2026-08-10）：feed.Generator.displayNames 解析分类/标签显示名
+> （无显示名回退 id）写入 search-index 的 c/g 字段；Search island MiniSearch
+> fields 加入 c/g。实测：分类显示名「操作系统」正确入库，标签回退 id。
+
 **现状**：索引字段只有 `{i,t,d,u,p,dt}`，缺 `c`(categories) 和 `g`(tags)（`docs/04 §7.3` 规定要有）。
 后果：搜不到「所有 Docker 相关文章」这类查询。
 

@@ -94,10 +94,10 @@ func (g *Generator) Generate(loc model.Locale) error {
 			"dt": v.Front.Date.Format(time.RFC3339),
 		}
 		if len(v.Front.Categories) > 0 {
-			entry["c"] = strings.Join(v.Front.Categories, ",")
+			entry["c"] = g.displayNames(v.Front.Categories, loc, false)
 		}
 		if len(v.Front.Tags) > 0 {
-			entry["g"] = strings.Join(v.Front.Tags, ",")
+			entry["g"] = g.displayNames(v.Front.Tags, loc, true)
 		}
 		search = append(search, entry)
 		urls = append(urls, sitemapURL{Loc: url, Alternates: g.articleAlternates(post)})
@@ -196,6 +196,27 @@ func (g *Generator) Generate(loc model.Locale) error {
 		files[filepath.Join(g.Output, "sitemap.xml")] = []byte(indexXML.String())
 	}
 	return fsutil.AtomicWriteBatch(files, 0o644)
+}
+
+// displayNames resolves taxonomy IDs to their display names for the search
+// index (docs/04 §7.3: search by what readers see, not by internal IDs).
+func (g *Generator) displayNames(ids []string, loc model.Locale, tag bool) string {
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		name := ""
+		if tag {
+			if item, ok := g.Index.Tag(id); ok {
+				name = item.Name.Get(loc, model.Locale(id))
+			}
+		} else if item, ok := g.Index.Category(id); ok {
+			name = item.Name.Get(loc, model.Locale(id))
+		}
+		if name == "" {
+			name = id
+		}
+		names = append(names, name)
+	}
+	return strings.Join(names, ",")
 }
 
 type sitemapURL struct {
