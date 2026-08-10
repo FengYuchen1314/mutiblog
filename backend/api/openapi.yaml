@@ -138,6 +138,26 @@ paths:
       security: [{ sessionCookie: [] }]
       parameters: [{ $ref: '#/components/parameters/Locale' }]
       responses: { '200': { description: Revisions, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeRevisionList' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/locales:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    get:
+      tags: [Content]
+      operationId: listPostLocales
+      security: [{ sessionCookie: [] }]
+      responses: { '200': { description: Language matrix, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeLocales' } } } }, default: { $ref: '#/components/responses/Error' } }
+  /api/admin/posts/{id}/locales/{locale}:
+    parameters: [{ $ref: '#/components/parameters/ArticleID' }]
+    post:
+      tags: [Content]
+      operationId: createPostLocale
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LocaleCreateRequest' } } } }
+      responses: { '200': { description: Locale created, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } }
+    delete:
+      tags: [Content]
+      operationId: deletePostLocale
+      security: [{ sessionCookie: [] }, { csrfToken: [] }]
+      responses: { '200': { description: Locale removed, content: { application/json: { schema: { $ref: '#/components/schemas/EnvelopeObject' } } } }, default: { $ref: '#/components/responses/Error' } }
   /api/admin/posts/{id}/revisions/{revision}:
     parameters: [{ $ref: '#/components/parameters/ArticleID' }, { $ref: '#/components/parameters/Revision' }]
     get:
@@ -313,6 +333,7 @@ components:
     EnvelopeStatusResult: { type: object, required: [data], properties: { data: { type: object, required: [id, status], properties: { id: { type: string, format: uuid }, status: { type: string, enum: [draft, published, trashed] } } } } }
     EnvelopeRevisionList: { type: object, required: [data], properties: { data: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/RevisionInfo' } } } } } }
     EnvelopeRevisionDetail: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/RevisionDetail' } } }
+    EnvelopeLocales: { type: object, required: [data], properties: { data: { type: object, required: [id, source, sourceRevision, versions], properties: { id: { type: string, format: uuid }, source: { type: string }, sourceRevision: { type: integer }, versions: { type: object, additionalProperties: { $ref: '#/components/schemas/LocaleInfo' } } } } } }
     EnvelopeRestoreResult: { type: object, required: [data], properties: { data: { type: object, properties: { id: { type: string }, locale: { type: string }, restoredRevision: { type: integer } } } } }
     EnvelopeCategory: { type: object, required: [data], properties: { data: { $ref: '#/components/schemas/Category' } } }
     EnvelopeCategoryList: { type: object, required: [data], properties: { data: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Category' } } } } } }
@@ -348,6 +369,8 @@ components:
     ImportStatus: { type: object, required: [jobId, status, phase], properties: { jobId: { type: integer }, status: { type: string, enum: [pending, running, done, failed] }, phase: { type: string }, createdAt: { type: string, format: date-time }, updatedAt: { type: string, format: date-time }, report: { $ref: '#/components/schemas/ImportReport' }, error: { type: string } } }
     Dashboard: { type: object, additionalProperties: { type: integer }, example: { articles: 12, posts: 10, pages: 2, locales: 3 } }
     PostInput: { type: object, required: [title, body], properties: { locale: { type: string }, baseHash: { type: string }, title: { type: string }, slug: { type: string }, description: { type: string }, body: { type: string }, categories: { type: array, items: { type: string } }, tags: { type: array, items: { type: string } } } }
+    LocaleCreateRequest: { type: object, properties: { source: { type: string, enum: [blank, copy, translate] } } }
+    LocaleInfo: { type: object, properties: { status: { type: string }, revision: { type: integer }, manualEdited: { type: boolean }, translatedFrom: { type: integer }, title: { type: string }, slug: { type: string }, published: { type: boolean }, date: { type: string, format: date-time }, author: { type: string } } }
     PostSummary: { type: object, required: [id, title, slug, status, locale], properties: { id: { type: string, format: uuid }, title: { type: string }, slug: { type: string }, status: { type: string, enum: [draft, published, trashed] }, locale: { type: string }, date: { type: string, format: date-time }, sourceRevision: { type: integer }, categories: { type: array, items: { type: string } }, tags: { type: array, items: { type: string } } } }
     PostDetail: { type: object, required: [id, locale, front, body, baseHash], properties: { id: { type: string, format: uuid }, locale: { type: string }, front: { $ref: '#/components/schemas/FrontMatter' }, body: { type: string }, baseHash: { type: string }, sourceRevision: { type: integer } } }
     FrontMatter: { type: object, required: [title, slug, status], properties: { title: { type: string }, slug: { type: string }, description: { type: string }, status: { type: string }, categories: { type: array, items: { type: string } }, tags: { type: array, items: { type: string } }, date: { type: string, format: date-time } } }

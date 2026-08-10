@@ -276,6 +276,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/posts/{id}/locales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ArticleID"];
+            };
+            cookie?: never;
+        };
+        get: operations["listPostLocales"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/posts/{id}/locales/{locale}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ArticleID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createPostLocale"];
+        delete: operations["deletePostLocale"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/posts/{id}/revisions/{revision}": {
         parameters: {
             query?: never;
@@ -1003,6 +1039,17 @@ export interface components {
         EnvelopeRevisionDetail: {
             data: components["schemas"]["RevisionDetail"];
         };
+        EnvelopeLocales: {
+            data: {
+                /** Format: uuid */
+                id: string;
+                source: string;
+                sourceRevision: number;
+                versions: {
+                    [key: string]: components["schemas"]["LocaleInfo"];
+                };
+            };
+        };
         EnvelopeRestoreResult: {
             data: {
                 id?: string;
@@ -1210,6 +1257,22 @@ export interface components {
             body: string;
             categories?: string[];
             tags?: string[];
+        };
+        LocaleCreateRequest: {
+            /** @enum {string} */
+            source?: "blank" | "copy" | "translate";
+        };
+        LocaleInfo: {
+            status?: string;
+            revision?: number;
+            manualEdited?: boolean;
+            translatedFrom?: number;
+            title?: string;
+            slug?: string;
+            published?: boolean;
+            /** Format: date-time */
+            date?: string;
+            author?: string;
         };
         PostSummary: {
             /** Format: uuid */
@@ -1836,6 +1899,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EnvelopeRevisionList"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listPostLocales: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ArticleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Language matrix */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvelopeLocales"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createPostLocale: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ArticleID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocaleCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Locale created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvelopeObject"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deletePostLocale: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ArticleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Locale removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvelopeObject"];
                 };
             };
             default: components["responses"]["Error"];

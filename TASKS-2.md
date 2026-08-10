@@ -76,6 +76,14 @@ cd backend && go test ./internal/httpserver/... ./internal/content/...
 #### R1b · 编辑器语言标签栏
 `[R1a]` · `预估 1.5 人日` · 规格 `docs/08 §4.5`
 
+> ✅ 已完成（2026-08-10）：GET /posts/{id}/locales 语言矩阵；LanguageTabs 组件
+> （原文/✓/⚠过期(版本差)/✎人工/⏳/✕/＋徽章、添加语言三选一）；locale 从 URL
+> search 读取并切换；派生语言分类/标签禁用+🔒 tooltip、只读日期/作者；过期黄条+
+> 更新翻译（force）；保存派生语言确认框（可勾选不再提示）。实测：保存 en →
+> translations.en.manualEdited: true；中文发布后 en 过期（2→3）；deepseek 日语
+> 翻译 5 秒完成 → ja completed + index.ja.md 生成。判据 1/2（浏览器点击）代码
+> 已实现并通过构建，待浏览器人工确认。
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ [中文 原文] [English ✓] [日本語 ⚠过期] [Deutsch ✎人工] [+ 添加] │

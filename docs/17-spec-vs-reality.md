@@ -199,6 +199,7 @@ export function render(props) { return '<html string>' }
 | B7 | `docs/10` 认证 / CSRF / 限流 / 备份 | ✅ 齐备 |
 | R7 | `docs/07 §4.1` + `docs/10 §4` HTTP 缓存与安全头 | 静态 HTML/资产/API 缺 Cache-Control，前台缺 CSP | ✅ 已完成（按 config.cache.* 设置各路径缓存、ETag/304、siteCSP 含评论 provider origin、/api /admin no-store；8099 实测通过） |
 | R1a | `docs/07 §3.3` 语言版本端点 | 缺失 | ✅ 已完成（POST/DELETE /posts|pages/{id}/locales/{locale}，blank/copy/translate 三源、源语言 409 保护、删除清理 .md/metadata/generated/.meta/sitemap 并重渲染兄弟页；临时实例验收 + verify 收敛） |
+| R1b | `docs/08 §4.5` 编辑器语言标签栏 | zh-CN 硬编码、无版本切换 | ✅ 已完成（GET /{id}/locales 语言矩阵；标签栏徽章 原文/✓/⚠过期/✎人工/⏳/✕/＋；locale 走 URL search 刷新保持；派生语言权威字段禁用+锁；过期黄条+更新翻译；添加语言三选一；保存确认）。判据 3/4/5 真实 API + deepseek AI 实测通过；判据 1/2 代码实现，浏览器点击待人工 |
 
 **不要重写这些。** 24 个包测试全绿是本项目最有价值的资产。
 

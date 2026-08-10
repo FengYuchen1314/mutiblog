@@ -808,3 +808,83 @@ button {
   color: #64748b;
   white-space: nowrap;
 }
+.language-tabs {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.lang-tab {
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  color: #1f2937;
+  font-size: 0.85rem;
+}
+.lang-tab.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+.lang-tab small {
+  display: block;
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+.lang-add {
+  margin-left: auto;
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.lang-add-actions button {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.78rem;
+}
+.badge-original {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.badge-outdated {
+  background: #fef3c7;
+  color: #92400e;
+}
+.badge-done {
+  background: #d1fae5;
+  color: #065f46;
+}
+.badge-manual {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+.badge-working {
+  background: #e2e8f0;
+  color: #334155;
+}
+.badge-failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.badge-missing {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.outdated-banner {
+  margin: 0.5rem 0;
+  padding: 0.65rem 0.9rem;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  color: #92400e;
+  font-size: 0.9rem;
+}
+.lock {
+  margin-left: 0.3rem;
+  cursor: help;
+}

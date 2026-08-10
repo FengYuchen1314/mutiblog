@@ -39,7 +39,9 @@ const postEditRoute = createRoute({
   path: '/posts/$id',
   component: () => {
     const { id } = postEditRoute.useParams()
-    return <PostEditorPage id={id} />
+    const search = postEditRoute.useSearch()
+    const locale = (search.locale as string | undefined) || 'zh-CN'
+    return <PostEditorPage id={id} locale={locale} />
   },
 })
 

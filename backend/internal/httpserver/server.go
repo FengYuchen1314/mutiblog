@@ -197,6 +197,7 @@ func New(s *Server) http.Handler {
 			r.With(s.perm("post.read")).Get("/{id}/revisions/{rev}", s.revision)
 			r.With(s.perm("post.write")).Post("/{id}/revisions/{rev}/restore", s.restoreRevision)
 			r.With(s.perm("post.write")).Post("/{id}/draft", s.saveDraft)
+			r.With(s.perm("post.read")).Get("/{id}/locales", s.listLocales(model.ContentPost))
 			r.With(s.perm("post.write")).Post("/{id}/locales/{locale}", s.createLocaleVersion(model.ContentPost))
 			r.With(s.perm("post.write")).Delete("/{id}/locales/{locale}", s.deleteLocaleVersion(model.ContentPost))
 		})
@@ -212,6 +213,7 @@ func New(s *Server) http.Handler {
 			r.With(s.perm("post.delete")).Delete("/{id}", s.deletePost)
 			r.With(s.perm("post.delete")).Delete("/{id}/purge", s.purgePost)
 			r.With(s.perm("post.write")).Post("/{id}/draft", s.saveDraft)
+			r.With(s.perm("post.read")).Get("/{id}/locales", s.listLocales(model.ContentPage))
 			r.With(s.perm("post.write")).Post("/{id}/locales/{locale}", s.createLocaleVersion(model.ContentPage))
 			r.With(s.perm("post.write")).Delete("/{id}/locales/{locale}", s.deleteLocaleVersion(model.ContentPage))
 		})
@@ -1389,6 +1391,52 @@ func (s *Server) queueLocaleRenders(article *model.Article) {
 				DedupeKey: string(article.ID) + ":" + string(locale),
 				Payload:   payload,
 				Priority:  10,
+			},
+		)
+	}
+}
+
+// listLocales returns the language matrix of an article: source locale,
+// current source revision, and per-locale translation state + slug.
+func (s *Server) listLocales(typ model.ContentType) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := model.ArticleID(chi.URLParam(r, "id"))
+		article, found := s.Index.Article(id)
+		if !found || article.Type != typ {
+			fail(w, http.StatusNotFound, "NOT_FOUND", "article not found")
+			return
+		}
+		versions := make(map[string]any, len(article.Versions))
+		for locale, version := range article.Versions {
+			entry := map[string]any{
+				"status":         "missing",
+				"revision":       0,
+				"manualEdited":   false,
+				"translatedFrom": 0,
+			}
+			if state := article.Trans[locale]; state != nil {
+				entry["status"] = state.Status
+				entry["revision"] = state.Revision
+				entry["manualEdited"] = state.ManualEdited
+				entry["translatedFrom"] = state.TranslatedFromRevision
+			}
+			if version != nil {
+				entry["title"] = version.Front.Title
+				entry["slug"] = version.Front.Slug
+				entry["published"] = version.Front.Status == model.StatusPublished
+				entry["date"] = version.Front.Date
+				entry["author"] = version.Front.Author
+			}
+			versions[string(locale)] = entry
+		}
+		ok(
+			w,
+			http.StatusOK,
+			map[string]any{
+				"id":             article.ID,
+				"source":         article.Source,
+				"sourceRevision": article.SourceRev,
+				"versions":       versions,
 			},
 		)
 	}
