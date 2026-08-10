@@ -1,6 +1,9 @@
 packages:
   - .
 
+allowBuilds:
+  esbuild: set this to true or false
+
 # esbuild's postinstall only creates a shim; pnpm ships the platform binary as an
 # optional dependency, so installs run with --ignore-scripts (see Dockerfile and
 # .github/workflows/ci.yml). Listing it here keeps `pnpm install` working for
