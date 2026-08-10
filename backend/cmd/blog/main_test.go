@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fengyuchen/mutiblog/internal/config"
-	"github.com/fengyuchen/mutiblog/internal/content"
-	"github.com/fengyuchen/mutiblog/internal/fsutil"
-	"github.com/fengyuchen/mutiblog/internal/model"
-	"github.com/fengyuchen/mutiblog/internal/taxonomy"
+	"github.com/FengYuchen1314/mutiblog/internal/config"
+	"github.com/FengYuchen1314/mutiblog/internal/content"
+	"github.com/FengYuchen1314/mutiblog/internal/fsutil"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/taxonomy"
 )
 
 func TestCompareTrees(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
 )
 
 type fakeProvider struct {

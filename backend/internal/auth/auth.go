@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
 	"golang.org/x/crypto/argon2"
 	"os"
 	"strconv"

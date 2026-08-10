@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fengyuchen/mutiblog/internal/content"
-	"github.com/fengyuchen/mutiblog/internal/index"
-	"github.com/fengyuchen/mutiblog/internal/jobs"
-	"github.com/fengyuchen/mutiblog/internal/model"
-	"github.com/fengyuchen/mutiblog/internal/state"
+	"github.com/FengYuchen1314/mutiblog/internal/content"
+	"github.com/FengYuchen1314/mutiblog/internal/index"
+	"github.com/FengYuchen1314/mutiblog/internal/jobs"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/state"
 )
 
 func TestServiceWritesCompletedLocaleAndQueuesRender(t *testing.T) {

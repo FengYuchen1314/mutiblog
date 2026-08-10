@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
 	"path/filepath"
 	"testing"
 	"time"

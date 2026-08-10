@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/fengyuchen/mutiblog/internal/fsutil"
+	"github.com/FengYuchen1314/mutiblog/internal/fsutil"
 	"gopkg.in/yaml.v3"
 )
 

@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
 )
 
 var placeholderTokenRE = regexp.MustCompile(`⟦P\d+⟧`)

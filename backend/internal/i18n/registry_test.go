@@ -1,7 +1,7 @@
 package i18n
 
 import (
-	"github.com/fengyuchen/mutiblog/internal/config"
+	"github.com/FengYuchen1314/mutiblog/internal/config"
 	"testing"
 )
 

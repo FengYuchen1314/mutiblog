@@ -3,7 +3,7 @@ package feed
 import (
 	"testing"
 
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
 )
 
 func TestArticleAlternatesArePublishedAndStable(t *testing.T) {

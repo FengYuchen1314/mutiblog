@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fengyuchen/mutiblog/internal/content"
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/content"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
 )
 
 func TestRunAddsMissingCreatedAtAndDryRunDoesNotWrite(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fengyuchen/mutiblog/internal/config"
+	"github.com/FengYuchen1314/mutiblog/internal/config"
 )
 
 func TestBreakerOpensAfterFiveFailures(t *testing.T) {

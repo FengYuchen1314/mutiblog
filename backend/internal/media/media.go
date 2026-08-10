@@ -23,7 +23,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 
-	"github.com/fengyuchen/mutiblog/internal/fsutil"
+	"github.com/FengYuchen1314/mutiblog/internal/fsutil"
 )
 
 type Entry struct {

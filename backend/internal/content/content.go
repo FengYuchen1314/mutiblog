@@ -17,8 +17,8 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
-	"github.com/fengyuchen/mutiblog/internal/fsutil"
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/fsutil"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
 )
 
 var ErrNoFrontMatter = errors.New("missing YAML front matter")

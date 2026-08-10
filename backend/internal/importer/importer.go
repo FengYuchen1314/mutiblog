@@ -15,10 +15,10 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/fengyuchen/mutiblog/internal/content"
-	"github.com/fengyuchen/mutiblog/internal/index"
-	"github.com/fengyuchen/mutiblog/internal/model"
-	"github.com/fengyuchen/mutiblog/internal/taxonomy"
+	"github.com/FengYuchen1314/mutiblog/internal/content"
+	"github.com/FengYuchen1314/mutiblog/internal/index"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/taxonomy"
 	"gopkg.in/yaml.v3"
 )
 

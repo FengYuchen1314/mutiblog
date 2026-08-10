@@ -3,7 +3,7 @@ package watcher
 
 import (
 	"context"
-	"github.com/fengyuchen/mutiblog/internal/events"
+	"github.com/FengYuchen1314/mutiblog/internal/events"
 	"github.com/fsnotify/fsnotify"
 	"os"
 	"path/filepath"

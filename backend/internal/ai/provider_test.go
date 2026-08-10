@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fengyuchen/mutiblog/internal/config"
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/config"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
 )
 
 func TestOpenAICompatibleFallsBackFromJSONMode(t *testing.T) {

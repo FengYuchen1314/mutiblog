@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fengyuchen/mutiblog/internal/events"
-	"github.com/fengyuchen/mutiblog/internal/fsutil"
+	"github.com/FengYuchen1314/mutiblog/internal/events"
+	"github.com/FengYuchen1314/mutiblog/internal/fsutil"
 )
 
 func TestExternalWriteEmitsBundleChangedAndAtomicWriteIsSuppressed(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fengyuchen/mutiblog/internal/content"
+	"github.com/FengYuchen1314/mutiblog/internal/content"
 )
 
 // CurrentContentSchema is stored in config.yaml. Older installations are

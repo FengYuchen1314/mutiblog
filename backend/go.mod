@@ -1,4 +1,4 @@
-module github.com/fengyuchen/mutiblog
+module github.com/FengYuchen1314/mutiblog
 
 go 1.23
 

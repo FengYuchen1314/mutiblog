@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fengyuchen/mutiblog/internal/model"
+	"github.com/FengYuchen1314/mutiblog/internal/model"
 )
 
 type Event interface{ Name() string }
