@@ -190,6 +190,10 @@ python3 -c "import json;d=json.load(open('generated/public/zh-cn/search-index.js
 ### 🔴 R7 · HTTP 缓存与安全头缺失（**实跑服务发现，文件级检查抓不到**）
 `预估 0.5 人日` · 规格 `docs/07 §4.1` + `docs/10 §4`
 
+> ✅ 已完成（2026-08-10）：staticHandler 按路径设置 Cache-Control（HTML/资产/media/xml/robots，
+> 值取自 config.cache.*）；手动 ETag + If-None-Match → 304；siteCSP 覆盖前台并按
+> comments.provider 追加 origin；/api /admin 补 no-store。`--port 8099` 实测全部通过。
+
 **发现方式**：启动 `./blog-server --port 8099` 后逐路径 `curl -D-` 检查响应头。
 所有路由都返回 200、语言协商正常、资源可加载 —— **但响应头缺了四样**。
 

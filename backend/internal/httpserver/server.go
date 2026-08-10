@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,6 +70,76 @@ type ctxKey int
 
 const userKey ctxKey = iota
 
+var hashedAssetRE = regexp.MustCompile(`-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$`)
+
+// setETag stamps a content hash (size+mtime) so http.ServeContent can answer
+// If-None-Match with 304 (docs/07 §4.1).
+func setETag(w http.ResponseWriter, info os.FileInfo) {
+	if info == nil || info.IsDir() {
+		return
+	}
+	w.Header().Set("ETag", fmt.Sprintf(`"%x-%x"`, info.Size(), info.ModTime().UnixNano()))
+}
+
+// cacheControlFor maps a public static path to its Cache-Control value using
+// the configured cache.* budgets (docs/07 §4.1). Empty means "leave default".
+func (s *Server) cacheControlFor(path string) string {
+	cfg := s.Config.Cache
+	mediaPrefix := "/" + strings.Trim(s.Config.Storage.Local.PublicPrefix, "/")
+	if strings.HasPrefix(path, "/assets/") && hashedAssetRE.MatchString(path) {
+		return fmt.Sprintf("public, max-age=%d, immutable", cfg.AssetMaxAge)
+	}
+	if mediaPrefix != "/" && strings.HasPrefix(path, mediaPrefix+"/") {
+		return fmt.Sprintf("public, max-age=%d, s-maxage=%d", cfg.MediaMaxAge, cfg.MediaSMaxAge)
+	}
+	if strings.HasSuffix(path, ".xml") || strings.HasSuffix(path, "search-index.json") {
+		return "public, max-age=600, s-maxage=3600"
+	}
+	if path == "/robots.txt" {
+		return "public, max-age=3600"
+	}
+	if strings.HasSuffix(path, "/") || strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".htm") {
+		return fmt.Sprintf(
+			"public, max-age=%d, s-maxage=%d, stale-while-revalidate=%d",
+			cfg.HTMLMaxAge,
+			cfg.HTMLSMaxAge,
+			cfg.HTMLStaleWhileRevalidate,
+		)
+	}
+	return ""
+}
+
+// commentsOrigin returns the frame/script origin required by the configured
+// comment provider, or an empty string when comments are disabled.
+func (s *Server) commentsOrigin() string {
+	switch strings.ToLower(s.Config.Comments.Provider) {
+	case "giscus":
+		return "https://giscus.app"
+	case "waline":
+		return "https://waline.js.org"
+	case "utterances":
+		return "https://utteranc.es"
+	default:
+		return ""
+	}
+}
+
+// siteCSP is the visitor-facing policy: it tolerates the theme's FOUC inline
+// script and custom CSS, and appends the comment provider origin when active.
+func (s *Server) siteCSP() string {
+	origin := s.commentsOrigin()
+	script := "script-src 'self' 'unsafe-inline'"
+	if origin != "" {
+		script += " " + origin
+	}
+	csp := "default-src 'self'; " + script + "; style-src 'self' 'unsafe-inline'; " +
+		"img-src * data:; font-src 'self' data:; base-uri 'self'"
+	if origin != "" {
+		csp += "; frame-src " + origin
+	}
+	return csp
+}
+
 func New(s *Server) http.Handler {
 	if s.limiter == nil {
 		s.limiter = newRateLimiter()
@@ -77,7 +148,7 @@ func New(s *Server) http.Handler {
 		s.dummyHash, _ = auth.HashPassword("dummy credential for timing equalization")
 	}
 	r := chi.NewRouter()
-	r.Use(requestID, securityHeaders)
+	r.Use(requestID, s.securityHeaders)
 	registry, err := blogi18n.New(s.Config.I18n)
 	if err != nil {
 		registry = nil
@@ -222,6 +293,9 @@ func (s *Server) staticHandler() http.Handler {
 	root := filepath.Join(s.Config.Paths.Generated, "public")
 	files := http.FileServer(http.Dir(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if header := s.cacheControlFor(r.URL.Path); header != "" {
+			w.Header().Set("Cache-Control", header)
+		}
 		mediaPrefix := s.Config.Storage.Local.PublicPrefix
 		if mediaPrefix != "" {
 			mediaPrefix = "/" + strings.Trim(mediaPrefix, "/")
@@ -257,12 +331,18 @@ func (s *Server) staticHandler() http.Handler {
 				}
 				return
 			}
+			etagInfo := info
 			if info.IsDir() {
-				if _, err := os.Stat(filepath.Join(candidate, "index.html")); errors.Is(err, os.ErrNotExist) {
+				index := filepath.Join(candidate, "index.html")
+				if _, err := os.Stat(index); errors.Is(err, os.ErrNotExist) {
 					s.serveLocalizedNotFound(w, r, root)
 					return
 				}
+				if indexInfo, err := os.Stat(index); err == nil {
+					etagInfo = indexInfo
+				}
 			}
+			setETag(w, etagInfo)
 		}
 		files.ServeHTTP(w, r)
 	})
@@ -3030,17 +3110,20 @@ func requestID(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-func securityHeaders(next http.Handler) http.Handler {
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		if strings.HasPrefix(r.URL.Path, "/admin") || strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store, must-revalidate")
 			csp := "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
 				"img-src 'self' data: blob: https:; font-src 'self' data:; " +
 				"connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
 			w.Header().Set("Content-Security-Policy", csp)
+		} else {
+			w.Header().Set("Content-Security-Policy", s.siteCSP())
 		}
 		next.ServeHTTP(w, r)
 	})
