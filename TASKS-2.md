@@ -187,6 +187,54 @@ python3 -c "import json;d=json.load(open('generated/public/zh-cn/search-index.js
 
 ---
 
+### 🔴 R7 · HTTP 缓存与安全头缺失（**实跑服务发现，文件级检查抓不到**）
+`预估 0.5 人日` · 规格 `docs/07 §4.1` + `docs/10 §4`
+
+**发现方式**：启动 `./blog-server --port 8099` 后逐路径 `curl -D-` 检查响应头。
+所有路由都返回 200、语言协商正常、资源可加载 —— **但响应头缺了四样**。
+
+| # | 缺失 | 实测 | 规格要求 | 后果 |
+|---|---|---|---|---|
+| a | **静态 HTML 无 `Cache-Control`** | 只有 `Content-Type` / `Last-Modified` / `X-Request-Id` | `public, max-age=300, s-maxage=86400, stale-while-revalidate=604800` | **项目的头号卖点（CDN 缓存、TTFB < 100ms）直接失效** —— CDN 不知道能缓存多久 |
+| b | **带 hash 的资源无 `Cache-Control`** | `/assets/style-D3-kUxWp.css` 无任何缓存头 | `public, max-age=31536000, immutable` | 文件名已带 hash 却每次重新校验，浪费往返 |
+| c | **`/api/*` 无 `Cache-Control: no-store`** | 完全没有该头 | `no-store, must-revalidate` | ⚠️ **安全相关** —— API 响应可能被浏览器或中间代理缓存 |
+| d | **前台页面无 CSP** | `/admin/` 与 `/api/` 有 CSP，`/zh-cn/` **没有** | `docs/10 §4` 的 siteCSP | 公开站点缺少 XSS 纵深防御 |
+
+**要做什么**
+
+1. 在 `internal/httpserver` 的静态服务处理器上按路径模式设置 `Cache-Control`，值全部从 `config.cache.*` 读取（配置项**已存在**，见 `config/config.yaml` 的 `cache:` 段 —— 是配了没用上）：
+
+   | 路径 | 值 |
+   |---|---|
+   | `/` | `no-store` ✅ 已正确 |
+   | `/api/*`、`/admin/*` | `no-store, must-revalidate` |
+   | `/assets/*`（文件名含 8+ 位 hash） | `public, max-age=31536000, immutable` |
+   | `/media/*` | `public, max-age=86400, s-maxage=2592000` |
+   | `*.html` / 目录索引 | `public, max-age=300, s-maxage=86400, stale-while-revalidate=604800` |
+   | `*.xml`、`search-index.json` | `public, max-age=600, s-maxage=3600` |
+   | `robots.txt` | `public, max-age=3600` |
+
+2. 静态 HTML 补 `ETag`（基于 mtime+size）并处理 `If-None-Match` → 304
+3. 前台响应补 siteCSP（注意要按 `comments.provider` 自动追加其 origin 到 `script-src`/`frame-src`）
+
+**验收**
+```bash
+./blog-server --root . --port 8099 &
+curl -sD- -o/dev/null localhost:8099/zh-cn/          | grep -i cache-control   # max-age=300
+curl -sD- -o/dev/null localhost:8099/assets/*.css    | grep -i cache-control   # immutable
+curl -sD- -o/dev/null localhost:8099/api/auth/status | grep -i cache-control   # no-store
+curl -sD- -o/dev/null localhost:8099/zh-cn/          | grep -i content-security # 非空
+# ETag 304 验证
+E=$(curl -sD- -o/dev/null localhost:8099/zh-cn/ | grep -i etag | cut -d' ' -f2 | tr -d '\r')
+curl -s -o/dev/null -w '%{http_code}\n' -H "If-None-Match: $E" localhost:8099/zh-cn/   # 应为 304
+```
+
+> **备注**：`/` 的语言协商本轮无法完整验证 —— 当前 `config.yaml` 只启用了 1 个 locale（启动日志 `"locales":1`），
+> 所以 `Accept-Language: ja` 与 `preferred_locale=en` 都回落到 `/zh-cn/` 是**正确行为**，不是 bug。
+> R1 完成后应启用多个 locale，再按 `docs/05 §9` 的 I1~I10 完整验证协商逻辑。
+
+---
+
 ### ⚪ R6 · Tailwind + shadcn/ui（**需你先拍板**）
 `预估 1.5 人日` · 规格 `docs/08 §1`
 
@@ -207,6 +255,7 @@ python3 -c "import json;d=json.load(open('generated/public/zh-cn/search-index.js
 ## 三、执行顺序
 
 ```
+第 1 天    R7 ─────────────► 缓存与安全头（半天，收益最高，先做）
 第 1 天    R1a ────────────► 后端语言版本端点
 第 2-3 天  R1b ────────────► 编辑器语言标签栏   ★ 本轮关键里程碑
 第 4 天    R2 + R3 ────────► 熔断器 + 冲突对话框
@@ -214,6 +263,9 @@ python3 -c "import json;d=json.load(open('generated/public/zh-cn/search-index.js
 第 5 天    R5 ─────────────► SSE 与 stall 检测
 （待定）   R6 ─────────────► 样式体系，等拍板
 ```
+
+**R7 排在最前**：只要半天，但它修复的是项目的头号卖点（CDN 缓存）和一处安全相关缺陷，
+而且配置项早已存在、只是没接上，改动面小、风险低。
 
 **每个任务完成后的回归**（与第一轮相同）：
 ```bash
