@@ -155,6 +155,21 @@ func (g *Generator) Generate(loc model.Locale) error {
 	}
 	if entries, err := filepath.Glob(filepath.Join(g.Output, "sitemap-*.xml")); err == nil {
 		current := filepath.Join(g.Output, "sitemap-"+prefix+".xml")
+		enabled := map[string]bool{prefix: true}
+		for _, entryPrefix := range g.Prefixes {
+			enabled[entryPrefix] = true
+		}
+		kept := entries[:0]
+		for _, entry := range entries {
+			name := filepath.Base(entry)
+			entryPrefix := strings.TrimSuffix(strings.TrimPrefix(name, "sitemap-"), ".xml")
+			if !enabled[entryPrefix] {
+				_ = os.Remove(entry)
+				continue
+			}
+			kept = append(kept, entry)
+		}
+		entries = kept
 		seen := map[string]bool{}
 		entries = append(entries, current)
 		unique := entries[:0]

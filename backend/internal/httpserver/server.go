@@ -197,6 +197,8 @@ func New(s *Server) http.Handler {
 			r.With(s.perm("post.read")).Get("/{id}/revisions/{rev}", s.revision)
 			r.With(s.perm("post.write")).Post("/{id}/revisions/{rev}/restore", s.restoreRevision)
 			r.With(s.perm("post.write")).Post("/{id}/draft", s.saveDraft)
+			r.With(s.perm("post.write")).Post("/{id}/locales/{locale}", s.createLocaleVersion(model.ContentPost))
+			r.With(s.perm("post.write")).Delete("/{id}/locales/{locale}", s.deleteLocaleVersion(model.ContentPost))
 		})
 		r.Route("/pages", func(r chi.Router) {
 			r.With(s.perm("post.read")).Get("/", s.pages)
@@ -210,6 +212,8 @@ func New(s *Server) http.Handler {
 			r.With(s.perm("post.delete")).Delete("/{id}", s.deletePost)
 			r.With(s.perm("post.delete")).Delete("/{id}/purge", s.purgePost)
 			r.With(s.perm("post.write")).Post("/{id}/draft", s.saveDraft)
+			r.With(s.perm("post.write")).Post("/{id}/locales/{locale}", s.createLocaleVersion(model.ContentPage))
+			r.With(s.perm("post.write")).Delete("/{id}/locales/{locale}", s.deleteLocaleVersion(model.ContentPage))
 		})
 		r.Route("/media", func(r chi.Router) {
 			r.With(s.perm("media.write")).Get("/", s.listMedia)
@@ -1362,6 +1366,201 @@ func (s *Server) saveDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// queueLocaleRenders re-renders every published locale of an article so
+// hreflang alternates stay symmetric after a locale is added or removed.
+func (s *Server) queueLocaleRenders(article *model.Article) {
+	if s.Jobs == nil {
+		return
+	}
+	for locale, version := range article.Versions {
+		if version == nil || version.Front.Status != model.StatusPublished {
+			continue
+		}
+		payload, _ := json.Marshal(map[string]string{
+			"articleID": string(article.ID),
+			"locale":    string(locale),
+		})
+		_, _ = s.Jobs.Enqueue(
+			context.Background(),
+			jobs.Job{
+				Kind:      "render",
+				DedupeKey: string(article.ID) + ":" + string(locale),
+				Payload:   payload,
+				Priority:  10,
+			},
+		)
+	}
+}
+
+// createLocaleVersion adds a new language version to an article.
+// source: blank（空版本）| copy（复制源文）| translate（投递 AI 任务）。
+func (s *Server) createLocaleVersion(typ model.ContentType) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := model.ArticleID(chi.URLParam(r, "id"))
+		locale := model.Locale(chi.URLParam(r, "locale"))
+		if locale == "" {
+			fail(w, http.StatusBadRequest, "INVALID_LOCALE", "locale is required")
+			return
+		}
+		article, found := s.Index.Article(id)
+		if !found || article.Type != typ {
+			fail(w, http.StatusNotFound, "NOT_FOUND", "article not found")
+			return
+		}
+		if locale == article.Source {
+			fail(w, http.StatusConflict, "LOCALE_IS_SOURCE", "cannot create the source locale")
+			return
+		}
+		if article.Versions[locale] != nil {
+			fail(w, http.StatusConflict, "LOCALE_EXISTS", "locale already exists")
+			return
+		}
+		var req struct {
+			Source string `json:"source"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+			fail(w, http.StatusBadRequest, "INVALID_JSON", "invalid request body")
+			return
+		}
+		if req.Source == "" {
+			req.Source = "blank"
+		}
+		if req.Source != "blank" && req.Source != "copy" && req.Source != "translate" {
+			fail(w, http.StatusUnprocessableEntity, "INVALID_SOURCE", "source must be blank, copy, or translate")
+			return
+		}
+		if req.Source == "translate" && s.AI == nil {
+			fail(w, http.StatusUnprocessableEntity, "AI_DISABLED", "AI translation is not configured")
+			return
+		}
+		source := article.Versions[article.Source]
+		if source == nil {
+			fail(w, http.StatusInternalServerError, "SOURCE_MISSING", "source locale version is missing")
+			return
+		}
+		front := source.Front
+		front.Locale = locale
+		body := ""
+		if req.Source == "copy" {
+			body = source.Body
+		}
+		if err := s.Content.SaveVersion(
+			article,
+			locale,
+			front,
+			body,
+			content.SaveOpts{MirrorAuthoritative: true, Snapshot: true},
+		); err != nil {
+			fail(w, http.StatusInternalServerError, "LOCALE_CREATE_FAILED", err.Error())
+			return
+		}
+		if req.Source != "translate" {
+			now := time.Now().UTC()
+			article.Trans[locale] = &model.TranslationState{
+				Status:                 model.TSManual,
+				TranslatedFromRevision: article.SourceRev,
+				ManualEdited:           true,
+				ManualEditedAt:         &now,
+			}
+			_ = s.Content.SaveMetadata(article)
+		}
+		s.Index.UpsertArticle(article)
+		if req.Source == "translate" {
+			if _, err := s.AI.Enqueue(r.Context(), id, locale, false); err != nil {
+				fail(w, http.StatusUnprocessableEntity, "TRANSLATE_ENQUEUE_FAILED", err.Error())
+				return
+			}
+		}
+		s.Events.Publish(r.Context(), events.ArticleUpdated{ID: article.ID, Locale: locale, BodyChanged: true})
+		s.queueLocaleRenders(article)
+		ok(w, http.StatusOK, map[string]any{"id": article.ID, "locale": locale, "source": req.Source})
+	}
+}
+
+// deleteLocaleVersion removes one language version (file, metadata entry, and
+// published output). The source locale is protected with 409.
+func (s *Server) deleteLocaleVersion(typ model.ContentType) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := model.ArticleID(chi.URLParam(r, "id"))
+		locale := model.Locale(chi.URLParam(r, "locale"))
+		article, found := s.Index.Article(id)
+		if !found || article.Type != typ {
+			fail(w, http.StatusNotFound, "NOT_FOUND", "article not found")
+			return
+		}
+		if locale == article.Source {
+			fail(w, http.StatusConflict, "LOCALE_IS_SOURCE", "cannot delete the source locale")
+			return
+		}
+		version := article.Versions[locale]
+		if version == nil {
+			fail(w, http.StatusNotFound, "LOCALE_NOT_FOUND", "locale does not exist")
+			return
+		}
+		if abs, err := fsutil.SafeJoin(s.Content.Root(), filepath.FromSlash(version.FilePath)); err == nil {
+			_ = os.Remove(abs)
+		}
+		delete(article.Versions, locale)
+		if article.Trans != nil {
+			delete(article.Trans, locale)
+		}
+		if err := s.Content.SaveMetadata(article); err != nil {
+			fail(w, http.StatusInternalServerError, "LOCALE_DELETE_FAILED", err.Error())
+			return
+		}
+		s.Index.UpsertArticle(article)
+		if s.Render != nil {
+			_ = s.Render.Remove(article, locale)
+			enabled := false
+			for _, configured := range s.Config.I18n.Locales {
+				if configured.Enabled && model.Locale(configured.Code) == locale {
+					enabled = true
+					break
+				}
+			}
+			prefix := s.localeURLPrefix(locale)
+			if !enabled {
+				_ = os.RemoveAll(filepath.Join(s.Render.Output(), prefix))
+				_ = os.RemoveAll(filepath.Join(s.Render.Output(), ".meta", string(locale)))
+			} else {
+				payload, _ := json.Marshal(map[string]string{"locale": string(locale)})
+				_, _ = s.Jobs.Enqueue(
+					r.Context(),
+					jobs.Job{
+						Kind:      "render",
+						DedupeKey: "locale:" + string(locale),
+						Payload:   payload,
+						Priority:  30,
+					},
+				)
+			}
+		}
+		if s.State != nil {
+			_, _ = s.State.Write().ExecContext(
+				r.Context(),
+				"UPDATE translation_tasks SET status='failed', error='locale removed' "+
+					"WHERE article_id=? AND target_locale=? AND status IN ('pending','translating')",
+				string(id),
+				string(locale),
+			)
+		}
+		s.Events.Publish(r.Context(), events.ArticleUpdated{ID: article.ID, Locale: locale})
+		s.queueLocaleRenders(article)
+		ok(w, http.StatusOK, map[string]any{"removed": locale})
+	}
+}
+
+// localeURLPrefix resolves the URL prefix for a locale (configured override
+// or the lowercased code), matching the render service's own resolution.
+func (s *Server) localeURLPrefix(locale model.Locale) string {
+	for _, configured := range s.Config.I18n.Locales {
+		if model.Locale(configured.Code) == locale && configured.URLPrefix != "" {
+			return configured.URLPrefix
+		}
+	}
+	return strings.ToLower(string(locale))
 }
 func (s *Server) listMedia(w http.ResponseWriter, r *http.Request) {
 	items, err := s.Media.List(r.Context(), r.URL.Query().Get("dir"))

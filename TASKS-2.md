@@ -51,6 +51,12 @@ DELETE /api/admin/posts/{id}/locales/{locale}     删除某语言版本
 #### R1a · 后端补齐语言版本端点
 `预估 0.5 人日`
 
+> ✅ 已完成（2026-08-10）：POST/DELETE /posts|pages/{id}/locales/{locale}；
+> blank/copy/translate 三种来源（translate 走 AI.Enqueue，AI 未配置返回 422）；
+> 源语言删除 409；删除清理 index.<locale>.md、metadata 条目、generated 产物、
+> .meta 与非启用语言的整目录、过期 sitemap（feed.Generate 补剪枝）；触发兄弟页
+> hreflang 重渲染。临时实例实测创建/删除/verify 收敛，退出码 0。
+
 - `POST /posts/{id}/locales/{locale}`：body `{ source: "blank" | "copy" | "translate" }`
   - `blank` 建空白版本，`copy` 复制源语言正文，`translate` 投递 AI 翻译任务
   - 必须调用 `content.Store` 现有的权威字段镜像逻辑（`mirrorFromSource`）

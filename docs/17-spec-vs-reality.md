@@ -198,6 +198,7 @@ export function render(props) { return '<html string>' }
 | B6 | `docs/05` i18n 协商与 hreflang | ✅ 有实现与测试 |
 | B7 | `docs/10` 认证 / CSRF / 限流 / 备份 | ✅ 齐备 |
 | R7 | `docs/07 §4.1` + `docs/10 §4` HTTP 缓存与安全头 | 静态 HTML/资产/API 缺 Cache-Control，前台缺 CSP | ✅ 已完成（按 config.cache.* 设置各路径缓存、ETag/304、siteCSP 含评论 provider origin、/api /admin no-store；8099 实测通过） |
+| R1a | `docs/07 §3.3` 语言版本端点 | 缺失 | ✅ 已完成（POST/DELETE /posts|pages/{id}/locales/{locale}，blank/copy/translate 三源、源语言 409 保护、删除清理 .md/metadata/generated/.meta/sitemap 并重渲染兄弟页；临时实例验收 + verify 收敛） |
 
 **不要重写这些。** 24 个包测试全绿是本项目最有价值的资产。
 
