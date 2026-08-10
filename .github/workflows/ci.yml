@@ -40,11 +40,15 @@ jobs:
             -not -path '*/node_modules/*' -not -path '*/dist/*' -not -name '*.d.ts' \
             | xargs awk 'length > 120 {print FILENAME":"FNR" ("length")"}' | (! grep .)
 
+      # --ignore-scripts matches the Dockerfile. pnpm 10+ aborts the install when
+      # a dependency's build script is not explicitly approved (esbuild), and
+      # esbuild does not need it: pnpm installs the platform binary as an
+      # optional dependency. The container build proves this works on Linux.
       - name: Admin frontend build
         working-directory: frontend/admin
         run: |
           corepack enable
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile --ignore-scripts
           ./node_modules/.bin/vite build
 
       - name: Theme build
