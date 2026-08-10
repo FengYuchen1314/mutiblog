@@ -1,0 +1,20 @@
+apiVersion: mutiblog.dev/v1alpha1
+kind: Theme
+metadata:
+  id: earth
+  name: Earth
+spec:
+  version: 0.1.0
+  engine: react-ssr-v1
+  description: MutiBlog 默认主题，复刻 Halo Earth 的核心布局与体验。
+  author:
+    name: MutiBlog
+  templates:
+    - index
+    - post
+    - page
+    - category
+    - tag
+    - archives
+    - links
+    - error

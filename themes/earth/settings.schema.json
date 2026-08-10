@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Earth settings",
+  "type": "object",
+  "properties": {
+    "layout": {
+      "title": "布局",
+      "type": "object",
+      "properties": {
+        "postListLayout": { "type": "string", "enum": ["grid-3", "grid-2", "single"], "default": "grid-2" },
+        "showHero": { "type": "boolean", "default": true },
+        "showSidebar": { "type": "boolean", "default": true }
+      }
+    },
+    "style": {
+      "title": "样式",
+      "type": "object",
+      "properties": {
+        "accentColor": { "type": "string", "format": "color", "default": "#4ccba0" },
+        "defaultColorScheme": { "type": "string", "enum": ["system", "light", "dark"], "default": "system" }
+      }
+    },
+    "footer": {
+      "title": "页脚",
+      "type": "object",
+      "properties": {
+        "showPoweredBy": { "type": "boolean", "default": true },
+        "copyright": { "type": "string", "default": "" }
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@mutiblog/renderer",
+  "private": true,
+  "version": "0.1.0-dev",
+  "type": "module",
+  "bin": { "mutiblog-render": "dist/cli.mjs" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && esbuild src/cli.ts --bundle --platform=node --format=esm --outfile=dist/cli.mjs --banner:js=\"import { createRequire } from 'node:module';const require=createRequire(import.meta.url);\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@mutiblog/theme-earth": "workspace:*",
+    "markdown-it": "^14.1.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.11.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.13"
+  }
+}

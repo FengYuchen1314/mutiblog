@@ -1,0 +1,10 @@
+packages:
+  - "ui/*"
+  - "apps/*"
+  - "themes/*"
+
+allowBuilds:
+  esbuild: true
+  vue-demi: true
+
+confirmModulesPurge: false
