@@ -21,3 +21,7 @@ node_modules/
 /config/config.local.yaml
 /config/.secrets.yaml
 /deploy/.env
+
+# Local accounts — never publish. A committed admin.yaml would both leak a
+# password hash and block the setup wizard for anyone who clones the repo.
+/data/users/*.yaml

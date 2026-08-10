@@ -1,0 +1,124 @@
+name: Release
+
+# Builds cross-platform binaries and publishes them on a GitHub Release.
+# Trigger by pushing a tag:  git tag v0.1.0 && git push origin v0.1.0
+# Also runnable by hand from the Actions tab.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: windows, goarch: amd64, ext: .exe }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+
+      # The admin SPA is embedded into the binary, so it must be built first.
+      - name: Build admin SPA
+        run: |
+          corepack enable
+          cd frontend/admin
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm build
+
+      - name: Build theme
+        run: |
+          cd themes/default
+          npm ci
+          npm run build
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          VERSION="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          cd backend
+          go build -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o "../dist/blog-server${{ matrix.ext }}" ./cmd/blog
+
+      # The renderer and theme ship alongside the binary: the renderer needs a
+      # Node runtime at publish time, and the theme provides dist/ssr + assets.
+      - name: Assemble archive
+        run: |
+          VERSION="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          NAME="mutiblog-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "pkg/${NAME}"
+          cp "dist/blog-server${{ matrix.ext }}" "pkg/${NAME}/"
+          cp -r frontend/renderer "pkg/${NAME}/renderer"
+          rm -rf "pkg/${NAME}/renderer/node_modules"
+          mkdir -p "pkg/${NAME}/themes/default"
+          cp -r themes/default/dist themes/default/theme.yaml \
+                themes/default/settings.schema.json "pkg/${NAME}/themes/default/"
+          cp config/config.yaml "pkg/${NAME}/config.default.yaml"
+          cp README.md "pkg/${NAME}/"
+          cd pkg
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -qr "../${NAME}.zip" "${NAME}"
+          else
+            tar czf "../${NAME}.tar.gz" "${NAME}"
+          fi
+
+      - name: Checksums
+        run: |
+          for f in mutiblog-*.tar.gz mutiblog-*.zip; do
+            [ -e "$f" ] || continue
+            sha256sum "$f" > "$f.sha256"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mutiblog-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            mutiblog-*.tar.gz
+            mutiblog-*.zip
+            mutiblog-*.sha256
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || inputs.tag }}
+          generate_release_notes: true
+          files: |
+            artifacts/mutiblog-*.tar.gz
+            artifacts/mutiblog-*.zip
+            artifacts/mutiblog-*.sha256
