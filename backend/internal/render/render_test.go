@@ -181,9 +181,15 @@ func TestDeterministicRender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendererEntry := filepath.Join(wd, "..", "..", "..", "frontend", "renderer", "src", "server.js")
+	rendererRoot := filepath.Join(wd, "..", "..", "..", "frontend", "renderer")
+	rendererEntry := filepath.Join(rendererRoot, "src", "server.js")
 	if _, err := os.Stat(rendererEntry); err != nil {
 		t.Skip("renderer source not available")
+	}
+	// Source alone is not enough: the worker cannot start without its
+	// dependencies, and that failure otherwise masquerades as a determinism bug.
+	if _, err := os.Stat(filepath.Join(rendererRoot, "node_modules")); err != nil {
+		t.Skip("renderer dependencies not installed (run: cd frontend/renderer && npm ci)")
 	}
 	output := t.TempDir()
 	socket := filepath.Join(os.TempDir(), fmt.Sprintf("render-det-%d.sock", time.Now().UnixNano()))

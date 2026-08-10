@@ -20,6 +20,13 @@ jobs:
         with:
           node-version: "22"
 
+      # Must come before `go test`: TestDeterministicRender spawns the real Node
+      # renderer, and `blog-server rebuild` below needs it too. Without this the
+      # worker never becomes healthy and the failure looks like a determinism bug.
+      - name: Renderer dependencies
+        working-directory: frontend/renderer
+        run: npm ci --omit=dev
+
       - name: Go format / vet / test
         run: |
           cd backend
