@@ -595,6 +595,12 @@ func (a *App) consumeTranslations(ctx context.Context) {
 		stopHeartbeat := a.jobHeartbeat(ctx, job.ID, "translate-1")
 		if err := a.AI.Run(ctx, job.Payload); err != nil {
 			stopHeartbeat()
+			if errors.Is(err, ai.ErrCircuitOpen) {
+				if requeueErr := a.Jobs.Requeue(ctx, job.ID); requeueErr != nil {
+					a.logger.Warn("translation requeue failed", "job", job.ID, "err", requeueErr)
+				}
+				continue
+			}
 			_ = a.Jobs.Fail(ctx, job.ID, err)
 			continue
 		}

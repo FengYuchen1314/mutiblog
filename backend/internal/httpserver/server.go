@@ -257,6 +257,8 @@ func New(s *Server) http.Handler {
 		r.Route("/translations", func(r chi.Router) {
 			r.With(s.perm("post.read")).Get("/tasks", s.translationTasks)
 			r.With(s.perm("post.translate")).Post("/tasks", s.createTranslationTask)
+			r.With(s.perm("post.read")).Get("/breaker", s.breakerStatus)
+			r.With(s.perm("post.translate")).Post("/reset-breaker", s.resetBreaker)
 			r.With(s.perm("post.translate")).Post("/test", s.testTranslationProvider)
 		})
 		r.Route("/themes", func(r chi.Router) {
@@ -1926,6 +1928,26 @@ func (s *Server) createTranslationTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, http.StatusAccepted, task)
+}
+
+// breakerStatus reports the AI circuit breaker state for the admin banner.
+func (s *Server) breakerStatus(w http.ResponseWriter, r *http.Request) {
+	if s.AI == nil {
+		ok(w, http.StatusOK, map[string]any{"state": "closed", "retryIn": 0})
+		return
+	}
+	state, retryIn := s.AI.BreakerState()
+	ok(w, http.StatusOK, map[string]any{"state": state, "retryIn": retryIn})
+}
+
+// resetBreaker manually closes the AI circuit breaker.
+func (s *Server) resetBreaker(w http.ResponseWriter, r *http.Request) {
+	if s.AI == nil {
+		fail(w, http.StatusServiceUnavailable, "AI_DISABLED", "AI translation is not configured")
+		return
+	}
+	s.AI.ResetBreaker()
+	ok(w, http.StatusOK, map[string]any{"state": "closed"})
 }
 func (s *Server) testTranslationProvider(w http.ResponseWriter, r *http.Request) {
 	if s.AI == nil || s.AI.Provider == nil {

@@ -111,6 +111,13 @@ cd backend && go test ./internal/httpserver/... ./internal/content/...
 ### 🟠 R2 · AI 熔断器
 `预估 0.5 人日` · 规格 `docs/12 §4`
 
+> ✅ 已完成（2026-08-10）：internal/ai/breaker.go（closed/open/half-open 状态机，
+> 连续 5 次失败触发、60s 起翻倍上限 15min、半开放 1 个试探、成功即关闭重置）；
+> provider 每次请求后 Report，重试循环内复查熔断；ErrCircuitOpen 时任务 Requeue
+> 留 pending 且不耗 attempts（jobs.Queue.Requeue）；GET /translations/breaker +
+> POST /translations/reset-breaker；矩阵页橙色横幅（倒计时 + 立即重试）。
+> `go test ./internal/ai/... -run Breaker -v` 5 项全过；mock 500 下第 6 个请求不发。
+
 **现状**：`provider.go` 有重试（`maxRetries=3`）+ 指数退避 + `Retry-After` 解析，**但没有熔断器**。
 后果：provider 持续故障时，每个翻译任务都会各自重试 3 次 —— 烧 token、刷日志、拖慢队列。
 

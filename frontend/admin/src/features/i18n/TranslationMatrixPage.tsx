@@ -44,6 +44,10 @@ export default function TranslationMatrixPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [agreed, setAgreed] = useState(false)
+  const [breaker, setBreaker] = useState<{ state: string; retryIn: number }>({
+    state: 'closed',
+    retryIn: 0,
+  })
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const refresh = () =>
@@ -60,6 +64,16 @@ export default function TranslationMatrixPage() {
   useEffect(() => {
     refresh()
     const timer = window.setInterval(refresh, 3000)
+    return () => window.clearInterval(timer)
+  }, [])
+  useEffect(() => {
+    const loadBreaker = () => {
+      api('/api/admin/translations/breaker')
+        .then((data) => setBreaker(data))
+        .catch(() => {})
+    }
+    loadBreaker()
+    const timer = window.setInterval(loadBreaker, 3000)
     return () => window.clearInterval(timer)
   }, [])
   const visible = useMemo(
@@ -110,6 +124,19 @@ export default function TranslationMatrixPage() {
       setError(e instanceof Error ? e.message : '提交翻译失败')
     }
   }
+  const resetBreaker = async () => {
+    try {
+      const token = await csrf()
+      await api('/api/admin/translations/reset-breaker', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': token },
+      })
+      setBreaker({ state: 'closed', retryIn: 0 })
+      setNotice('熔断器已重置。')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '重置熔断器失败')
+    }
+  }
   const estimateTokens = taskCount * 4000
   const estimateMinutes = Math.ceil((taskCount * 45) / 60)
   return (
@@ -134,6 +161,17 @@ export default function TranslationMatrixPage() {
       </div>
       {error && <p className="error">{error}</p>}
       {notice && <p className="notice">{notice}</p>}
+      {breaker.state !== 'closed' && (
+        <div className="breaker-banner">
+          <span>
+            AI 服务熔断中（{breaker.state}）
+            {breaker.retryIn > 0 ? ' · ' + breaker.retryIn + ' 秒后可重试' : ''}
+          </span>
+          <button type="button" className="secondary" onClick={() => void resetBreaker()}>
+            立即重试
+          </button>
+        </div>
+      )}
       <div className="matrix-table">
         <table>
           <thead>

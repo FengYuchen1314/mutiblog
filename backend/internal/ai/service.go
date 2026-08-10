@@ -183,6 +183,11 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) error {
 		s.Budget,
 	)
 	if err != nil {
+		if errors.Is(err, ErrCircuitOpen) {
+			// Circuit open: keep the task pending without consuming attempts;
+			// the consumer requeues it instead of marking it failed.
+			return err
+		}
 		return s.fail(ctx, article, payload, err)
 	}
 	front, err := s.translateFront(ctx, source.Front, article.Source, model.Locale(payload.Target))
@@ -246,6 +251,21 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) error {
 			time.Now().UTC().Format(time.RFC3339Nano), payload.TaskID,
 		)
 	return err
+}
+
+// ResetBreaker closes the provider circuit breaker, if supported.
+func (s *Service) ResetBreaker() {
+	if resetter, ok := s.Provider.(interface{ ResetBreaker() }); ok {
+		resetter.ResetBreaker()
+	}
+}
+
+// BreakerState returns the provider breaker state and seconds until retry.
+func (s *Service) BreakerState() (string, int) {
+	if provider, ok := s.Provider.(interface{ BreakerState() (string, int) }); ok {
+		return provider.BreakerState()
+	}
+	return "closed", 0
 }
 
 func (s *Service) translateFront(

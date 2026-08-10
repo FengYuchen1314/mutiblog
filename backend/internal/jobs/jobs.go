@@ -173,6 +173,19 @@ func (q *Queue) Complete(ctx context.Context, id int64) error {
 	return err
 }
 
+// Requeue returns a running job to pending without consuming an attempt.
+// Used when an external dependency is temporarily unavailable (circuit open).
+func (q *Queue) Requeue(ctx context.Context, id int64) error {
+	_, err := q.db.Write().ExecContext(
+		ctx,
+		"UPDATE jobs SET status='pending',locked_by=NULL,locked_at=NULL,updated_at=? "+
+			"WHERE id=? AND status='running'",
+		time.Now().UTC().Format(time.RFC3339Nano),
+		id,
+	)
+	return err
+}
+
 // Get returns durable task state for status APIs. Payload remains owned by the
 // task producer, allowing a completed import to expose its compact report.
 func (q *Queue) Get(ctx context.Context, id int64) (*Job, error) {

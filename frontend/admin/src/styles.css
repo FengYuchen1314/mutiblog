@@ -888,3 +888,16 @@ button {
   margin-left: 0.3rem;
   cursor: help;
 }
+.breaker-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.75rem 0;
+  padding: 0.65rem 0.9rem;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  color: #9a3412;
+  font-size: 0.9rem;
+}

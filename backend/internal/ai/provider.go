@@ -37,6 +37,7 @@ type OpenAICompatible struct {
 	maxTokens, maxRetries, rpm     int
 	client                         *http.Client
 	noJSONMode                     atomic.Bool
+	breaker                        *Breaker
 	mu                             sync.Mutex
 	nextRequest                    time.Time
 	lastUsage                      Usage
@@ -70,6 +71,7 @@ func NewOpenAICompatible(cfg config.AIConfig) (*OpenAICompatible, error) {
 		maxRetries:  maxRetries,
 		rpm:         cfg.RateLimitRPM,
 		client:      &http.Client{Timeout: timeout},
+		breaker:     newBreaker(),
 	}, nil
 }
 
@@ -91,6 +93,9 @@ func (p *OpenAICompatible) Translate(
 	src, dst model.Locale,
 	title string,
 ) ([]string, error) {
+	if !p.breaker.Allow() {
+		return nil, ErrCircuitOpen
+	}
 	values := make([]string, len(segs))
 	for i, segment := range segs {
 		values[i] = segment.Text
@@ -98,6 +103,9 @@ func (p *OpenAICompatible) Translate(
 	for attempt := 0; attempt <= p.maxRetries; attempt++ {
 		if err := p.wait(ctx); err != nil {
 			return nil, err
+		}
+		if !p.breaker.Allow() {
+			return nil, ErrCircuitOpen
 		}
 		out, usage, status, retryAfter, err := p.request(ctx, values, src, dst, title, p.temperature)
 		if status == http.StatusBadRequest && !p.noJSONMode.Load() && unsupportedJSONMode(err) {
@@ -108,7 +116,11 @@ func (p *OpenAICompatible) Translate(
 			p.mu.Lock()
 			p.lastUsage = usage
 			p.mu.Unlock()
+			p.breaker.Report(true)
 			return out, nil
+		}
+		if status == 0 || status >= 500 {
+			p.breaker.Report(false)
 		}
 		if status != http.StatusTooManyRequests && (status < 500 || status > 599) {
 			return nil, err
@@ -127,6 +139,16 @@ func (p *OpenAICompatible) Translate(
 		}
 	}
 	return nil, errors.New("AI provider exhausted retries")
+}
+
+// ResetBreaker manually closes the circuit breaker (admin action).
+func (p *OpenAICompatible) ResetBreaker() {
+	p.breaker.Reset()
+}
+
+// BreakerState exposes the breaker for status reporting.
+func (p *OpenAICompatible) BreakerState() (string, int) {
+	return p.breaker.State(), p.breaker.RetryIn()
 }
 
 func (p *OpenAICompatible) wait(ctx context.Context) error {
