@@ -20,52 +20,62 @@ MutiBlog 是一个面向个人创作者的单站点、单管理员、自托管�
 ### 环境要求
 
 - Docker Engine 24 或更高版本；
-- Docker Compose 插件。
+- Docker Compose 插件；
+- 一台 amd64 或 arm64 Linux 服务器。
 
-确认环境可用：
+部署直接使用 GitHub Container Registry 中预构建的镜像，不需要下载源码，也不需要在服务器上编译。
 
-```bash
-docker version
-docker compose version
-```
-
-### 1. 获取代码
+### 1. 创建部署目录
 
 ```bash
-git clone https://github.com/FengYuchen1314/mutiblog.git
-cd mutiblog
+mkdir -p ~/mutiblog
+cd ~/mutiblog
 ```
 
-### 2. 配置访问端口
+也可以换成任意其他目录。Docker Compose 会以当前目录作为这个 MutiBlog 实例的项目目录。
 
-仓库中的 `compose.yaml` 默认只监听本机的 `127.0.0.1:8080`：
+### 2. 创建 Compose 文件
+
+在该目录中新建 `compose.yaml`：
 
 ```yaml
-ports:
-  - "127.0.0.1:8080:8080"
+services:
+  mutiblog:
+    image: ghcr.io/fengyuchen1314/mutiblog:latest
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - mutiblog-data:/var/lib/mutiblog
+
+volumes:
+  mutiblog-data:
 ```
 
-如果需要直接通过服务器公网地址访问，将其改为：
+该文件只使用 GitHub 预构建镜像，不包含 `build`，因此不会在本机编译 MutiBlog。
 
-```yaml
-ports:
-  - "8080:8080"
-```
-
-如需使用其他宿主机端口，只修改冒号左侧的数字，例如：
+默认直接开放服务器的 `8080` 端口。如需使用其他端口，只修改冒号左侧的数字，例如使用 `9000`：
 
 ```yaml
 ports:
   - "9000:8080"
 ```
 
-### 3. 构建并启动
+### 3. 启动
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-查看运行状态：
+Docker Compose 会自动完成以下操作：
+
+1. 从 `ghcr.io` 拉取适合当前服务器架构的最新镜像；
+2. 创建持久化数据卷；
+3. 创建并启动 MutiBlog 容器；
+4. 配置容器随 Docker 自动重启。
+
+查看状态和日志：
 
 ```bash
 docker compose ps
@@ -83,12 +93,15 @@ docker compose logs -f mutiblog
 
 ## 更新
 
+进入保存 `compose.yaml` 的部署目录，然后拉取最新预构建镜像并替换容器：
+
 ```bash
-git pull --ff-only
-docker compose up -d --build
+cd ~/mutiblog
+docker compose pull
+docker compose up -d
 ```
 
-更新会重新构建并替换容器，已有数据不会被删除。
+更新不会删除已有数据。
 
 ## 常用命令
 
@@ -106,7 +119,9 @@ docker compose restart mutiblog
 docker compose down
 ```
 
-站点数据保存在 Docker 卷 `mutiblog-data` 中。`docker compose down` 不会删除该卷；不要在未备份数据时执行 `docker compose down -v`。
+部署目录中只需要保存 `compose.yaml`。站点数据由 Docker 存放在与该 Compose 项目关联的 `mutiblog-data` 卷中。
+
+`docker compose down` 不会删除数据卷；不要在未备份数据时执行 `docker compose down -v`。
 
 ## 许可证
 
