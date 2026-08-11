@@ -192,8 +192,17 @@ func TestPermanentDeleteTerminalizesResidualScheduleForPostAndPage(t *testing.T)
 			} else {
 				app.handleDeletePost(recorder, request)
 			}
-			if recorder.Code != http.StatusNoContent {
-				t.Fatalf("delete status = %d, body = %s", recorder.Code, recorder.Body.String())
+			var response struct {
+				Deleted bool `json:"deleted"`
+				Build   struct {
+					Status string `json:"status"`
+				} `json:"build"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if recorder.Code != http.StatusOK || !response.Deleted || response.Build.Status != "succeeded" {
+				t.Fatalf("delete response = status %d, %#v, body = %s", recorder.Code, response, recorder.Body.String())
 			}
 			assertScheduledNeedsReview(t, scheduler, residual.ID)
 			if _, err := scheduledContentForTest(contentService, kind, recycled.Meta.ID); !errors.Is(err, content.ErrNotFound) {

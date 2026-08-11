@@ -26,6 +26,15 @@ func (rebuilder *fakeRebuilder) Build(context.Context) (publisher.BuildReport, e
 	return publisher.BuildReport{SchemaVersion: 1}, nil
 }
 
+// translationRoundTripFunc lets lifecycle tests observe the context handed to
+// the provider request without coupling the assertion to a live TCP
+// connection's shutdown timing.
+type translationRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f translationRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
 func TestTranslationTaskAppliesAIContentAndProtectsManualTranslation(t *testing.T) {
 	var requests atomic.Int32
 	var mutationDepth atomic.Int32
@@ -373,12 +382,20 @@ func TestRecoverMarksLegacyTaskWithoutContentIdentityNeedsReview(t *testing.T) {
 }
 
 func TestCloseCancelsProviderAndWaitsForTranslationRunner(t *testing.T) {
-	requestStarted := make(chan struct{})
-	providerServer := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
-		close(requestStarted)
+	requestStarted := make(chan struct{}, 1)
+	requestCanceled := make(chan struct{}, 1)
+	providerClient := &http.Client{Transport: translationRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		select {
+		case requestStarted <- struct{}{}:
+		default:
+		}
 		<-request.Context().Done()
-	}))
-	defer providerServer.Close()
+		select {
+		case requestCanceled <- struct{}{}:
+		default:
+		}
+		return nil, request.Context().Err()
+	})}
 	repository, err := fsrepo.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -400,9 +417,9 @@ func TestCloseCancelsProviderAndWaitsForTranslationRunner(t *testing.T) {
 	if err := repository.WriteYAML("config/secrets.yaml", domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}}, true); err != nil {
 		t.Fatal(err)
 	}
-	aiService := ai.NewService(repository, ai.Client{HTTPClient: providerServer.Client()})
+	aiService := ai.NewService(repository, ai.Client{HTTPClient: providerClient})
 	key := "fake-key"
-	if _, err := aiService.Upsert("test", ai.UpsertProviderInput{Name: "Test", BaseURL: providerServer.URL, Model: "test", Enabled: true, Default: true, APIKey: &key}); err != nil {
+	if _, err := aiService.Upsert("test", ai.UpsertProviderInput{Name: "Test", BaseURL: "https://provider.test", Model: "test", Enabled: true, Default: true, APIKey: &key}); err != nil {
 		t.Fatal(err)
 	}
 	contentService := content.NewService(repository)
@@ -411,6 +428,7 @@ func TestCloseCancelsProviderAndWaitsForTranslationRunner(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewService(repository, contentService, aiService, nil)
+	t.Cleanup(service.Close)
 	task, err := service.Start(StartInput{PostID: post.Meta.ID, Locales: []string{"en"}})
 	if err != nil {
 		t.Fatal(err)
@@ -429,6 +447,11 @@ func TestCloseCancelsProviderAndWaitsForTranslationRunner(t *testing.T) {
 	case <-closed:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close did not cancel and wait for the provider request")
+	}
+	select {
+	case <-requestCanceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close returned before it canceled the provider request context")
 	}
 	stored, err := service.Get(task.ID)
 	if err != nil {
@@ -563,6 +586,14 @@ func TestPersistedContentIdentitySurvivesRestartAfterRestore(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			repository, err := fsrepo.Open(t.TempDir())
 			if err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+				SchemaVersion: domain.SchemaVersion,
+				SourceLocale:  "zh-CN",
+				Enabled:       []domain.LocaleDefinition{{Code: "zh-CN", Label: "简体中文", Enabled: true}, {Code: "en", Label: "English", Enabled: true}},
+				Fallback:      []string{"zh-CN"},
+			}, false); err != nil {
 				t.Fatal(err)
 			}
 			contentService := content.NewService(repository)

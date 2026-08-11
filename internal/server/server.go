@@ -64,6 +64,15 @@ type SitePublisher interface {
 	Build(context.Context) (publisher.BuildReport, error)
 }
 
+// backupTaskStarter narrows the backup task-start checkpoint used by the
+// asynchronous runners. The concrete backup service remains responsible for
+// all other task lifecycle operations; keeping this seam small lets callers
+// exercise an unavailable checkpoint without coupling it to filesystem
+// permission semantics.
+type backupTaskStarter interface {
+	StartTask(string) (backup.Task, error)
+}
+
 type Server struct {
 	repository         *fsrepo.Repository
 	consoleDir         string
@@ -85,6 +94,7 @@ type Server struct {
 	links              *links.Service
 	menus              *menus.Service
 	backups            *backup.Service
+	backupTaskStarter  backupTaskStarter
 	themes             *themes.Service
 	projection         *projection.Service
 	mux                *http.ServeMux

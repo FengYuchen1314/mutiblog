@@ -720,10 +720,28 @@ func (s *Service) SaveSettings(id string, values map[string]any) (SettingsView, 
 	if err != nil {
 		return SettingsView{}, err
 	}
-	if err := validateSettings(view.Schema, values); err != nil {
+	// Settings submissions are patches. The console can save one settings
+	// group at a time, so replacing the persisted document here would silently
+	// discard a value saved by an earlier group. Keep the persisted document as
+	// overrides only, so later schema-default changes still take effect. Apply
+	// the patch deeply to those overrides and validate the resulting effective
+	// values (schema defaults plus the saved overrides).
+	// Arrays intentionally replace rather than merge, which makes ordering and
+	// removals unambiguous for widget and social-link lists.
+	overrides := map[string]any{}
+	if err := s.repository.ReadYAML(settingsPath(id), &overrides); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return SettingsView{}, err
+	}
+	if overrides == nil {
+		overrides = map[string]any{}
+	}
+	mergeSettings(overrides, values)
+	effective := defaultsForSchema(view.Schema)
+	mergeSettings(effective, overrides)
+	if err := validateSettings(view.Schema, effective); err != nil {
 		return SettingsView{}, ErrInvalid
 	}
-	if err := s.repository.WriteYAML(settingsPath(id), values, false); err != nil {
+	if err := s.repository.WriteYAML(settingsPath(id), overrides, false); err != nil {
 		return SettingsView{}, err
 	}
 	return s.Settings(id)

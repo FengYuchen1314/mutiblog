@@ -36,10 +36,14 @@ func (s *Server) launchBackupRunner(work func(context.Context)) {
 }
 
 func (s *Server) startBackupTask(ctx context.Context, taskID, operation string) bool {
+	starter := s.backupTaskStarter
+	if starter == nil {
+		starter = s.backups
+	}
 	delay := 100 * time.Millisecond
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
-		if _, err := s.backups.StartTask(taskID); err == nil {
+		if _, err := starter.StartTask(taskID); err == nil {
 			return true
 		} else if errors.Is(err, backup.ErrTaskNotFound) {
 			s.logger.Error("start backup task failed permanently", "task", taskID, "operation", operation, "error", err)
