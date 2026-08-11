@@ -23,6 +23,16 @@ wait_ready() {
   return 1
 }
 
+wait_home_page() {
+  for _ in $(seq 1 60); do
+    if curl -fsS http://127.0.0.1:18080/ >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 start_candidate() {
   docker run -d --name "$smoke_container" \
     -p 127.0.0.1:18080:8080 \
@@ -41,4 +51,4 @@ curl -fsS -X POST http://127.0.0.1:18080/api/v1/setup \
 docker rm -f "$smoke_container" >/dev/null
 start_candidate
 wait_ready
-curl -fsS http://127.0.0.1:18080/ >/dev/null
+wait_home_page

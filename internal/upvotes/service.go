@@ -44,10 +44,11 @@ type Result struct {
 }
 
 type Service struct {
-	repository *fsrepo.Repository
-	content    *content.Service
-	mu         sync.Mutex
-	attempts   map[string][]time.Time
+	repository   *fsrepo.Repository
+	content      *content.Service
+	mu           sync.Mutex
+	attempts     map[string][]time.Time
+	writeCounter func(string, storedCounter) error
 }
 
 type storedCounter struct {
@@ -62,7 +63,14 @@ type storedCounter struct {
 }
 
 func NewService(repository *fsrepo.Repository, contentService *content.Service) *Service {
-	return &Service{repository: repository, content: contentService, attempts: make(map[string][]time.Time)}
+	return &Service{
+		repository: repository,
+		content:    contentService,
+		attempts:   make(map[string][]time.Time),
+		writeCounter: func(path string, counter storedCounter) error {
+			return repository.WriteYAML(path, counter, false)
+		},
+	}
 }
 
 func NewVisitorToken() (string, error) {
@@ -128,6 +136,9 @@ func (s *Service) Add(kind, id, visitorToken, ipAddress string) (Result, error) 
 	}
 	counter, err := s.readCounter(kind, id, identity)
 	if err != nil {
+		if !errors.Is(err, ErrInvalidState) {
+			refundLatestAttempt(s.attempts, rateKey)
+		}
 		return Result{}, err
 	}
 	if containsHash(counter.VoterHashes, voterHash) {
@@ -137,7 +148,14 @@ func (s *Service) Add(kind, id, visitorToken, ipAddress string) (Result, error) 
 		return Result{}, err
 	}
 	counter.UpdatedAt = time.Now().UTC()
-	if err := s.repository.WriteYAML(counterPath(kind, id), counter, false); err != nil {
+	writeCounter := s.writeCounter
+	if writeCounter == nil {
+		writeCounter = func(path string, counter storedCounter) error {
+			return s.repository.WriteYAML(path, counter, false)
+		}
+	}
+	if err := writeCounter(counterPath(kind, id), counter); err != nil {
+		refundLatestAttempt(s.attempts, rateKey)
 		return Result{}, err
 	}
 	return Result{Count: counter.Count, Upvoted: true, Created: true}, nil
@@ -269,6 +287,22 @@ func (s *Service) allowLocked(key string, now time.Time) bool {
 	}
 	s.attempts[key] = append(recent, now)
 	return true
+}
+
+// refundLatestAttempt removes only the timestamp appended for the failed
+// operation. Earlier legitimate attempts in the same window must continue to
+// count toward the rate limit. The caller must hold the service mutex.
+func refundLatestAttempt(attempts map[string][]time.Time, key string) {
+	values := attempts[key]
+	if len(values) == 0 {
+		return
+	}
+	if len(values) == 1 {
+		delete(attempts, key)
+		return
+	}
+	values[len(values)-1] = time.Time{}
+	attempts[key] = values[:len(values)-1]
 }
 
 func newCounter(kind, id, identity string) storedCounter {

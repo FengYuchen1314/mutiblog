@@ -6,14 +6,188 @@ import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components"
 import { ApiError, api, createBackupTaskId, type BackupRecord, type BackupTask } from "@/api/client";
 import TaskProgress from "@/components/TaskProgress.vue";
 import { useSessionStore } from "@/stores/session";
-const session=useSessionStore();const router=useRouter();const { t,te }=useI18n();const backups=ref<BackupRecord[]>([]);const tasks=ref<BackupTask[]>([]);const busy=ref(false);const error=ref("");const notice=ref("");const picker=ref<HTMLInputElement>();const remoteURL=ref("");const activeTaskId=ref("");let timer:number|undefined;
-async function load(){try{const[records,jobs]=await Promise.all([api.backups(),api.backupTasks()]);backups.value=records.items;tasks.value=jobs.items}catch(caught){error.value=caught instanceof Error?caught.message:t("backupPage.loadFailed")}}
-onMounted(()=>{void load();timer=window.setInterval(()=>void load(),2500)});onBeforeUnmount(()=>{if(timer)window.clearInterval(timer)});async function create(){if(!session.session)return;busy.value=true;try{const task=await api.createBackup(session.session.csrfToken);activeTaskId.value=task.id;notice.value=t("backupPage.queued");await load()}catch(caught){error.value=caught instanceof Error?caught.message:t("backupPage.createFailed")}finally{busy.value=false}}
-async function importBackup(event:Event){const file=(event.target as HTMLInputElement).files?.[0];if(!session.session||!file)return;busy.value=true;error.value="";try{const task=await api.importBackup(session.session.csrfToken,file);activeTaskId.value=task.id;notice.value=t("backupPage.queued");await load()}catch(caught){error.value=caught instanceof Error?caught.message:t("backupPage.importFailed")}finally{busy.value=false;if(picker.value)picker.value.value=""}}
-async function importBackupURL(){if(!session.session||!remoteURL.value.trim())return;busy.value=true;error.value="";try{const task=await api.importBackupURL(session.session.csrfToken,remoteURL.value.trim());activeTaskId.value=task.id;remoteURL.value="";notice.value=t("backupPage.queued");await load()}catch(caught){error.value=caught instanceof Error?caught.message:t("backupPage.importFailed")}finally{busy.value=false}}
-async function remove(record:BackupRecord){if(!session.session||!window.confirm(t("backupPage.confirmDelete",{filename:record.filename})))return;try{await api.deleteBackup(session.session.csrfToken,record.id);await load()}catch(caught){error.value=caught instanceof Error?caught.message:t("backupPage.deleteFailed")}}
-async function restore(record:BackupRecord){if(!session.session||!window.confirm(t("backupPage.confirmRestore",{filename:record.filename})))return;busy.value=true;error.value="";notice.value="";const taskId=createBackupTaskId();activeTaskId.value=taskId;try{await api.restoreBackup(session.session.csrfToken,record.id,taskId);session.expire();await router.replace({name:"login",query:{restored:"1"}})}catch(caught){try{await api.task(taskId)}catch(taskError){if(taskError instanceof ApiError&&taskError.status===404&&activeTaskId.value===taskId)activeTaskId.value=""}error.value=caught instanceof Error?caught.message:t("backupPage.restoreFailed")}finally{busy.value=false}}
-const size=(value:number)=>value<1024?`${value} B`:value<1048576?`${(value/1024).toFixed(1)} KiB`:`${(value/1048576).toFixed(1)} MiB`;
-const taskLabel=(task:BackupTask)=>t(`backupPage.operations.${task.operation}`);const taskError=(task:BackupTask)=>{if(!task.error)return "";const key=`backupPage.taskErrors.${task.error}`;return te(key)?String(t(key)):String(t("backupPage.taskErrors.unknown"))};
+const session = useSessionStore();
+const router = useRouter();
+const { t, te } = useI18n();
+const backups = ref<BackupRecord[]>([]);
+const tasks = ref<BackupTask[]>([]);
+const busy = ref(false);
+const error = ref("");
+const notice = ref("");
+const picker = ref<HTMLInputElement>();
+const remoteURL = ref("");
+const activeTaskId = ref("");
+let timer: number | undefined;
+async function load() {
+  try {
+    const [records, jobs] = await Promise.all([api.backups(), api.backupTasks()]);
+    backups.value = records.items;
+    tasks.value = jobs.items;
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : t("backupPage.loadFailed");
+  }
+}
+onMounted(() => {
+  void load();
+  timer = window.setInterval(() => void load(), 2500);
+});
+onBeforeUnmount(() => {
+  if (timer) window.clearInterval(timer);
+});
+async function create() {
+  if (!session.session) return;
+  busy.value = true;
+  try {
+    const task = await api.createBackup(session.session.csrfToken);
+    activeTaskId.value = task.id;
+    notice.value = t("backupPage.queued");
+    await load();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : t("backupPage.createFailed");
+  } finally {
+    busy.value = false;
+  }
+}
+async function importBackup(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!session.session || !file) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    const task = await api.importBackup(session.session.csrfToken, file);
+    activeTaskId.value = task.id;
+    notice.value = t("backupPage.queued");
+    await load();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : t("backupPage.importFailed");
+  } finally {
+    busy.value = false;
+    if (picker.value) picker.value.value = "";
+  }
+}
+async function importBackupURL() {
+  if (!session.session || !remoteURL.value.trim()) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    const task = await api.importBackupURL(session.session.csrfToken, remoteURL.value.trim());
+    activeTaskId.value = task.id;
+    remoteURL.value = "";
+    notice.value = t("backupPage.queued");
+    await load();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : t("backupPage.importFailed");
+  } finally {
+    busy.value = false;
+  }
+}
+async function remove(record: BackupRecord) {
+  if (!session.session || !window.confirm(t("backupPage.confirmDelete", { filename: record.filename }))) return;
+  try {
+    await api.deleteBackup(session.session.csrfToken, record.id);
+    await load();
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : t("backupPage.deleteFailed");
+  }
+}
+async function restore(record: BackupRecord) {
+  if (!session.session || !window.confirm(t("backupPage.confirmRestore", { filename: record.filename }))) return;
+  busy.value = true;
+  error.value = "";
+  notice.value = "";
+  const taskId = createBackupTaskId();
+  activeTaskId.value = taskId;
+  try {
+    await api.restoreBackup(session.session.csrfToken, record.id, taskId);
+    session.expire();
+    await router.replace({ name: "login", query: { restored: "1" } });
+  } catch (caught) {
+    try {
+      await api.task(taskId);
+    } catch (taskError) {
+      if (taskError instanceof ApiError && taskError.status === 404 && activeTaskId.value === taskId)
+        activeTaskId.value = "";
+    }
+    error.value = caught instanceof Error ? caught.message : t("backupPage.restoreFailed");
+  } finally {
+    busy.value = false;
+  }
+}
+const size = (value: number) =>
+  value < 1024
+    ? `${value} B`
+    : value < 1048576
+      ? `${(value / 1024).toFixed(1)} KiB`
+      : `${(value / 1048576).toFixed(1)} MiB`;
+const taskLabel = (task: BackupTask) => t(`backupPage.operations.${task.operation}`);
+const taskError = (task: BackupTask) => {
+  if (!task.error) return "";
+  const key = `backupPage.taskErrors.${task.error}`;
+  return te(key) ? String(t(key)) : String(t("backupPage.taskErrors.unknown"));
+};
 </script>
-<template><div class="page"><VPageHeader :title="t('backupPage.title')"><template #actions><input ref="picker" hidden type="file" accept=".gz,.tgz,application/gzip" @change="importBackup"/><VButton :disabled="busy" @click="picker?.click()">{{t("backupPage.import")}}</VButton><VButton type="secondary" :loading="busy" @click="create">{{t("backupPage.create")}}</VButton></template></VPageHeader><div class="page-body settings-stack"><VCard><div class="form-success">{{t("backupPage.guidance")}}</div><div class="filter-bar"><input v-model="remoteURL" type="url" :placeholder="t('backupPage.remoteUrlPlaceholder')"/><button type="button" :disabled="busy||!remoteURL.trim()" @click="importBackupURL">{{t("backupPage.importFromUrl")}}</button></div><p class="theme-guidance">{{t("backupPage.remoteUrlHelp")}}</p><TaskProgress v-if="activeTaskId" :task-id="activeTaskId"/><div v-if="notice" class="form-success">{{notice}}</div><div v-if="error" class="form-alert">{{error}}</div></VCard><VCard v-if="tasks.length"><div class="card-title">{{t("backupPage.tasks")}}</div><div class="post-rows"><article v-for="task in tasks" :key="task.id" class="post-row"><div class="post-row-main"><strong>{{taskLabel(task)}} · {{t(`codes.${task.status}`)}}</strong><span>{{task.id}}<template v-if="task.backupId"> · {{task.backupId}}</template></span><TaskProgress :task-id="task.id" compact/><span v-if="task.error" class="text-danger">{{taskError(task)}}</span></div><time>{{new Date(task.completedAt??task.startedAt??task.createdAt).toLocaleString()}}</time></article></div></VCard><VCard><div v-if="backups.length" class="post-rows"><article v-for="record in backups" :key="record.id" class="post-row"><div class="post-row-main"><strong>{{record.filename}}</strong><span>{{record.id}}</span></div><div class="post-row-tags"><VTag>{{size(record.size)}}</VTag><time>{{new Date(record.createdAt).toLocaleString()}}</time><a :href="`/api/v1/admin/backups/${encodeURIComponent(record.id)}/download`">{{t("backupPage.download")}}</a><button :disabled="busy" @click="restore(record)">{{t("backupPage.restore")}}</button><button @click="remove(record)">{{t("backupPage.delete")}}</button></div></article></div><VEmpty v-else :title="t('backupPage.empty')"/></VCard></div></div></template>
+<template>
+  <div class="page">
+    <VPageHeader :title="t('backupPage.title')"
+      ><template #actions
+        ><input ref="picker" hidden type="file" accept=".gz,.tgz,application/gzip" @change="importBackup" /><VButton
+          :disabled="busy"
+          @click="picker?.click()"
+          >{{ t("backupPage.import") }}</VButton
+        ><VButton type="secondary" :loading="busy" @click="create">{{ t("backupPage.create") }}</VButton></template
+      ></VPageHeader
+    >
+    <div class="page-body settings-stack">
+      <VCard
+        ><div class="form-success">{{ t("backupPage.guidance") }}</div>
+        <div class="filter-bar">
+          <input v-model="remoteURL" type="url" :placeholder="t('backupPage.remoteUrlPlaceholder')" /><button
+            type="button"
+            :disabled="busy || !remoteURL.trim()"
+            @click="importBackupURL"
+          >
+            {{ t("backupPage.importFromUrl") }}
+          </button>
+        </div>
+        <p class="theme-guidance">{{ t("backupPage.remoteUrlHelp") }}</p>
+        <TaskProgress v-if="activeTaskId" :task-id="activeTaskId" />
+        <div v-if="notice" class="form-success">{{ notice }}</div>
+        <div v-if="error" class="form-alert">{{ error }}</div></VCard
+      ><VCard v-if="tasks.length"
+        ><div class="card-title">{{ t("backupPage.tasks") }}</div>
+        <div class="post-rows">
+          <article v-for="task in tasks" :key="task.id" class="post-row">
+            <div class="post-row-main">
+              <strong>{{ taskLabel(task) }} · {{ t(`codes.${task.status}`) }}</strong
+              ><span
+                >{{ task.id }}<template v-if="task.backupId"> · {{ task.backupId }}</template></span
+              ><TaskProgress :task-id="task.id" compact /><span v-if="task.error" class="text-danger">{{
+                taskError(task)
+              }}</span>
+            </div>
+            <time>{{ new Date(task.completedAt ?? task.startedAt ?? task.createdAt).toLocaleString() }}</time>
+          </article>
+        </div></VCard
+      ><VCard
+        ><div v-if="backups.length" class="post-rows">
+          <article v-for="record in backups" :key="record.id" class="post-row">
+            <div class="post-row-main">
+              <strong>{{ record.filename }}</strong
+              ><span>{{ record.id }}</span>
+            </div>
+            <div class="post-row-tags">
+              <VTag>{{ size(record.size) }}</VTag
+              ><time>{{ new Date(record.createdAt).toLocaleString() }}</time
+              ><a :href="`/api/v1/admin/backups/${encodeURIComponent(record.id)}/download`">{{
+                t("backupPage.download")
+              }}</a
+              ><button :disabled="busy" @click="restore(record)">{{ t("backupPage.restore") }}</button
+              ><button @click="remove(record)">{{ t("backupPage.delete") }}</button>
+            </div>
+          </article>
+        </div>
+        <VEmpty v-else :title="t('backupPage.empty')"
+      /></VCard>
+    </div>
+  </div>
+</template>

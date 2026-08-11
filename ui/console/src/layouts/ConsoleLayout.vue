@@ -114,7 +114,9 @@ onBeforeUnmount(() => {
             v-for="item in group.items"
             :key="item.to"
             class="nav-item"
-			:class="{ 'nav-item--active': route.path === item.to || (item.to === '/theme' && route.path === '/themes') }"
+            :class="{
+              'nav-item--active': route.path === item.to || (item.to === '/theme' && route.path === '/themes'),
+            }"
             :to="item.to"
             @click="mobileOpen = false"
           >
@@ -135,7 +137,10 @@ onBeforeUnmount(() => {
       </div>
     </aside>
     <main class="console-main">
-      <div v-if="publicationWarning" class="global-warning"><span>{{ t("common.publicationFailed") }}</span><button type="button" @click="publicationWarning = false">{{ t("common.dismiss") }}</button></div>
+      <div v-if="publicationWarning" class="global-warning">
+        <span>{{ t("common.publicationFailed") }}</span
+        ><button type="button" @click="publicationWarning = false">{{ t("common.dismiss") }}</button>
+      </div>
       <button class="mobile-menu" type="button" @click="mobileOpen = true">
         <Icon icon="ri:menu-line" />
       </button>

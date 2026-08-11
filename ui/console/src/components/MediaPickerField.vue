@@ -4,12 +4,15 @@ import { useI18n } from "vue-i18n";
 import { api, type MediaAsset } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 
-const props = withDefaults(defineProps<{
-  modelValue: string;
-  label?: string;
-  help?: string;
-  placeholder?: string;
-}>(), { label: "", help: "", placeholder: "/media/…" });
+withDefaults(
+  defineProps<{
+    modelValue: string;
+    label?: string;
+    help?: string;
+    placeholder?: string;
+  }>(),
+  { label: "", help: "", placeholder: "/media/…" },
+);
 
 const emit = defineEmits<{ "update:modelValue": [value: string] }>();
 const session = useSessionStore();
@@ -24,7 +27,11 @@ const fileInput = ref<HTMLInputElement>();
 
 const visibleAssets = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase();
-  return assets.value.filter((asset) => asset.mimeType.startsWith("image/") && (!needle || `${asset.originalName}\n${asset.filename}`.toLocaleLowerCase().includes(needle)));
+  return assets.value.filter(
+    (asset) =>
+      asset.mimeType.startsWith("image/") &&
+      (!needle || `${asset.originalName}\n${asset.filename}`.toLocaleLowerCase().includes(needle)),
+  );
 });
 
 async function load() {
@@ -79,27 +86,53 @@ async function upload(event: Event) {
       <img v-if="modelValue" :src="modelValue" alt="" />
       <input :value="modelValue" :placeholder="placeholder" @input="updateText" />
       <button type="button" @click="show">{{ t("mediaPicker.choose") }}</button>
-      <button v-if="modelValue" type="button" @click="emit('update:modelValue', '')">{{ t("mediaPicker.clear") }}</button>
+      <button v-if="modelValue" type="button" @click="emit('update:modelValue', '')">
+        {{ t("mediaPicker.clear") }}
+      </button>
     </div>
     <small v-if="help">{{ help }}</small>
 
     <Teleport to="body">
-      <div v-if="open" class="media-picker-backdrop" tabindex="-1" @click.self="open = false" @keydown.esc="open = false">
+      <div
+        v-if="open"
+        class="media-picker-backdrop"
+        tabindex="-1"
+        @click.self="open = false"
+        @keydown.esc="open = false"
+      >
         <section class="media-picker-dialog" role="dialog" aria-modal="true" :aria-label="t('mediaPicker.title')">
           <header>
-            <div><strong>{{ t("mediaPicker.title") }}</strong><span>{{ t("mediaPicker.help") }}</span></div>
+            <div>
+              <strong>{{ t("mediaPicker.title") }}</strong
+              ><span>{{ t("mediaPicker.help") }}</span>
+            </div>
             <button type="button" :aria-label="t('mediaPicker.close')" @click="open = false">×</button>
           </header>
           <div class="media-picker-toolbar">
             <input v-model="query" type="search" :placeholder="t('mediaPicker.search')" />
-            <input ref="fileInput" hidden type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple @change="upload" />
-            <button type="button" :disabled="uploading" @click="fileInput?.click()">{{ uploading ? t("mediaPicker.uploading") : t("mediaPicker.upload") }}</button>
+            <input
+              ref="fileInput"
+              hidden
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              multiple
+              @change="upload"
+            />
+            <button type="button" :disabled="uploading" @click="fileInput?.click()">
+              {{ uploading ? t("mediaPicker.uploading") : t("mediaPicker.upload") }}
+            </button>
             <button type="button" :disabled="loading" @click="load">{{ t("common.refresh") }}</button>
           </div>
           <div v-if="error" class="form-alert">{{ error }}</div>
           <div v-if="loading" class="media-picker-empty">{{ t("mediaPicker.loading") }}</div>
           <div v-else-if="visibleAssets.length" class="media-picker-grid">
-            <button v-for="asset in visibleAssets" :key="asset.id" type="button" :class="{ selected: asset.url === modelValue }" @click="choose(asset)">
+            <button
+              v-for="asset in visibleAssets"
+              :key="asset.id"
+              type="button"
+              :class="{ selected: asset.url === modelValue }"
+              @click="choose(asset)"
+            >
               <img :src="asset.url" :alt="asset.originalName" />
               <span :title="asset.originalName">{{ asset.originalName }}</span>
             </button>
@@ -112,26 +145,144 @@ async function upload(event: Event) {
 </template>
 
 <style scoped>
-.media-picker-field { display: grid; min-width: 0; gap: .35rem; }
-.media-picker-field__label { color: #4b5563; font-size: .75rem; font-weight: 600; }
-.media-picker-field__control { display: flex; min-width: 0; align-items: center; gap: .45rem; }
-.media-picker-field__control > img { width: 2.35rem; height: 2.35rem; flex: 0 0 auto; border: 1px solid #e5e7eb; border-radius: .4rem; object-fit: cover; }
-.media-picker-field__control > input { min-width: 0; flex: 1; }
-.media-picker-field__control > button, .media-picker-toolbar button { flex: 0 0 auto; border: 1px solid #d9dde5; border-radius: .4rem; background: #fff; cursor: pointer; padding: .5rem .65rem; }
-.media-picker-field small { color: #7b8494; font-size: .68rem; }
-.media-picker-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; align-items: start; justify-items: center; overflow: auto; background: rgb(15 23 42 / 52%); padding: clamp(1rem, 6vh, 4rem) 1rem; }
-.media-picker-dialog { display: grid; width: min(64rem, 100%); max-height: calc(100vh - 2rem); overflow: hidden; border-radius: .75rem; background: #fff; box-shadow: 0 24px 70px rgb(15 23 42 / 30%); padding: 1rem; gap: .85rem; }
-.media-picker-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
-.media-picker-dialog > header > div { display: grid; gap: .15rem; }
-.media-picker-dialog > header span { color: #7b8494; font-size: .72rem; }
-.media-picker-dialog > header > button { border: 0; background: transparent; cursor: pointer; font-size: 1.5rem; }
-.media-picker-toolbar { display: flex; align-items: center; gap: .5rem; }
-.media-picker-toolbar > input { min-width: 8rem; flex: 1; }
-.media-picker-grid { display: grid; overflow: auto; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .7rem; padding: .15rem; }
-.media-picker-grid > button { display: grid; overflow: hidden; border: 2px solid transparent; border-radius: .55rem; background: #f7f8fa; cursor: pointer; padding: 0; text-align: left; }
-.media-picker-grid > button.selected { border-color: #4f46e5; }
-.media-picker-grid img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
-.media-picker-grid span { overflow: hidden; padding: .45rem .55rem; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
-.media-picker-empty { padding: 3rem 1rem; color: #7b8494; text-align: center; }
-@media (max-width: 640px) { .media-picker-field__control, .media-picker-toolbar { align-items: stretch; flex-direction: column; } .media-picker-field__control > img { width: 100%; height: 8rem; } }
+.media-picker-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+}
+.media-picker-field__label {
+  color: #4b5563;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.media-picker-field__control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+}
+.media-picker-field__control > img {
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: 0 0 auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.4rem;
+  object-fit: cover;
+}
+.media-picker-field__control > input {
+  min-width: 0;
+  flex: 1;
+}
+.media-picker-field__control > button,
+.media-picker-toolbar button {
+  flex: 0 0 auto;
+  border: 1px solid #d9dde5;
+  border-radius: 0.4rem;
+  background: #fff;
+  cursor: pointer;
+  padding: 0.5rem 0.65rem;
+}
+.media-picker-field small {
+  color: #7b8494;
+  font-size: 0.68rem;
+}
+.media-picker-backdrop {
+  position: fixed;
+  z-index: 150;
+  inset: 0;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  overflow: auto;
+  background: rgb(15 23 42 / 52%);
+  padding: clamp(1rem, 6vh, 4rem) 1rem;
+}
+.media-picker-dialog {
+  display: grid;
+  width: min(64rem, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 30%);
+  padding: 1rem;
+  gap: 0.85rem;
+}
+.media-picker-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.media-picker-dialog > header > div {
+  display: grid;
+  gap: 0.15rem;
+}
+.media-picker-dialog > header span {
+  color: #7b8494;
+  font-size: 0.72rem;
+}
+.media-picker-dialog > header > button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.5rem;
+}
+.media-picker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.media-picker-toolbar > input {
+  min-width: 8rem;
+  flex: 1;
+}
+.media-picker-grid {
+  display: grid;
+  overflow: auto;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.7rem;
+  padding: 0.15rem;
+}
+.media-picker-grid > button {
+  display: grid;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 0.55rem;
+  background: #f7f8fa;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+.media-picker-grid > button.selected {
+  border-color: #4f46e5;
+}
+.media-picker-grid img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+.media-picker-grid span {
+  overflow: hidden;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.media-picker-empty {
+  padding: 3rem 1rem;
+  color: #7b8494;
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .media-picker-field__control,
+  .media-picker-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .media-picker-field__control > img {
+    width: 100%;
+    height: 8rem;
+  }
+}
 </style>

@@ -20,7 +20,6 @@ The previous implementation is archived on the `old` branch and is not a referen
 - Go core service with atomic YAML storage, setup, Argon2id login, sessions, CSRF, health checks, and static serving;
 - Vue 3 console using the MIT-licensed Halo component package;
 - React SSR build CLI with a first Earth-style multilingual theme;
-- product research, architecture, file contracts, API map, and acceptance matrix under `docs/`;
 - local, Docker, and GitHub Actions build paths.
 
 ## Local development
@@ -36,7 +35,7 @@ go run ./cmd/mutiblog
 
 The service listens on `http://127.0.0.1:8080` by default. The console is available at `/console/`; persistent files are written under `./data` unless `MUTIBLOG_DATA_DIR` is set.
 
-Read [PROJECT_SPEC.md](PROJECT_SPEC.md) before changing product behavior. The previous implementation is archived only; code or design from the `old` branch must not be reused.
+The previous implementation is archived only; code or design from the `old` branch must not be reused.
 
 ## License
 

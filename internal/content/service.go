@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,7 +40,11 @@ const (
 
 type Service struct {
 	repository *fsrepo.Repository
-	mu         sync.Mutex
+	// mu prevents successful reads on this Service instance from observing the
+	// intermediate files of another operation on the same instance. It is not a
+	// cross-instance or cross-process repository transaction. Public read methods
+	// take RLock; methods suffixed Locked require caller-held RLock or Lock.
+	mu sync.RWMutex
 }
 
 type CreatePostInput struct {
@@ -75,250 +77,49 @@ func NewService(repository *fsrepo.Repository) *Service {
 }
 
 func (s *Service) ListPosts() ([]domain.Post, error) {
-	entries, err := s.repository.ReadDir("content/posts")
-	if err != nil {
-		return nil, err
-	}
-	posts := make([]domain.Post, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() || !validID(entry.Name()) {
-			continue
-		}
-		post, err := s.GetPost(entry.Name())
-		if err != nil {
-			return nil, fmt.Errorf("read post %s: %w", entry.Name(), err)
-		}
-		posts = append(posts, post)
-	}
-	sort.Slice(posts, func(i, j int) bool { return posts[i].Meta.UpdatedAt.After(posts[j].Meta.UpdatedAt) })
-	return posts, nil
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.listPostsLocked()
+}
+
+// listPostsLocked expects the caller to hold s.mu for reading or writing.
+func (s *Service) listPostsLocked() ([]domain.Post, error) {
+	return s.listContentLocked(postContent)
 }
 
 func (s *Service) GetPost(id string) (domain.Post, error) {
-	if !validID(id) {
-		return domain.Post{}, ErrInvalidID
-	}
-	var meta domain.PostMeta
-	if err := s.repository.ReadYAML(postPath(id, "meta.yaml"), &meta); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return domain.Post{}, ErrNotFound
-		}
-		return domain.Post{}, err
-	}
-	if !validStoredContentMeta(meta, id, "Post") {
-		return domain.Post{}, errors.New("post metadata identity is invalid")
-	}
-	contents := make(map[string]domain.LocalizedMarkdown, len(meta.Locales))
-	for locale := range meta.Locales {
-		data, err := s.repository.ReadFile(postPath(id, locale+".md"))
-		if err != nil {
-			return domain.Post{}, err
-		}
-		localized, err := decodeMarkdown(data)
-		if err != nil {
-			return domain.Post{}, fmt.Errorf("decode %s locale %s: %w", id, locale, err)
-		}
-		contents[locale] = localized
-	}
-	post := domain.Post{Meta: meta, Content: contents}
-	s.decoratePublicationState("Post", &post)
-	return post, nil
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getPostLocked(id)
+}
+
+// getPostLocked expects the caller to hold s.mu for reading or writing.
+func (s *Service) getPostLocked(id string) (domain.Post, error) {
+	return s.getContentLocked(postContent, id)
 }
 
 func (s *Service) CreatePost(input CreatePostInput) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	locales, err := s.locales()
-	if err != nil {
-		return domain.Post{}, err
-	}
-	id := input.ID
-	if id == "" {
-		id, err = ConfiguredPublicID(s.repository)
-		if err != nil {
-			return domain.Post{}, err
-		}
-	} else if !customSlugPattern.MatchString(id) {
-		return domain.Post{}, ErrInvalidID
-	}
-	if exists, err := s.repository.Exists(postPath(id, "meta.yaml")); err != nil {
-		return domain.Post{}, err
-	} else if exists {
-		return domain.Post{}, ErrAlreadyExists
-	}
-	now := time.Now().UTC()
-	meta := domain.PostMeta{
-		SchemaVersion: domain.SchemaVersion, Kind: "Post", ID: id, Status: domain.ContentStatusDraft,
-		SourceLocale: locales.SourceLocale, CreatedAt: now, UpdatedAt: now, Categories: []string{}, Tags: []string{},
-		Visibility: domain.ContentVisibilityPublic, CommentPolicy: "open", Template: "post", Revision: 1, BaseRevision: 1, HeadRevision: 1,
-		Locales: map[string]domain.LocaleContentState{locales.SourceLocale: {State: "current", Origin: domain.LocaleOriginSource, Revision: 1, SourceRevision: 1}},
-	}
-	localized := domain.LocalizedMarkdown{
-		Title: strings.TrimSpace(input.Title), Summary: strings.TrimSpace(input.Summary),
-		SEOTitle: strings.TrimSpace(input.SEOTitle), SEODescription: strings.TrimSpace(input.SEODescription),
-		Markdown: input.Markdown,
-	}
-	if localized.Title == "" {
-		localized.Title = "Untitled"
-	}
-	if err := s.writeLocale(id, locales.SourceLocale, localized); err != nil {
-		return domain.Post{}, err
-	}
-	if err := s.repository.WriteYAML(postPath(id, "meta.yaml"), meta, false); err != nil {
-		return domain.Post{}, err
-	}
-	return domain.Post{Meta: meta, Content: map[string]domain.LocalizedMarkdown{locales.SourceLocale: localized}}, nil
+	return s.createContentLocked(postContent, input)
 }
 
 func (s *Service) UpdateLocale(id, locale string, input UpdateLocaleInput) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	locale, err := s.normalizeEnabledLocale(locale)
-	if err != nil {
-		return domain.Post{}, err
-	}
-	post, err := s.GetPost(id)
-	if err != nil {
-		return domain.Post{}, err
-	}
-	if post.Meta.Revision != input.ExpectedRevision {
-		return domain.Post{}, ErrConflict
-	}
-	if err := s.snapshot(post); err != nil {
-		return domain.Post{}, err
-	}
-	localized := domain.LocalizedMarkdown{Title: strings.TrimSpace(input.Title), Summary: strings.TrimSpace(input.Summary), SEOTitle: strings.TrimSpace(input.SEOTitle), SEODescription: strings.TrimSpace(input.SEODescription), Markdown: input.Markdown}
-	if localized.Title == "" {
-		return domain.Post{}, errors.New("title is required")
-	}
-	state, exists := post.Meta.Locales[locale]
-	if !exists {
-		state = domain.LocaleContentState{Revision: 0, SourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision}
-	}
-	state.Revision++
-	state.State = "current"
-	if locale == post.Meta.SourceLocale {
-		state.Origin = domain.LocaleOriginSource
-		state.SourceRevision = state.Revision
-		for derivedLocale, derived := range post.Meta.Locales {
-			if derivedLocale != locale {
-				derived.State = "stale"
-				post.Meta.Locales[derivedLocale] = derived
-			}
-		}
-	} else {
-		state.Origin = domain.LocaleOriginManual
-		state.SourceRevision = post.Meta.Locales[post.Meta.SourceLocale].Revision
-	}
-	post.Meta.Locales[locale] = state
-	advanceHead(&post.Meta)
-	post.Meta.UpdatedAt = time.Now().UTC()
-	if err := s.writeLocale(id, locale, localized); err != nil {
-		return domain.Post{}, err
-	}
-	if err := s.repository.WriteYAML(postPath(id, "meta.yaml"), post.Meta, false); err != nil {
-		return domain.Post{}, err
-	}
-	post.Content[locale] = localized
-	post.Meta.HasUnpublishedChanges = post.Meta.Status == domain.ContentStatusPublished
-	return post, nil
+	return s.updateContentLocaleLocked(postContent, id, locale, input)
 }
 
 func (s *Service) ApplyAITranslation(id, locale string, input ApplyAITranslationInput) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	locale, err := s.normalizeEnabledLocale(locale)
-	if err != nil {
-		return domain.Post{}, err
-	}
-	post, err := s.GetPost(id)
-	if err != nil {
-		return domain.Post{}, err
-	}
-	if locale == post.Meta.SourceLocale {
-		return domain.Post{}, ErrLocaleDisabled
-	}
-	sourceState := post.Meta.Locales[post.Meta.SourceLocale]
-	if sourceState.Revision != input.ExpectedSourceRevision {
-		return domain.Post{}, ErrSourceChanged
-	}
-	state, exists := post.Meta.Locales[locale]
-	if input.ExpectedTargetRevision != nil {
-		currentRevision := 0
-		if exists {
-			currentRevision = state.Revision
-		}
-		if currentRevision != *input.ExpectedTargetRevision {
-			return domain.Post{}, ErrTargetChanged
-		}
-	}
-	if exists && state.Origin == domain.LocaleOriginManual && !input.OverwriteManual {
-		return domain.Post{}, ErrManualProtected
-	}
-	localized := input.Content
-	localized.Title = strings.TrimSpace(localized.Title)
-	localized.Summary = strings.TrimSpace(localized.Summary)
-	localized.SEOTitle = strings.TrimSpace(localized.SEOTitle)
-	localized.SEODescription = strings.TrimSpace(localized.SEODescription)
-	if localized.Title == "" {
-		return domain.Post{}, errors.New("translated title is required")
-	}
-	if err := s.snapshot(post); err != nil {
-		return domain.Post{}, err
-	}
-	state.Revision++
-	state.State = "current"
-	state.Origin = domain.LocaleOriginAI
-	state.SourceRevision = sourceState.Revision
-	post.Meta.Locales[locale] = state
-	advanceHead(&post.Meta)
-	post.Meta.UpdatedAt = time.Now().UTC()
-	if err := s.writeLocale(id, locale, localized); err != nil {
-		return domain.Post{}, err
-	}
-	if err := s.repository.WriteYAML(postPath(id, "meta.yaml"), post.Meta, false); err != nil {
-		return domain.Post{}, err
-	}
-	post.Content[locale] = localized
-	post.Meta.HasUnpublishedChanges = post.Meta.Status == domain.ContentStatusPublished
-	return post, nil
+	return s.applyAIContentTranslationLocked(postContent, id, locale, input)
 }
 
 func (s *Service) PublishPost(id string, expectedRevision int) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	post, err := s.GetPost(id)
-	if err != nil {
-		return domain.Post{}, err
-	}
-	if post.Meta.Revision != expectedRevision {
-		return domain.Post{}, ErrConflict
-	}
-	if post.Meta.Status == domain.ContentStatusRecycled {
-		return domain.Post{}, ErrInvalidStatus
-	}
-	if err := s.snapshot(post); err != nil {
-		return domain.Post{}, err
-	}
-	previousMeta := post.Meta
-	now := time.Now().UTC()
-	post.Meta.Status = domain.ContentStatusPublished
-	post.Meta.ScheduledRevision = 0
-	post.Meta.UpdatedAt = now
-	if post.Meta.PublishedAt == nil {
-		post.Meta.PublishedAt = &now
-	}
-	advanceHead(&post.Meta)
-	post.Meta.ReleaseRevision = post.Meta.Revision
-	if err := s.repository.WriteYAML(postPath(id, "meta.yaml"), post.Meta, false); err != nil {
-		return domain.Post{}, err
-	}
-	if err := s.writeRelease("Post", post); err != nil {
-		_ = s.repository.WriteYAML(postPath(id, "meta.yaml"), previousMeta, false)
-		return domain.Post{}, err
-	}
-	post.Meta.HasUnpublishedChanges = false
-	return post, nil
+	return s.publishContentLocked(postContent, id, expectedRevision)
 }
 
 func (s *Service) locales() (domain.LocalesConfig, error) {
@@ -348,37 +149,15 @@ func (s *Service) normalizeEnabledLocale(raw string) (string, error) {
 }
 
 func (s *Service) writeLocale(id, locale string, value domain.LocalizedMarkdown) error {
-	data, err := encodeMarkdown(value)
-	if err != nil {
-		return err
-	}
-	return s.repository.WriteFile(postPath(id, locale+".md"), data, 0o640)
+	return s.writeContentLocale(postContent, id, locale, value)
 }
 
 func (s *Service) snapshot(post domain.Post) error {
-	if err := s.ensureRelease("Post", post); err != nil {
-		return err
-	}
-	revisionID := fmt.Sprintf("%06d-%d", post.Meta.Revision, time.Now().UTC().UnixMilli())
-	base := filepath.Join("revisions", "posts", post.Meta.ID, revisionID)
-	if err := s.repository.WriteYAML(filepath.Join(base, "meta.yaml"), post.Meta, false); err != nil {
-		return err
-	}
-	for locale, localized := range post.Content {
-		data, err := encodeMarkdown(localized)
-		if err != nil {
-			return err
-		}
-		if err := s.repository.WriteFile(filepath.Join(base, locale+".md"), data, 0o640); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.snapshotContent(postContent, post)
 }
 
 func postPath(id string, parts ...string) string {
-	items := append([]string{"content", "posts", id}, parts...)
-	return filepath.Join(items...)
+	return postContent.path(id, parts...)
 }
 
 func validID(id string) bool {

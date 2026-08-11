@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,7 +33,7 @@ var (
 )
 
 var mediaIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
-var storedMediaPathPattern = regexp.MustCompile(`^[0-9]{4}/[0-9]{2}/[0-9a-f]{32}\.(?:jpg|png|gif|webp)$`)
+var storedMediaPathPattern = regexp.MustCompile(`^[0-9]{4}/(?:0[1-9]|1[0-2])/[0-9a-f]{32}\.(?:jpg|png|gif|webp)$`)
 
 var imageExtensions = map[string]string{
 	"image/jpeg": ".jpg",
@@ -43,17 +44,25 @@ var imageExtensions = map[string]string{
 
 type Service struct {
 	repository *fsrepo.Repository
+	writeFile  func(string, []byte, fs.FileMode) error
+	writeYAML  func(string, any, bool) error
+	removeFile func(string) error
 	mu         sync.Mutex
 }
 
 func NewService(repository *fsrepo.Repository) *Service {
-	return &Service{repository: repository}
+	return &Service{
+		repository: repository,
+		writeFile:  repository.WriteFile,
+		writeYAML:  repository.WriteYAML,
+		removeFile: repository.RemoveFile,
+	}
 }
 
-// Recover resolves deletions interrupted between the two atomic renames. A
-// staged metadata file without its original means the delete had not yet
-// committed and is restored. Once both files are staged, the delete is
-// committed and only private cleanup remains.
+// Recover reconciles interrupted deletion transactions and removes canonical
+// originals that no metadata record owns. A staged metadata file without its
+// original means a delete had not yet committed and is restored. Once both
+// files are staged, the delete is committed and only private cleanup remains.
 func (s *Service) Recover() (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -98,12 +107,27 @@ func (s *Service) Create(originalName string, reader io.Reader) (domain.MediaAss
 		CreatedAt:     now,
 	}
 	originalPath := filepath.Join("media", "originals", relative)
-	if err := s.repository.WriteFile(originalPath, data, 0o640); err != nil {
-		return domain.MediaAsset{}, err
+	metadataPath := filepath.Join("media", "metadata", id+".yaml")
+	if err := s.writeFile(originalPath, data, 0o640); err != nil {
+		writeErr := fmt.Errorf("write media original: %w", err)
+		if cleanupErr := s.removeFile(originalPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			return domain.MediaAsset{}, errors.Join(writeErr, fmt.Errorf("clean up uncertain media original: %w", cleanupErr))
+		}
+		return domain.MediaAsset{}, writeErr
 	}
-	if err := s.repository.WriteYAML(filepath.Join("media", "metadata", id+".yaml"), asset, false); err != nil {
-		_ = s.repository.RemoveFile(originalPath)
-		return domain.MediaAsset{}, err
+	if err := s.writeYAML(metadataPath, asset, false); err != nil {
+		writeErr := fmt.Errorf("write media metadata: %w", err)
+		metadataCleanupErr := s.removeFile(metadataPath)
+		if metadataCleanupErr != nil && !errors.Is(metadataCleanupErr, os.ErrNotExist) {
+			// WriteFile reports directory-sync failures after its rename. Until the
+			// metadata path is known to be absent, preserve the original rather than
+			// turning a potentially complete pair into broken metadata.
+			return domain.MediaAsset{}, errors.Join(writeErr, fmt.Errorf("roll back uncertain media metadata: %w", metadataCleanupErr))
+		}
+		if cleanupErr := s.removeFile(originalPath); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+			return domain.MediaAsset{}, errors.Join(writeErr, fmt.Errorf("clean up untracked media original: %w", cleanupErr))
+		}
+		return domain.MediaAsset{}, writeErr
 	}
 	return asset, nil
 }
@@ -197,6 +221,15 @@ func (s *Service) Delete(id string) error {
 }
 
 func (s *Service) recoverLocked() (int, error) {
+	deletions, err := s.recoverDeletionsLocked()
+	if err != nil {
+		return deletions, err
+	}
+	orphans, err := s.recoverOrphanOriginalsLocked()
+	return deletions + orphans, err
+}
+
+func (s *Service) recoverDeletionsLocked() (int, error) {
 	trashRoot := filepath.Join(s.repository.Root(), "media", ".trash")
 	entries, err := os.ReadDir(trashRoot)
 	if errors.Is(err, os.ErrNotExist) {
@@ -221,6 +254,117 @@ func (s *Service) recoverLocked() (int, error) {
 		return recovered, err
 	}
 	return recovered, nil
+}
+
+func (s *Service) recoverOrphanOriginalsLocked() (int, error) {
+	tracked, err := s.trackedOriginalsLocked()
+	if err != nil {
+		return 0, err
+	}
+	originalsRoot := filepath.Join(s.repository.Root(), "media", "originals")
+	candidates := make([]string, 0)
+	err = filepath.WalkDir(originalsRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == originalsRoot || entry.IsDir() {
+			return nil
+		}
+		// Recovery owns only paths that Create can generate. Unknown files and
+		// links are left untouched instead of turning reconciliation into an
+		// unexpectedly destructive repository sweep.
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		relative, err := filepath.Rel(originalsRoot, path)
+		if err != nil {
+			return err
+		}
+		canonical := filepath.ToSlash(relative)
+		if !storedMediaPathPattern.MatchString(canonical) {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if _, ok := tracked[canonical]; !ok {
+			candidates = append(candidates, canonical)
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	// WalkDir is lexical today, but keep recovery error ordering explicit for
+	// deterministic diagnostics and tests.
+	sort.Strings(candidates)
+	removable := make([]string, 0, len(candidates))
+	for _, relative := range candidates {
+		inUse, err := s.referenced("/media/" + relative)
+		if err != nil {
+			return 0, fmt.Errorf("check orphaned media original %s references: %w", relative, err)
+		}
+		if !inUse {
+			removable = append(removable, relative)
+		}
+	}
+	recovered := 0
+	for _, relative := range removable {
+		path := filepath.Join("media", "originals", filepath.FromSlash(relative))
+		if err := s.removeFile(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return recovered, fmt.Errorf("remove orphaned media original %s: %w", relative, err)
+		}
+		recovered++
+	}
+	return recovered, nil
+}
+
+func (s *Service) trackedOriginalsLocked() (map[string]struct{}, error) {
+	entries, err := s.repository.ReadDir(filepath.Join("media", "metadata"))
+	if err != nil {
+		return nil, err
+	}
+	tracked := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), ".yaml")
+		if !mediaIDPattern.MatchString(id) || entry.Type()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("invalid media metadata entry %q", entry.Name())
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("invalid media metadata entry %q", entry.Name())
+		}
+		var asset domain.MediaAsset
+		if err := s.repository.ReadYAML(filepath.Join("media", "metadata", entry.Name()), &asset); err != nil {
+			return nil, fmt.Errorf("read media metadata %s: %w", entry.Name(), err)
+		}
+		if asset.SchemaVersion != domain.SchemaVersion || asset.Kind != "MediaAsset" || asset.ID != id {
+			return nil, fmt.Errorf("invalid media metadata for %s", id)
+		}
+		relative, err := originalRelativePath(asset)
+		if err != nil {
+			return nil, fmt.Errorf("invalid media metadata for %s: %w", id, err)
+		}
+		tracked[filepath.ToSlash(relative)] = struct{}{}
+	}
+	return tracked, nil
 }
 
 func (s *Service) recoverDeletion(id, stage string) error {

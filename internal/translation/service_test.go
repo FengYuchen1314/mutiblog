@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -117,7 +119,7 @@ func TestTranslationTaskAppliesAIContentAndProtectsManualTranslation(t *testing.
 	}
 	select {
 	case changed := <-changes:
-		if changed.kind != "Post" || changed.id != post.Meta.ID || changed.revision != post.Meta.Revision || !changed.mutationHeld {
+		if changed.kind != "Post" || changed.id != post.Meta.ID || changed.revision != post.Meta.Revision || changed.mutationHeld {
 			t.Fatalf("content change callback = %#v, post revision = %d", changed, post.Meta.Revision)
 		}
 	default:
@@ -147,7 +149,7 @@ func TestTranslationTaskAppliesAIContentAndProtectsManualTranslation(t *testing.
 	}
 	select {
 	case changed := <-changes:
-		if changed.kind != "Post" || changed.id != post.Meta.ID || changed.revision != post.Meta.Revision || !changed.mutationHeld {
+		if changed.kind != "Post" || changed.id != post.Meta.ID || changed.revision != post.Meta.Revision || changed.mutationHeld {
 			t.Fatalf("recovered content change callback = %#v, post revision = %d", changed, post.Meta.Revision)
 		}
 	default:
@@ -171,6 +173,10 @@ func TestSafeTaskErrorDoesNotExposeUnexpectedDetails(t *testing.T) {
 	secret := errors.New("request failed for key sk-example at /private/path")
 	if got := safeTaskError(secret); got != "translation-failed" {
 		t.Fatalf("safeTaskError() = %q", got)
+	}
+	providerFailure := errors.Join(ai.ErrProviderFailed, errors.New("HTTP 401: Bearer durable-task-secret"))
+	if got := safeTaskError(providerFailure); got != "provider-request-failed" || strings.Contains(got, "durable-task-secret") {
+		t.Fatalf("safeTaskError(provider failure) = %q", got)
 	}
 }
 
@@ -199,8 +205,304 @@ func TestStartWithoutTargetsDoesNotRequireProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewService(repository, contentService, ai.NewService(repository, ai.Client{}), nil)
+	defer service.Close()
 	if _, err := service.Start(StartInput{PostID: post.Meta.ID}); !errors.Is(err, ErrNoTargets) {
 		t.Fatalf("Start() error = %v, want ErrNoTargets", err)
+	}
+	task, created, err := service.Prepare(StartInput{PostID: post.Meta.ID, RecordPreflightFailure: true})
+	if !errors.Is(err, ErrNoTargets) || created || task.ID != "" {
+		t.Fatalf("opt-in Prepare() without targets = %#v, %t, %v", task, created, err)
+	}
+	if tasks, err := service.List(); err != nil || len(tasks) != 0 {
+		t.Fatalf("targetless preflight tasks = %#v, %v", tasks, err)
+	}
+}
+
+func TestPrepareProviderPreflightFailureRecordingIsOptIn(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		providers domain.AIProvidersConfig
+		secrets   domain.SecretsConfig
+		wantErr   error
+		safeError string
+	}{
+		{
+			name: "provider-not-found", providers: domain.AIProvidersConfig{SchemaVersion: domain.SchemaVersion, DefaultProvider: "missing"},
+			secrets: domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}}, wantErr: ai.ErrProviderNotFound, safeError: "provider-unavailable",
+		},
+		{
+			name: "key-missing",
+			providers: domain.AIProvidersConfig{SchemaVersion: domain.SchemaVersion, DefaultProvider: "test", Providers: []domain.AIProviderConfig{
+				{ID: "test", Name: "Test", Kind: "openai-compatible", BaseURL: "https://provider.invalid/v1", Model: "test", Enabled: true},
+			}},
+			secrets: domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}}, wantErr: ai.ErrKeyMissing, safeError: "provider-key-missing",
+		},
+		{
+			name: "provider-invalid",
+			providers: domain.AIProvidersConfig{SchemaVersion: domain.SchemaVersion, DefaultProvider: "test", Providers: []domain.AIProviderConfig{
+				{ID: "test", Name: "Test", Kind: "openai-compatible", BaseURL: "https://provider.invalid/v1", Model: "test", Enabled: false},
+			}},
+			secrets: domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{"test": "preflight-secret"}}, wantErr: ai.ErrInvalidProvider, safeError: "provider-unavailable",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repository, err := fsrepo.Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+				SchemaVersion: domain.SchemaVersion, SourceLocale: "zh-CN",
+				Enabled: []domain.LocaleDefinition{{Code: "zh-CN", Label: "简体中文", Enabled: true}, {Code: "en", Label: "English", Enabled: true}}, Fallback: []string{"zh-CN"},
+			}, false); err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.WriteYAML("config/providers.yaml", test.providers, false); err != nil {
+				t.Fatal(err)
+			}
+			if err := repository.WriteYAML("config/secrets.yaml", test.secrets, true); err != nil {
+				t.Fatal(err)
+			}
+			contentService := content.NewService(repository)
+			post, err := contentService.CreatePost(content.CreatePostInput{ID: "preflight-post", Title: "preflight source title", Markdown: "preflight source body"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			service := NewService(repository, contentService, ai.NewService(repository, ai.Client{}), nil)
+			defer service.Close()
+			input := StartInput{PostID: post.Meta.ID, Locales: []string{"en"}}
+
+			unrecorded, created, err := service.Prepare(input)
+			if !errors.Is(err, test.wantErr) || created || unrecorded.ID != "" {
+				t.Fatalf("default Prepare() = %#v, %t, %v", unrecorded, created, err)
+			}
+			if tasks, err := service.List(); err != nil || len(tasks) != 0 {
+				t.Fatalf("default preflight tasks = %#v, %v", tasks, err)
+			}
+
+			input.RecordPreflightFailure = true
+			recorded, created, err := service.Prepare(input)
+			if !errors.Is(err, test.wantErr) || created || recorded.ID == "" || recorded.Status != "failed" || recorded.Error != test.safeError || recorded.CompletedAt == nil {
+				t.Fatalf("recorded Prepare() = %#v, %t, %v", recorded, created, err)
+			}
+			if len(recorded.Targets) != 1 || recorded.Targets[0].Locale != "en" || recorded.Targets[0].Status != "failed" || recorded.Targets[0].Error != test.safeError || recorded.Targets[0].CompletedAt == nil || recorded.SourceContent == "" || recorded.Targets[0].ExpectedContent == "" {
+				t.Fatalf("recorded preflight identity = %#v", recorded)
+			}
+			stored, getErr := service.Get(recorded.ID)
+			listed, listErr := service.List()
+			if getErr != nil || stored.ID != recorded.ID || listErr != nil || len(listed) != 1 || listed[0].ID != recorded.ID {
+				t.Fatalf("durable preflight task: Get=%#v/%v List=%#v/%v", stored, getErr, listed, listErr)
+			}
+			payload, err := json.Marshal(stored)
+			if err != nil {
+				t.Fatal(err)
+			}
+			serialized := string(payload)
+			for _, forbidden := range []string{"preflight source title", "preflight source body", "preflight-secret"} {
+				if strings.Contains(serialized, forbidden) {
+					t.Fatalf("durable preflight task exposed %q: %s", forbidden, serialized)
+				}
+			}
+		})
+	}
+}
+
+func TestPreparePreflightPersistenceFailureReturnsNoDurableReceipt(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion, SourceLocale: "zh-CN",
+		Enabled: []domain.LocaleDefinition{{Code: "zh-CN", Label: "简体中文", Enabled: true}, {Code: "en", Label: "English", Enabled: true}}, Fallback: []string{"zh-CN"},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	contentService := content.NewService(repository)
+	post, err := contentService.CreatePost(content.CreatePostInput{ID: "preflight-write-failure", Title: "Source", Markdown: "Body"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository, contentService, ai.NewService(repository, ai.Client{}), nil)
+	defer service.Close()
+	writeErr := errors.New("task store unavailable")
+	var attempts atomic.Int32
+	service.writeTaskHook = func(Task) error {
+		attempts.Add(1)
+		return writeErr
+	}
+	task, created, err := service.Prepare(StartInput{PostID: post.Meta.ID, Locales: []string{"en"}, RecordPreflightFailure: true})
+	if !errors.Is(err, ai.ErrProviderNotFound) || !errors.Is(err, writeErr) || created || task.ID != "" || attempts.Load() != taskCheckpointWriteAttempts {
+		t.Fatalf("Prepare() with failed receipt persistence = %#v, %t, %v; attempts=%d", task, created, err, attempts.Load())
+	}
+	if tasks, err := service.List(); err != nil || len(tasks) != 0 {
+		t.Fatalf("tasks after failed preflight persistence = %#v, %v", tasks, err)
+	}
+}
+
+func TestPreparePersistsWithoutLaunchAndStartLaunchesOnlyNewWork(t *testing.T) {
+	var requests atomic.Int32
+	service, post := newRunnableTranslationFixture(t, successfulTranslationHandler(t, &requests))
+	input := StartInput{PostID: post.Meta.ID, Locales: []string{"en"}}
+
+	prepared, created, err := service.Prepare(input)
+	if err != nil || !created {
+		t.Fatalf("Prepare() = %#v, %t, %v", prepared, created, err)
+	}
+	stored, err := service.Get(prepared.ID)
+	if err != nil || stored.Status != "queued" || requests.Load() != 0 {
+		t.Fatalf("prepared task = %#v, %v; provider requests = %d", stored, err, requests.Load())
+	}
+
+	reused, created, err := service.Prepare(input)
+	if err != nil || created || reused.ID != prepared.ID {
+		t.Fatalf("reused Prepare() = %#v, %t, %v; want task %q", reused, created, err, prepared.ID)
+	}
+	startedReuse, err := service.Start(input)
+	if err != nil || startedReuse.ID != prepared.ID || requests.Load() != 0 {
+		t.Fatalf("Start(active prepared task) = %#v, %v; provider requests = %d", startedReuse, err, requests.Load())
+	}
+
+	if !service.LaunchPrepared(prepared.ID) {
+		t.Fatal("LaunchPrepared did not launch the durable queued task")
+	}
+	if service.LaunchPrepared(prepared.ID) {
+		t.Fatal("LaunchPrepared launched the same task more than once")
+	}
+	completed := waitForTask(t, service, prepared.ID)
+	if completed.Status != "succeeded" || requests.Load() == 0 {
+		t.Fatalf("launched prepared task = %#v; provider requests = %d", completed, requests.Load())
+	}
+
+	latest, err := service.content.GetPost(post.Meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := latest.Content[latest.Meta.SourceLocale]
+	if _, err := service.content.UpdateLocale(latest.Meta.ID, latest.Meta.SourceLocale, content.UpdateLocaleInput{
+		ExpectedRevision: latest.Meta.Revision,
+		Title:            source.Title + " updated",
+		Summary:          source.Summary,
+		Markdown:         source.Markdown,
+		SEOTitle:         source.SEOTitle,
+		SEODescription:   source.SEODescription,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requestsBeforeStart := requests.Load()
+	started, err := service.Start(input)
+	if err != nil || started.ID == prepared.ID {
+		t.Fatalf("Start(new task) = %#v, %v", started, err)
+	}
+	started = waitForTask(t, service, started.ID)
+	if started.Status != "succeeded" || requests.Load() <= requestsBeforeStart {
+		t.Fatalf("started task = %#v; provider requests %d -> %d", started, requestsBeforeStart, requests.Load())
+	}
+}
+
+func TestPrepareDoesNotReuseTaskAcrossRestoredContentIdentityCollision(t *testing.T) {
+	service, post := newRunnableTranslationFixture(t, successfulTranslationHandler(t, nil))
+	input := StartInput{PostID: post.Meta.ID, Locales: []string{"en"}}
+	stale, created, err := service.Prepare(input)
+	if err != nil || !created {
+		t.Fatalf("first Prepare() = %#v, %t, %v", stale, created, err)
+	}
+	source := post.Content[post.Meta.SourceLocale]
+	changed, err := service.content.UpdateLocale(post.Meta.ID, post.Meta.SourceLocale, content.UpdateLocaleInput{
+		ExpectedRevision: post.Meta.Revision,
+		Title:            source.Title + " restored",
+		Summary:          source.Summary,
+		Markdown:         source.Markdown,
+		SEOTitle:         source.SEOTitle,
+		SEODescription:   source.SEODescription,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reproduce a backup whose content differs while its entity and numeric
+	// revision collide with the pre-restore queued task.
+	changed.Meta.Revision = post.Meta.Revision
+	changed.Meta.HeadRevision = post.Meta.HeadRevision
+	state := changed.Meta.Locales[post.Meta.SourceLocale]
+	state.Revision = post.Meta.Locales[post.Meta.SourceLocale].Revision
+	changed.Meta.Locales[post.Meta.SourceLocale] = state
+	if err := service.repository.WriteYAML(filepath.Join("content", "posts", post.Meta.ID, "meta.yaml"), changed.Meta, false); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, created, err := service.Prepare(input)
+	if err != nil || !created || fresh.ID == stale.ID {
+		t.Fatalf("post-restore Prepare() = %#v, %t, %v; stale task = %q", fresh, created, err, stale.ID)
+	}
+}
+
+func TestContentChangedCallbackRunsAfterMutationReleaseAndBlocksPause(t *testing.T) {
+	service, post := newRunnableTranslationFixture(t, successfulTranslationHandler(t, nil))
+	var mutationGate sync.RWMutex
+	service.SetContentMutationAcquire(func() func() {
+		mutationGate.Lock()
+		return mutationGate.Unlock
+	})
+
+	callbackStarted := make(chan struct{})
+	callbackRelease := make(chan struct{})
+	var releaseCallbackOnce sync.Once
+	releaseCallback := func() { releaseCallbackOnce.Do(func() { close(callbackRelease) }) }
+	t.Cleanup(releaseCallback)
+	service.SetContentChangedCallback(func(_, _ string, _ int) {
+		close(callbackStarted)
+		<-callbackRelease
+	})
+
+	task, err := service.Start(StartInput{PostID: post.Meta.ID, Locales: []string{"en"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-callbackStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("content change callback did not start")
+	}
+	if !mutationGate.TryRLock() {
+		t.Fatal("content change callback still holds the exclusive mutation gate")
+	}
+	mutationGate.RUnlock()
+
+	pauseAcquired := make(chan struct{})
+	pauseRelease := make(chan struct{})
+	var releasePauseOnce sync.Once
+	releasePause := func() { releasePauseOnce.Do(func() { close(pauseRelease) }) }
+	t.Cleanup(releasePause)
+	go func() {
+		resume := service.Pause()
+		close(pauseAcquired)
+		<-pauseRelease
+		resume()
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for service.runGate.TryRLock() {
+		service.runGate.RUnlock()
+		if time.Now().After(deadline) {
+			t.Fatal("Pause did not become pending while the callback held the pause gate")
+		}
+		runtime.Gosched()
+	}
+	select {
+	case <-pauseAcquired:
+		t.Fatal("Pause returned before the content change callback completed")
+	default:
+	}
+
+	releaseCallback()
+	select {
+	case <-pauseAcquired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Pause did not return after the content change callback completed")
+	}
+	releasePause()
+	stored := waitForTask(t, service, task.ID)
+	if stored.Status != "succeeded" && stored.Status != "needs-review" {
+		t.Fatalf("task paused across its callback = %#v", stored)
 	}
 }
 
@@ -887,6 +1189,70 @@ func TestTranslationTaskIDRejectsPaths(t *testing.T) {
 	if !validTaskID("translation-recovery") {
 		t.Fatal("normal translation task ID was rejected")
 	}
+}
+
+func successfulTranslationHandler(t *testing.T, requests *atomic.Int32) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests != nil {
+			requests.Add(1)
+		}
+		var body struct {
+			Messages []ai.ChatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		user := body.Messages[len(body.Messages)-1].Content
+		response := "Translated " + user
+		if strings.HasPrefix(strings.TrimSpace(user), "{") {
+			response = `{"title":"Translated title","summary":"Translated summary","seoTitle":"","seoDescription":""}`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"role": "assistant", "content": response}, "finish_reason": "stop"}}})
+	})
+}
+
+func newRunnableTranslationFixture(t *testing.T, handler http.Handler) (*Service, domain.Post) {
+	t.Helper()
+	providerServer := httptest.NewServer(handler)
+	t.Cleanup(providerServer.Close)
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  "zh-CN",
+		Enabled: []domain.LocaleDefinition{
+			{Code: "zh-CN", Label: "简体中文", Enabled: true},
+			{Code: "en", Label: "English", Enabled: true},
+		},
+		Fallback: []string{"zh-CN"},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/providers.yaml", domain.AIProvidersConfig{SchemaVersion: domain.SchemaVersion}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/secrets.yaml", domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}}, true); err != nil {
+		t.Fatal(err)
+	}
+	aiService := ai.NewService(repository, ai.Client{HTTPClient: providerServer.Client()})
+	key := "fake-key"
+	if _, err := aiService.Upsert("test", ai.UpsertProviderInput{Name: "Test", BaseURL: providerServer.URL, Model: "test", Enabled: true, Default: true, APIKey: &key}); err != nil {
+		t.Fatal(err)
+	}
+	contentService := content.NewService(repository)
+	post, err := contentService.CreatePost(content.CreatePostInput{ID: "translation-start-post", Title: "源标题", Summary: "源摘要", Markdown: "正文"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository, contentService, aiService, nil)
+	t.Cleanup(service.Close)
+	return service, post
 }
 
 func waitForTask(t *testing.T, service *Service, id string) Task {

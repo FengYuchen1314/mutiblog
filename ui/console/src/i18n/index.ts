@@ -15,9 +15,7 @@ function readStoredLocale(): string | null {
 }
 
 const storedLocale = readStoredLocale();
-const initialLocale: ConsoleLocale = storedLocale === "en" || storedLocale === "zh-CN"
-  ? storedLocale
-  : "zh-CN";
+const initialLocale: ConsoleLocale = storedLocale === "en" || storedLocale === "zh-CN" ? storedLocale : "zh-CN";
 
 export const i18n = createI18n({
   legacy: false,

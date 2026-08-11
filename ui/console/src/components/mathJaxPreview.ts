@@ -73,19 +73,27 @@ function loadMathJax(): Promise<BrowserMathJax> {
 
   loader = new Promise<BrowserMathJax>((resolve, reject) => {
     window.MathJax = editorMathJaxConfiguration as unknown as BrowserMathJax;
-    const script = document.getElementById(scriptId) as HTMLScriptElement | null ?? document.createElement("script");
+    const script = (document.getElementById(scriptId) as HTMLScriptElement | null) ?? document.createElement("script");
     script.id = scriptId;
     script.async = true;
     script.src = mathJaxScriptUrl;
-    script.addEventListener("load", () => {
-      const mathJax = window.MathJax;
-      if (!mathJax?.startup?.promise || !mathJax.tex2svgPromise) {
-        reject(new Error("The self-hosted MathJax component did not initialise."));
-        return;
-      }
-      mathJax.startup.promise.then(() => resolve(mathJax), reject);
-    }, { once: true });
-    script.addEventListener("error", () => reject(new Error("The self-hosted MathJax component could not be loaded.")), { once: true });
+    script.addEventListener(
+      "load",
+      () => {
+        const mathJax = window.MathJax;
+        if (!mathJax?.startup?.promise || !mathJax.tex2svgPromise) {
+          reject(new Error("The self-hosted MathJax component did not initialise."));
+          return;
+        }
+        mathJax.startup.promise.then(() => resolve(mathJax), reject);
+      },
+      { once: true },
+    );
+    script.addEventListener(
+      "error",
+      () => reject(new Error("The self-hosted MathJax component could not be loaded.")),
+      { once: true },
+    );
     if (!script.isConnected) document.head.append(script);
   }).catch((error) => {
     loader = undefined;
@@ -118,5 +126,7 @@ export function sanitizeMathJaxOutput(output: Element) {
 }
 
 function isUnsafeElement(element: Element) {
-  return ["script", "style", "iframe", "object", "embed", "link", "foreignobject"].includes(element.localName.toLowerCase());
+  return ["script", "style", "iframe", "object", "embed", "link", "foreignobject"].includes(
+    element.localName.toLowerCase(),
+  );
 }

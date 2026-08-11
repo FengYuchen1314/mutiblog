@@ -10,7 +10,7 @@ import (
 	"github.com/FengYuchen1314/mutiblog/internal/media"
 )
 
-var publicMediaPathPattern = regexp.MustCompile(`^[0-9]{4}/[0-9]{2}/[0-9a-f]{32}\.(?:jpg|png|gif|webp)$`)
+var publicMediaPathPattern = regexp.MustCompile(`^[0-9]{4}/(?:0[1-9]|1[0-2])/[0-9a-f]{32}\.(?:jpg|png|gif|webp)$`)
 
 func (s *Server) handleListMedia(w http.ResponseWriter, _ *http.Request) {
 	assets, err := s.media.List()

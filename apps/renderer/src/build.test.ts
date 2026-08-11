@@ -396,6 +396,43 @@ test("builds bounded static pagination and discoverable taxonomy collections", a
 	expect(JSON.parse(await readFile(join(output, "build-report.json"), "utf8")).files).toBe(report.files);
 });
 
+test("bounds taxonomy fallback redirects by the destination locale posts", async () => {
+	const output = join("/tmp", `mutiblog-taxonomy-fallback-pages-${crypto.randomUUID()}`);
+	outputs.push(output);
+	const posts: BuildInput["posts"] = Array.from({ length: 12 }, (_, index) => ({
+		id: `fallback-post-${String.fromCharCode(97 + index)}`,
+		status: "published",
+		sourceLocale: "zh-CN",
+		categories: ["news"],
+		tags: ["release"],
+		locales: { "zh-CN": { title: `中文文章 ${index + 1}`, markdown: "正文" } },
+	}));
+	posts.push({
+		id: "legacy-french-only",
+		status: "published",
+		categories: ["news"],
+		tags: ["release"],
+		locales: { fr: { title: "Article français", markdown: "Corps" } },
+	});
+	const input: BuildInput = {
+		schemaVersion: 1,
+		sourceLocale: "zh-CN",
+		locales: [{ code: "zh-CN", label: "简体中文" }, { code: "fr", label: "Français" }],
+		site: { locales: { "zh-CN": { title: "分页回退" } } },
+		posts,
+		categories: [{ id: "news", sourceLocale: "zh-CN", locales: { "zh-CN": { name: "新闻" } } }],
+		tags: [{ id: "release", sourceLocale: "zh-CN", locales: { "zh-CN": { name: "发布" } } }],
+	};
+
+	const report = await buildSite(input, output);
+	for (const [kind, id] of [["categories", "news"], ["tags", "release"]] as const) {
+		expect(report.redirects).toContainEqual({ from: `/fr/${kind}/${id}/`, to: `/zh-CN/${kind}/${id}/`, status: 302 });
+		expect(report.redirects).not.toContainEqual(expect.objectContaining({ from: `/fr/${kind}/${id}/page/2/` }));
+		await expect(readFile(join(output, `fr/${kind}/${id}/page/2/index.html`), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+		await expect(readFile(join(output, `zh-CN/${kind}/${id}/page/2/index.html`), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+	}
+});
+
 test("does not generate empty taxonomy collection routes", async () => {
 	const output = join("/tmp", `mutiblog-empty-collections-${crypto.randomUUID()}`);
 	outputs.push(output);

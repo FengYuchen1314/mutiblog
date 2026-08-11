@@ -35,7 +35,7 @@ ENV MUTIBLOG_ADDRESS=:8080 \
     MUTIBLOG_RENDERER_CLI=/app/renderer/cli.mjs
 COPY --from=go-build /out/mutiblog /usr/local/bin/mutiblog
 COPY --from=web-build /src/ui/console/dist /app/console
-COPY --from=web-build /src/apps/renderer/dist /app/renderer
+COPY --from=web-build /src/apps/renderer/dist/cli.mjs /app/renderer/cli.mjs
 COPY --from=web-build /src/themes/earth/dist /app/themes/earth
 RUN mkdir -p /var/lib/mutiblog && chown -R node:node /var/lib/mutiblog /app
 USER node

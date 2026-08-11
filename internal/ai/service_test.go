@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
 )
 
@@ -63,5 +64,47 @@ func TestChatProviderRejectsOutputBudgetAboveConfiguredLimit(t *testing.T) {
 	}
 	if _, _, err := service.ChatProvider(context.Background(), "test-provider", nil, 257); !errors.Is(err, ErrMaxOutputTokensExceeded) {
 		t.Fatalf("ChatProvider() error = %v", err)
+	}
+}
+
+func TestProviderCredentialsSeparateMissingKeyFromInvalidConfiguration(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository, Client{})
+	key := "temporary-test-secret"
+	if _, err := service.Upsert("test-provider", UpsertProviderInput{
+		Name: "Test", BaseURL: "https://example.com/v1", Model: "test-model", Enabled: true, Default: true, APIKey: &key,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/secrets.yaml", domain.SecretsConfig{
+		SchemaVersion: domain.SchemaVersion,
+		Providers:     map[string]string{"test-provider": " \t "},
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	views, err := service.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].HasKey || views[0].MaskedKey != "" {
+		t.Fatalf("whitespace key views = %#v", views)
+	}
+	if _, err := service.Test(context.Background(), "test-provider"); !errors.Is(err, ErrKeyMissing) || errors.Is(err, ErrInvalidProvider) {
+		t.Fatalf("missing key error = %v", err)
+	}
+	view, err := service.Upsert("test-provider", UpsertProviderInput{
+		Name: "Test", BaseURL: "https://example.com/v1", Model: "test-model", Enabled: false, Default: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.HasKey || view.MaskedKey != "" {
+		t.Fatalf("whitespace key view = %#v", view)
+	}
+	if _, err := service.Test(context.Background(), "test-provider"); !errors.Is(err, ErrInvalidProvider) || errors.Is(err, ErrKeyMissing) {
+		t.Fatalf("invalid provider error = %v", err)
 	}
 }

@@ -5,10 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/FengYuchen1314/mutiblog/internal/ai"
 	"github.com/FengYuchen1314/mutiblog/internal/content"
 	"github.com/FengYuchen1314/mutiblog/internal/scheduled"
-	"github.com/FengYuchen1314/mutiblog/internal/translation"
 )
 
 func (s *Server) handleListPages(w http.ResponseWriter, _ *http.Request) {
@@ -156,22 +154,10 @@ func (s *Server) handlePublishPage(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("cancel superseded scheduled page publish failed after successful publish", "page", before.Meta.ID, "error", cancelErr)
 		}
 	}
+	translationPlan := s.prepareFirstPublishTranslation(firstPublish, "Page", page.Meta.ID)
 	report, buildErr := s.publisher.Build(r.Context())
-	translationState := map[string]any{"status": "not-needed"}
-	if firstPublish {
-		task, translationErr := s.translator.Start(translation.StartInput{EntityKind: "Page", PostID: page.Meta.ID, SkipManual: true})
-		switch {
-		case translationErr == nil:
-			translationState = map[string]any{"status": "queued", "taskId": task.ID}
-		case errors.Is(translationErr, translation.ErrNoTargets):
-			translationState = map[string]any{"status": "not-needed"}
-		case errors.Is(translationErr, ai.ErrProviderNotFound), errors.Is(translationErr, ai.ErrKeyMissing), errors.Is(translationErr, ai.ErrInvalidProvider):
-			translationState = map[string]any{"status": "not-configured"}
-		default:
-			s.logger.Error("automatic page translation could not start", "page", page.Meta.ID, "error", translationErr)
-			translationState = map[string]any{"status": "failed"}
-		}
-	}
+	s.launchFirstPublishTranslation(translationPlan)
+	translationState := translationPlan.response
 	if buildErr != nil {
 		s.logger.Error("static build after page publish failed", "page", page.Meta.ID, "error", buildErr)
 		w.Header().Set("X-MutiBlog-Static-Build", "failed")

@@ -24,16 +24,22 @@ const sort = ref<MediaSort>("newest");
 const visibleAssets = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase();
   const filtered = assets.value.filter((asset) => {
-    const matchesQuery = !needle || `${asset.originalName}\n${asset.filename}\n${asset.mimeType}`.toLocaleLowerCase().includes(needle);
+    const matchesQuery =
+      !needle || `${asset.originalName}\n${asset.filename}\n${asset.mimeType}`.toLocaleLowerCase().includes(needle);
     return matchesQuery && (mediaType.value === "all" || asset.mimeType === mediaType.value);
   });
   return [...filtered].sort((left, right) => {
     switch (sort.value) {
-      case "oldest": return Date.parse(left.createdAt) - Date.parse(right.createdAt);
-      case "name": return left.originalName.localeCompare(right.originalName);
-      case "size-desc": return right.size - left.size;
-      case "size-asc": return left.size - right.size;
-      default: return Date.parse(right.createdAt) - Date.parse(left.createdAt);
+      case "oldest":
+        return Date.parse(left.createdAt) - Date.parse(right.createdAt);
+      case "name":
+        return left.originalName.localeCompare(right.originalName);
+      case "size-desc":
+        return right.size - left.size;
+      case "size-asc":
+        return left.size - right.size;
+      default:
+        return Date.parse(right.createdAt) - Date.parse(left.createdAt);
     }
   });
 });
@@ -83,7 +89,9 @@ async function copyURL(asset: MediaAsset) {
   try {
     await navigator.clipboard.writeText(new URL(asset.url, window.location.origin).toString());
     copied.value = asset.id;
-    window.setTimeout(() => { if (copied.value === asset.id) copied.value = ""; }, 1600);
+    window.setTimeout(() => {
+      if (copied.value === asset.id) copied.value = "";
+    }, 1600);
   } catch {
     error.value = t("attachmentsPage.copyFailed");
   }
@@ -102,8 +110,17 @@ onMounted(refresh);
   <div class="page">
     <VPageHeader :title="t('attachmentsPage.title')">
       <template #actions>
-        <input ref="picker" hidden type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple @change="upload" />
-        <VButton type="secondary" :loading="uploading" @click="picker?.click()">{{ t("attachmentsPage.upload") }}</VButton>
+        <input
+          ref="picker"
+          hidden
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          multiple
+          @change="upload"
+        />
+        <VButton type="secondary" :loading="uploading" @click="picker?.click()">{{
+          t("attachmentsPage.upload")
+        }}</VButton>
       </template>
     </VPageHeader>
     <div class="page-body">
@@ -113,11 +130,17 @@ onMounted(refresh);
           <input v-model="query" :placeholder="t('attachmentsPage.filenameSearch')" />
           <select v-model="mediaType" :aria-label="t('attachmentsPage.type')">
             <option value="all">{{ t("attachmentsPage.allTypes") }}</option>
-            <option value="image/jpeg">JPEG</option><option value="image/png">PNG</option><option value="image/gif">GIF</option><option value="image/webp">WebP</option>
+            <option value="image/jpeg">JPEG</option>
+            <option value="image/png">PNG</option>
+            <option value="image/gif">GIF</option>
+            <option value="image/webp">WebP</option>
           </select>
           <select v-model="sort" :aria-label="t('attachmentsPage.sort')">
-            <option value="newest">{{ t("attachmentsPage.newest") }}</option><option value="oldest">{{ t("attachmentsPage.oldest") }}</option>
-            <option value="name">{{ t("attachmentsPage.nameSort") }}</option><option value="size-desc">{{ t("attachmentsPage.largest") }}</option><option value="size-asc">{{ t("attachmentsPage.smallest") }}</option>
+            <option value="newest">{{ t("attachmentsPage.newest") }}</option>
+            <option value="oldest">{{ t("attachmentsPage.oldest") }}</option>
+            <option value="name">{{ t("attachmentsPage.nameSort") }}</option>
+            <option value="size-desc">{{ t("attachmentsPage.largest") }}</option>
+            <option value="size-asc">{{ t("attachmentsPage.smallest") }}</option>
           </select>
           <button type="button" @click="refresh">{{ t("common.refresh") }}</button>
         </div>
@@ -125,10 +148,22 @@ onMounted(refresh);
         <div v-else-if="visibleAssets.length" class="attachment-grid">
           <article v-for="asset in visibleAssets" :key="asset.id" class="attachment-card">
             <a :href="asset.url" target="_blank" rel="noopener"><img :src="asset.url" :alt="asset.originalName" /></a>
-            <div><strong :title="asset.originalName">{{ asset.originalName }}</strong><span>{{ formatSize(asset.size) }} · {{ asset.mimeType }}</span><button type="button" @click="copyURL(asset)">{{ copied === asset.id ? t("attachmentsPage.copied") : t("attachmentsPage.copyUrl") }}</button><button class="text-danger" type="button" :disabled="deleting === asset.id" @click="remove(asset)">{{ t("common.delete") }}</button></div>
+            <div>
+              <strong :title="asset.originalName">{{ asset.originalName }}</strong
+              ><span>{{ formatSize(asset.size) }} · {{ asset.mimeType }}</span
+              ><button type="button" @click="copyURL(asset)">
+                {{ copied === asset.id ? t("attachmentsPage.copied") : t("attachmentsPage.copyUrl") }}</button
+              ><button class="text-danger" type="button" :disabled="deleting === asset.id" @click="remove(asset)">
+                {{ t("common.delete") }}
+              </button>
+            </div>
           </article>
         </div>
-        <div v-else class="empty-resource"><VEmpty :title="t(query.trim() || mediaType !== 'all' ? 'attachmentsPage.noMatches' : 'attachmentsPage.empty')" /></div>
+        <div v-else class="empty-resource">
+          <VEmpty
+            :title="t(query.trim() || mediaType !== 'all' ? 'attachmentsPage.noMatches' : 'attachmentsPage.empty')"
+          />
+        </div>
       </VCard>
     </div>
   </div>

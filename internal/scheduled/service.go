@@ -74,7 +74,8 @@ type Rebuilder interface {
 }
 
 type Translator interface {
-	Start(translation.StartInput) (translation.Task, error)
+	Prepare(translation.StartInput) (translation.Task, bool, error)
+	LaunchPrepared(string) bool
 }
 
 type buildTaskReader interface {
@@ -365,13 +366,33 @@ func (s *Service) InvalidateForEntity(entityKind, entityID string, currentRevisi
 	defer s.startMu.Unlock()
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
+	latest, err := s.getContent(entityKind, entityID)
+	latestExists := err == nil
+	if err == nil {
+		// The callback can wait behind a live scheduled build after its caller has
+		// released the global mutation gate. Re-read here so a delayed callback for
+		// revision N cannot invalidate a newer, valid schedule for revision N+1.
+		currentRevision = latest.Meta.Revision
+	} else if !errors.Is(err, content.ErrNotFound) {
+		return 0, err
+	}
 	tasks, err := s.List()
 	if err != nil {
 		return 0, err
 	}
 	invalidated := 0
 	for _, task := range tasks {
-		if task.EntityKind != entityKind || task.EntityID != entityID || task.Revision == currentRevision || (task.Status != "queued" && task.Status != "running") {
+		if task.EntityKind != entityKind || task.EntityID != entityID || (task.Status != "queued" && task.Status != "running") {
+			continue
+		}
+		// A public release is the durable execution checkpoint. Translation
+		// recovery may advance the head and deliver its callback before scheduler
+		// recovery resumes the parent's missing static build; that callback must
+		// not terminalize the already-committed publication workflow.
+		if latestExists && publishedByScheduledTask(task, latest) {
+			continue
+		}
+		if task.Revision == currentRevision {
 			continue
 		}
 		// A live runner owns runMu for its complete publish/build/translation
@@ -388,6 +409,18 @@ func (s *Service) InvalidateForEntity(entityKind, entityID string, currentRevisi
 		invalidated++
 	}
 	return invalidated, nil
+}
+
+// Pause waits for a live scheduled runner to leave its post-commit build and
+// prevents another one from entering. Backup restore already owns the server's
+// mutation gate before calling Pause, so the lock order remains
+// mutationGate -> translation pause gate -> scheduled runMu.
+func (s *Service) Pause() func() {
+	s.runMu.Lock()
+	var once sync.Once
+	return func() {
+		once.Do(s.runMu.Unlock)
+	}
 }
 
 func (s *Service) supersedeTask(task *Task, message string) error {
@@ -425,6 +458,7 @@ func (s *Service) List() ([]Task, error) {
 			return nil, fmt.Errorf("scheduled publish task %q is invalid", expectedID)
 		}
 		normalizeTask(&task)
+		s.reflectPublishedChildState(&task)
 		tasks = append(tasks, task)
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].CreatedAt.After(tasks[j].CreatedAt) })
@@ -440,7 +474,49 @@ func (s *Service) Get(id string) (Task, error) {
 		return Task{}, ErrTaskNotFound
 	}
 	normalizeTask(&task)
+	s.reflectPublishedChildState(&task)
 	return task, nil
+}
+
+// reflectPublishedChildState projects the live translation child onto an
+// already completed scheduled publication. It deliberately does not rewrite
+// the parent task: translation checkpoints can advance concurrently, and a
+// read path must not race those writes or take the scheduled runner lock.
+func (s *Service) reflectPublishedChildState(task *Task) {
+	if task.Status == "succeeded" && task.Outcome != "superseded" && task.TranslationTaskID != "" {
+		if reader, ok := s.translator.(translationTaskReader); ok {
+			translationTask, err := reader.Get(task.TranslationTaskID)
+			if err != nil {
+				// The parent contains a durable child receipt, so a missing or
+				// unreadable child is a visible incomplete-publication warning.
+				task.TranslationStatus = "failed"
+			} else {
+				switch translationTask.Status {
+				case "queued", "running", "succeeded", "failed", "needs-review":
+					task.TranslationStatus = translationTask.Status
+				default:
+					task.TranslationStatus = "failed"
+				}
+			}
+		}
+	}
+	setPublishedOutcome(task)
+}
+
+func setPublishedOutcome(task *Task) {
+	if task.Status != "succeeded" || task.Outcome == "superseded" {
+		return
+	}
+	warning := task.BuildStatus == "failed" || task.BuildStatus == "unavailable"
+	switch task.TranslationStatus {
+	case "not-configured", "failed", "needs-review":
+		warning = true
+	}
+	if warning {
+		task.Outcome = "published-with-warning"
+	} else {
+		task.Outcome = "published"
+	}
 }
 
 func (s *Service) launch(task Task) bool {
@@ -494,13 +570,24 @@ func (s *Service) launch(task Task) bool {
 }
 
 func (s *Service) run(ctx context.Context, id string) {
-	if s.acquire != nil {
-		release := s.acquire()
-		defer release()
-	}
 	if ctx.Err() != nil {
 		return
 	}
+	releaseMutation := func() {}
+	if s.acquire != nil {
+		if release := s.acquire(); release != nil {
+			releaseMutation = release
+		}
+	}
+	mutationHeld := true
+	releaseMutationGate := func() {
+		if !mutationHeld {
+			return
+		}
+		mutationHeld = false
+		releaseMutation()
+	}
+	defer releaseMutationGate()
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
 	if ctx.Err() != nil {
@@ -541,6 +628,7 @@ func (s *Service) run(ctx context.Context, id string) {
 		}
 		publicationCommitted = true
 	}
+	launchTranslationTaskID := s.prepareFirstPublishTranslation(&task)
 	task.Progress = taskstore.Advance(task.Progress, "scheduled-build", 1, 4, 35, "rebuilding-static-site")
 	if task.BuildTaskID == "" {
 		buildTaskID, buildIDErr := newStaticBuildTaskID()
@@ -550,9 +638,13 @@ func (s *Service) run(ctx context.Context, id string) {
 			task.BuildTaskID = buildTaskID
 		}
 	}
-	if !s.checkpointTask(&task, publicationCommitted, "build-start") {
+	if !s.checkpointTask(&task, publicationCommitted, "post-commit-child-receipts") {
 		return
 	}
+	// The public release and the identities of any child tasks are now durable.
+	// Static rendering, child launch, and terminal checkpoint retries do not
+	// mutate the scheduled content transaction and must not block the admin API.
+	releaseMutationGate()
 	buildFailure := ""
 	if task.BuildStatus == "" {
 		if reader, ok := s.rebuilder.(buildTaskReader); ok {
@@ -611,54 +703,18 @@ func (s *Service) run(ctx context.Context, id string) {
 	} else if task.BuildStatus != "succeeded" {
 		buildFailure = "rebuild-failed"
 	}
+	if launchTranslationTaskID != "" && !s.translator.LaunchPrepared(launchTranslationTaskID) {
+		slog.Warn("prepared translation task persisted for next-start recovery because service is closing", "task", launchTranslationTaskID, "parent", task.ID)
+	}
 	task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 2, 4, 75, "starting-first-publish-translation")
 	if !s.checkpointTask(&task, publicationCommitted, "translation-start") {
 		return
-	}
-	if task.TranslationStatus == "" {
-		task.TranslationStatus = "not-needed"
-		if task.FirstPublish && s.translator != nil {
-			reuseTranslation := false
-			if task.TranslationTaskID != "" {
-				if reader, ok := s.translator.(translationTaskReader); ok {
-					if translationTask, readErr := reader.Get(task.TranslationTaskID); readErr == nil {
-						reuseTranslation = true
-						switch translationTask.Status {
-						case "succeeded":
-							task.TranslationStatus = "succeeded"
-						case "failed", "needs-review":
-							task.TranslationStatus = "failed"
-						default:
-							task.TranslationStatus = "queued"
-						}
-					}
-				} else {
-					reuseTranslation = true
-					task.TranslationStatus = "queued"
-				}
-			}
-			if !reuseTranslation {
-				translationTask, translationErr := s.translator.Start(translation.StartInput{EntityKind: task.EntityKind, PostID: task.EntityID, SkipManual: true})
-				switch {
-				case translationErr == nil:
-					task.TranslationStatus = "queued"
-					task.TranslationTaskID = translationTask.ID
-				case errors.Is(translationErr, translation.ErrNoTargets):
-					task.TranslationStatus = "not-needed"
-				case errors.Is(translationErr, ai.ErrProviderNotFound), errors.Is(translationErr, ai.ErrKeyMissing), errors.Is(translationErr, ai.ErrInvalidProvider):
-					task.TranslationStatus = "not-configured"
-				default:
-					task.TranslationStatus = "failed"
-				}
-			}
-		}
 	}
 	task.Progress = taskstore.Advance(task.Progress, "scheduled-finalize", 3, 4, 95, "finalizing-scheduled-publish")
 	if !s.checkpointTask(&task, publicationCommitted, "finalize") {
 		return
 	}
 	if buildFailure != "" {
-		task.Outcome = buildFailure
 		// The content release is already durable at this point. A static child
 		// failure leaves the previous generated site online, but it must not turn
 		// the publication itself into a failed task. Preserve the child status and
@@ -667,6 +723,50 @@ func (s *Service) run(ctx context.Context, id string) {
 		return
 	}
 	s.finishBestEffort(&task, "succeeded", "")
+}
+
+// prepareFirstPublishTranslation persists the translation identity while the
+// scheduled publication still owns the mutation gate, but deliberately leaves
+// a newly created child dormant until the source-only static build completes.
+// The returned ID is non-empty only when this runner owns that later launch.
+func (s *Service) prepareFirstPublishTranslation(task *Task) string {
+	if task.TranslationStatus != "" {
+		return ""
+	}
+	task.TranslationStatus = "not-needed"
+	if !task.FirstPublish || s.translator == nil {
+		return ""
+	}
+	if task.TranslationTaskID != "" {
+		task.TranslationStatus = "queued"
+		if reader, ok := s.translator.(translationTaskReader); ok {
+			if translationTask, err := reader.Get(task.TranslationTaskID); err == nil {
+				switch translationTask.Status {
+				case "succeeded":
+					task.TranslationStatus = "succeeded"
+				case "failed", "needs-review":
+					task.TranslationStatus = "failed"
+				}
+			}
+		}
+		return ""
+	}
+	translationTask, created, err := s.translator.Prepare(translation.StartInput{EntityKind: task.EntityKind, PostID: task.EntityID, SkipManual: true})
+	switch {
+	case err == nil:
+		task.TranslationStatus = "queued"
+		task.TranslationTaskID = translationTask.ID
+		if created {
+			return translationTask.ID
+		}
+	case errors.Is(err, translation.ErrNoTargets):
+		task.TranslationStatus = "not-needed"
+	case errors.Is(err, ai.ErrProviderNotFound), errors.Is(err, ai.ErrKeyMissing), errors.Is(err, ai.ErrInvalidProvider):
+		task.TranslationStatus = "not-configured"
+	default:
+		task.TranslationStatus = "failed"
+	}
+	return ""
 }
 
 func (s *Service) getContent(kind, id string) (domain.Post, error) {
@@ -740,9 +840,7 @@ func (s *Service) finish(task *Task, status, message string) error {
 	task.CompletedAt = &now
 	if status == "succeeded" {
 		task.Error = ""
-		if task.Outcome == "" {
-			task.Outcome = "published"
-		}
+		setPublishedOutcome(task)
 		completionMessage := "scheduled-publish-complete"
 		if message != "" {
 			completionMessage = message

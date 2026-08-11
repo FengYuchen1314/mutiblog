@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,10 +15,11 @@ import (
 )
 
 type releasePointer struct {
-	SchemaVersion int       `yaml:"schemaVersion"`
-	Snapshot      string    `yaml:"snapshot"`
-	Revision      int       `yaml:"revision"`
-	UpdatedAt     time.Time `yaml:"updatedAt"`
+	SchemaVersion   int       `yaml:"schemaVersion"`
+	Snapshot        string    `yaml:"snapshot"`
+	HistorySnapshot string    `yaml:"historySnapshot,omitempty"`
+	Revision        int       `yaml:"revision"`
+	UpdatedAt       time.Time `yaml:"updatedAt"`
 }
 
 const retainedContentReleases = 20
@@ -66,28 +69,36 @@ func (s *Service) InitializePublishedReleases() (int, error) {
 		var items []domain.Post
 		var err error
 		if itemKind == "Post" {
-			items, err = s.ListPosts()
+			items, err = s.listPostsLocked()
 		} else {
-			items, err = s.ListPages()
+			items, err = s.listPagesLocked()
 		}
 		if err != nil {
 			return initialized, err
 		}
 		for _, item := range items {
 			normalizeRevisionPointers(&item.Meta)
-			if item.Meta.Status == domain.ContentStatusPublished {
-				released, err := s.readRelease(itemKind, item.Meta.ID)
-				if errors.Is(err, os.ErrNotExist) {
+			released, releaseErr := s.readRelease(itemKind, item.Meta.ID)
+			switch {
+			case releaseErr == nil:
+				migrated, err := s.ensureReleaseHistory(itemKind, released)
+				if err != nil {
+					return initialized, err
+				}
+				if migrated {
+					initialized++
+				}
+				item.Meta.ReleaseRevision = released.Meta.Revision
+			case errors.Is(releaseErr, os.ErrNotExist):
+				if item.Meta.Status == domain.ContentStatusPublished {
 					if err := s.writeRelease(itemKind, item); err != nil {
 						return initialized, err
 					}
 					item.Meta.ReleaseRevision = item.Meta.Revision
 					initialized++
-				} else if err != nil {
-					return initialized, err
-				} else {
-					item.Meta.ReleaseRevision = released.Meta.Revision
 				}
+			default:
+				return initialized, releaseErr
 			}
 			paths, err := lifecyclePaths(itemKind, item.Meta.ID)
 			if err != nil {
@@ -113,7 +124,9 @@ func (s *Service) InitializePublishedReleases() (int, error) {
 // draft, unpublished, and recycled heads are retained for the renderer's
 // normal status filter.
 func (s *Service) ListPostsForBuild() ([]domain.Post, error) {
-	posts, err := s.ListPosts()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	posts, err := s.listPostsLocked()
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +134,9 @@ func (s *Service) ListPostsForBuild() ([]domain.Post, error) {
 }
 
 func (s *Service) ListPagesForBuild() ([]domain.Post, error) {
-	pages, err := s.ListPages()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	pages, err := s.listPagesLocked()
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +162,9 @@ func (s *Service) publicReleasesForBuild(kind string, heads []domain.Post) ([]do
 // renderer uses. Dynamic surfaces such as comments must not observe an
 // unpublished head while visitors are still reading the previous release.
 func (s *Service) GetPublishedRelease(kind, id string) (domain.Post, error) {
-	head, err := s.getLifecycleContent(kind, id)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	head, err := s.getLifecycleContentLocked(kind, id)
 	if err != nil {
 		return domain.Post{}, err
 	}
@@ -201,6 +218,20 @@ func (s *Service) ensureRelease(kind string, item domain.Post) error {
 	return s.writeRelease(kind, item)
 }
 
+func commitPublication(previous, published domain.PostMeta, writeMeta func(domain.PostMeta) error, writeRelease func() error) error {
+	if err := writeMeta(published); err != nil {
+		return err
+	}
+	releaseErr := writeRelease()
+	if releaseErr == nil {
+		return nil
+	}
+	if rollbackErr := writeMeta(previous); rollbackErr != nil {
+		return errors.Join(releaseErr, fmt.Errorf("roll back publication metadata: %w", rollbackErr))
+	}
+	return releaseErr
+}
+
 func (s *Service) writeRelease(kind string, item domain.Post) error {
 	normalizeRevisionPointers(&item.Meta)
 	item.Meta.ReleaseRevision = item.Meta.Revision
@@ -208,8 +239,139 @@ func (s *Service) writeRelease(kind string, item domain.Post) error {
 	if err != nil {
 		return err
 	}
-	snapshot := fmt.Sprintf("%06d-%d", item.Meta.Revision, time.Now().UTC().UnixMilli())
+	paths, err := lifecyclePaths(kind, item.Meta.ID)
+	if err != nil {
+		return err
+	}
+	snapshot, err := s.nextSnapshotID(item.Meta.Revision, filepath.Join(root, "snapshots"), paths.revisions)
+	if err != nil {
+		return err
+	}
 	base := filepath.Join(root, "snapshots", snapshot)
+	if err := s.writeContentSnapshot(base, item); err != nil {
+		return err
+	}
+	// The release pointer's snapshot ID is also the history identity. Mirroring
+	// the exact public snapshot prevents a synthesized AI release from being
+	// confused with an unrelated head revision that happens to share its number.
+	if err := s.writeContentSnapshot(filepath.Join(paths.revisions, snapshot), item); err != nil {
+		return err
+	}
+	pointer := releasePointer{SchemaVersion: domain.SchemaVersion, Snapshot: snapshot, HistorySnapshot: snapshot, Revision: item.Meta.Revision, UpdatedAt: time.Now().UTC()}
+	if err := s.repository.WriteYAML(filepath.Join(root, "current.yaml"), pointer, false); err != nil {
+		return err
+	}
+	s.pruneReleaseSnapshots(root, snapshot)
+	return nil
+}
+
+func (s *Service) ensureReleaseHistory(kind string, released domain.Post) (bool, error) {
+	root, err := releaseRoot(kind, released.Meta.ID)
+	if err != nil {
+		return false, err
+	}
+	var pointer releasePointer
+	if err := s.repository.ReadYAML(filepath.Join(root, "current.yaml"), &pointer); err != nil {
+		return false, err
+	}
+	if pointer.SchemaVersion != domain.SchemaVersion || !validRevisionID(pointer.Snapshot) {
+		return false, errors.New("invalid content release pointer")
+	}
+	paths, err := lifecyclePaths(kind, released.Meta.ID)
+	if err != nil {
+		return false, err
+	}
+	if validRevisionID(pointer.HistorySnapshot) {
+		existing, readErr := s.readRevision(paths, released.Meta.ID, pointer.HistorySnapshot)
+		if readErr == nil && sameContentSnapshot(existing, released) {
+			return false, nil
+		}
+	}
+	historySnapshot := ""
+	if pointer.HistorySnapshot == "" {
+		candidate := pointer.Snapshot
+		historyPath := filepath.Join(paths.revisions, candidate)
+		exists, err := s.repository.Exists(historyPath)
+		if err != nil {
+			return false, err
+		}
+		if !exists {
+			historySnapshot = candidate
+		} else {
+			existing, readErr := s.readRevision(paths, released.Meta.ID, candidate)
+			if readErr == nil && sameContentSnapshot(existing, released) {
+				historySnapshot = candidate
+			}
+		}
+	}
+	if historySnapshot == "" {
+		historySnapshot, err = s.nextSnapshotIDFrom(released.Meta.Revision, snapshotMilliseconds(pointer.Snapshot, pointer.UpdatedAt), paths.revisions, filepath.Join(root, "snapshots"))
+		if err != nil {
+			return false, err
+		}
+	}
+	historyPath := filepath.Join(paths.revisions, historySnapshot)
+	exists, err := s.repository.Exists(historyPath)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		if err := s.writeContentSnapshot(historyPath, released); err != nil {
+			return false, err
+		}
+	}
+	pointer.HistorySnapshot = historySnapshot
+	if err := s.repository.WriteYAML(filepath.Join(root, "current.yaml"), pointer, false); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func sameContentSnapshot(first, second domain.Post) bool {
+	first.Meta.HasUnpublishedChanges = false
+	second.Meta.HasUnpublishedChanges = false
+	return reflect.DeepEqual(first, second)
+}
+
+func (s *Service) nextSnapshotID(revision int, roots ...string) (string, error) {
+	return s.nextSnapshotIDFrom(revision, time.Now().UTC().UnixMilli(), roots...)
+}
+
+func (s *Service) nextSnapshotIDFrom(revision int, timestamp int64, roots ...string) (string, error) {
+	for {
+		candidate := fmt.Sprintf("%06d-%d", revision, timestamp)
+		available := true
+		for _, root := range roots {
+			exists, err := s.repository.Exists(filepath.Join(root, candidate))
+			if err != nil {
+				return "", err
+			}
+			if exists {
+				available = false
+				break
+			}
+		}
+		if available {
+			return candidate, nil
+		}
+		timestamp++
+	}
+}
+
+func snapshotMilliseconds(id string, fallback time.Time) int64 {
+	parts := strings.Split(id, "-")
+	if len(parts) == 2 {
+		if milliseconds, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+			return milliseconds
+		}
+	}
+	if !fallback.IsZero() {
+		return fallback.UTC().UnixMilli()
+	}
+	return time.Now().UTC().UnixMilli()
+}
+
+func (s *Service) writeContentSnapshot(base string, item domain.Post) error {
 	if err := s.repository.WriteYAML(filepath.Join(base, "meta.yaml"), item.Meta, false); err != nil {
 		return err
 	}
@@ -222,11 +384,6 @@ func (s *Service) writeRelease(kind string, item domain.Post) error {
 			return err
 		}
 	}
-	pointer := releasePointer{SchemaVersion: domain.SchemaVersion, Snapshot: snapshot, Revision: item.Meta.Revision, UpdatedAt: time.Now().UTC()}
-	if err := s.repository.WriteYAML(filepath.Join(root, "current.yaml"), pointer, false); err != nil {
-		return err
-	}
-	s.pruneReleaseSnapshots(root, snapshot)
 	return nil
 }
 
@@ -251,6 +408,9 @@ func (s *Service) readRelease(kind, id string) (domain.Post, error) {
 		return domain.Post{}, errors.New("invalid content release snapshot")
 	}
 	normalizeRevisionPointers(&meta)
+	if pointer.Revision != meta.Revision {
+		return domain.Post{}, errors.New("content release revision does not match its snapshot")
+	}
 	meta.ReleaseRevision = pointer.Revision
 	contents := make(map[string]domain.LocalizedMarkdown, len(meta.Locales))
 	for locale := range meta.Locales {
@@ -273,7 +433,7 @@ func (s *Service) readRelease(kind, id string) (domain.Post, error) {
 func (s *Service) PromoteAITranslation(kind, id, locale string, sourceRevision int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	head, err := s.getLifecycleContent(kind, id)
+	head, err := s.getLifecycleContentLocked(kind, id)
 	if err != nil {
 		return err
 	}
@@ -295,6 +455,20 @@ func (s *Service) PromoteAITranslation(kind, id, locale string, sourceRevision i
 		// The AI result belongs to an unpublished source head. Keep it on the
 		// head so an explicit publish can release the whole coherent snapshot.
 		return nil
+	}
+	releasedState, hasReleasedState := released.Meta.Locales[locale]
+	releasedContent, hasReleasedContent := released.Content[locale]
+	headContent, hasHeadContent := head.Content[locale]
+	if hasReleasedState && hasReleasedContent && hasHeadContent && releasedState == state && releasedContent == headContent {
+		// A crash can commit current.yaml before persisting ReleaseRevision on the
+		// head. Rewriting the decorated head repairs that window without creating
+		// another release or advancing its revision on retry.
+		paths, err := lifecyclePaths(kind, id)
+		if err != nil {
+			return err
+		}
+		head.Meta.ReleaseRevision = released.Meta.Revision
+		return s.repository.WriteYAML(filepath.Join(paths.content, "meta.yaml"), head.Meta, false)
 	}
 	released.Meta.Locales[locale] = state
 	advanceHead(&released.Meta)

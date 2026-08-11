@@ -49,15 +49,22 @@ type AdminQuery struct {
 }
 
 type Service struct {
-	repository *fsrepo.Repository
-	mu         sync.Mutex
-	recent     map[string][]time.Time
+	repository  *fsrepo.Repository
+	mu          sync.Mutex
+	recent      map[string][]time.Time
+	newPublicID func() (string, error)
 }
 
 const recentClientLimit = 4096
 
 func NewService(repository *fsrepo.Repository) *Service {
-	return &Service{repository: repository, recent: make(map[string][]time.Time)}
+	return &Service{
+		repository: repository,
+		recent:     make(map[string][]time.Time),
+		newPublicID: func() (string, error) {
+			return content.NewPublicID()
+		},
+	}
 }
 
 func (s *Service) Create(input CreateInput) (domain.Comment, error) {
@@ -104,8 +111,13 @@ func (s *Service) Create(input CreateInput) (domain.Comment, error) {
 	if !s.allow(ipHash) {
 		return domain.Comment{}, ErrRateLimit
 	}
-	id, err := content.NewPublicID()
+	newPublicID := s.newPublicID
+	if newPublicID == nil {
+		newPublicID = func() (string, error) { return content.NewPublicID() }
+	}
+	id, err := newPublicID()
 	if err != nil {
+		refundLatestAttempt(s.recent, ipHash)
 		return domain.Comment{}, err
 	}
 	status := "pending"
@@ -116,11 +128,18 @@ func (s *Service) Create(input CreateInput) (domain.Comment, error) {
 	comment := domain.Comment{SchemaVersion: domain.SchemaVersion, Kind: "Comment", ID: id, Subject: domain.CommentSubject{Kind: kind, ID: input.SubjectID}, ParentID: strings.TrimSpace(input.ParentID), Status: status, Author: domain.CommentAuthor{Name: name, EmailHash: emailHash, Website: website}, Content: body, Locale: locale, CreatedAt: now, IPHash: ipHash, UserAgentFamily: userAgentFamily(input.UserAgent)}
 	if comment.ParentID != "" {
 		parent, err := s.Get(kind, input.SubjectID, comment.ParentID)
-		if err != nil || parent.ParentID != "" {
+		if err != nil {
+			if !errors.Is(err, ErrInvalid) && !errors.Is(err, ErrNotFound) {
+				refundLatestAttempt(s.recent, ipHash)
+			}
+			return domain.Comment{}, ErrInvalid
+		}
+		if parent.ParentID != "" {
 			return domain.Comment{}, ErrInvalid
 		}
 	}
 	if err := s.repository.WriteYAML(commentPath(kind, input.SubjectID, id), comment, false); err != nil {
+		refundLatestAttempt(s.recent, ipHash)
 		return domain.Comment{}, err
 	}
 	return comment, nil
@@ -406,6 +425,22 @@ func (s *Service) allow(key string) bool {
 	}
 	s.recent[key] = append(recent, now)
 	return true
+}
+
+// refundLatestAttempt removes only the timestamp appended for the failed
+// operation. Earlier legitimate attempts in the same window must continue to
+// count toward the rate limit. The caller must hold the service mutex.
+func refundLatestAttempt(attempts map[string][]time.Time, key string) {
+	values := attempts[key]
+	if len(values) == 0 {
+		return
+	}
+	if len(values) == 1 {
+		delete(attempts, key)
+		return
+	}
+	values[len(values)-1] = time.Time{}
+	attempts[key] = values[:len(values)-1]
 }
 
 func normalizeSubjectKind(kind string) (string, error) {

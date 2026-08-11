@@ -166,7 +166,7 @@ func New(options Options) (*Server, error) {
 		return nil, fmt.Errorf("migrate locale fallback: %w", err)
 	}
 	if _, err := server.media.Recover(); err != nil {
-		return nil, fmt.Errorf("recover interrupted media deletion: %w", err)
+		return nil, fmt.Errorf("reconcile media storage: %w", err)
 	}
 	if _, err := server.themes.Recover(); err != nil {
 		return nil, fmt.Errorf("recover interrupted theme operation: %w", err)
@@ -213,11 +213,7 @@ func New(options Options) (*Server, error) {
 	server.projection.StartWatcher(server.lifecycle, server.reconcileExternalSourceChange)
 	server.scheduler = scheduled.NewService(options.Repository, server.content, server.publisher, server.translator, func() func() {
 		server.mutationGate.Lock()
-		server.themeGate.RLock()
-		return func() {
-			server.themeGate.RUnlock()
-			server.mutationGate.Unlock()
-		}
+		return server.mutationGate.Unlock
 	})
 	server.translator.SetContentMutationAcquire(func() func() {
 		server.mutationGate.Lock()
@@ -232,19 +228,20 @@ func New(options Options) (*Server, error) {
 	// scheduled-publication invalidation hook are ready. Otherwise a recovered AI
 	// promotion could mutate the head without immediately retiring a stale
 	// publication intent.
-	if _, err := server.translator.Recover(); err != nil {
-		server.cancel()
-		server.scheduler.Close()
-		server.translator.Close()
-		_ = server.projection.Close()
-		return nil, fmt.Errorf("recover translation tasks: %w", err)
+	server.mutationGate.Lock()
+	_, recoverErr := server.translator.Recover()
+	if recoverErr != nil {
+		recoverErr = fmt.Errorf("recover translation tasks: %w", recoverErr)
+	} else if _, err := server.scheduler.Recover(); err != nil {
+		recoverErr = fmt.Errorf("recover scheduled publish tasks: %w", err)
 	}
-	if _, err := server.scheduler.Recover(); err != nil {
+	server.mutationGate.Unlock()
+	if recoverErr != nil {
 		server.cancel()
 		server.scheduler.Close()
 		server.translator.Close()
 		_ = server.projection.Close()
-		return nil, fmt.Errorf("recover scheduled publish tasks: %w", err)
+		return nil, recoverErr
 	}
 	server.resumeBackupTasks(retryBackupTasks)
 	server.routes()
@@ -435,7 +432,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/admin/taxonomies/{kind}", s.requireAdmin(s.handleCreateTaxonomy))
 	s.mux.HandleFunc("PUT /api/v1/admin/taxonomies/{kind}/{id}", s.requireAdmin(s.handleUpdateTaxonomyStructure))
 	s.mux.HandleFunc("PUT /api/v1/admin/taxonomies/{kind}/{id}/locales/{locale}", s.requireAdmin(s.handleUpdateTaxonomyLocale))
-	s.mux.HandleFunc("DELETE /api/v1/admin/taxonomies/{kind}/{id}", s.requireAdmin(s.handleDeleteTaxonomy))
+	s.mux.HandleFunc("DELETE /api/v1/admin/taxonomies/{kind}/{id}", s.requireExclusiveAdmin(s.handleDeleteTaxonomy))
 	s.mux.HandleFunc("GET /api/v1/admin/links", s.requireAdmin(s.handleListLinks))
 	s.mux.HandleFunc("POST /api/v1/admin/links/groups", s.requireAdmin(s.handleCreateLinkGroup))
 	s.mux.HandleFunc("POST /api/v1/admin/links/items", s.requireAdmin(s.handleCreateLink))
@@ -486,7 +483,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/admin/ai/tasks", s.requireAdmin(s.handleListTranslationTasks))
 	s.mux.HandleFunc("GET /api/v1/admin/attachments", s.requireAdmin(s.handleListMedia))
 	s.mux.HandleFunc("POST /api/v1/admin/attachments", s.requireAdmin(s.handleCreateMedia))
-	s.mux.HandleFunc("DELETE /api/v1/admin/attachments/{id}", s.requireAdmin(s.handleDeleteMedia))
+	s.mux.HandleFunc("DELETE /api/v1/admin/attachments/{id}", s.requireExclusiveAdmin(s.handleDeleteMedia))
 	s.mux.HandleFunc("GET /media/{path...}", s.handlePublicMedia)
 	s.mux.HandleFunc("GET /api/v1/public/comments", s.withSharedMutation(s.handlePublicComments))
 	s.mux.HandleFunc("POST /api/v1/public/comments", s.withSharedMutation(s.handleCreatePublicComment))

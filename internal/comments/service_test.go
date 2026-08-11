@@ -35,6 +35,97 @@ func TestCommentRateLimiterHasHardClientBound(t *testing.T) {
 	}
 }
 
+func TestRefundLatestCommentAttemptPreservesEarlierAttempts(t *testing.T) {
+	first := time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC)
+	second := first.Add(time.Minute)
+	attempts := map[string][]time.Time{"client": {first, second}}
+
+	refundLatestAttempt(attempts, "client")
+	if values := attempts["client"]; len(values) != 1 || !values[0].Equal(first) {
+		t.Fatalf("two-attempt refund = %#v, want only the first attempt", values)
+	}
+
+	refundLatestAttempt(attempts, "client")
+	if _, exists := attempts["client"]; exists {
+		t.Fatalf("single-attempt refund retained key: %#v", attempts["client"])
+	}
+}
+
+func TestCommentIDGenerationFailureRefundsOnlyLatestAttempt(t *testing.T) {
+	service, _, postID, secret := testCommentCreateService(t)
+	ipAddress := "203.0.113.40"
+	rateKey := hashIP([]byte(secret), ipAddress)
+	previous := time.Now().Add(-time.Minute)
+	service.recent[rateKey] = []time.Time{previous}
+	generationErr := errors.New("random source unavailable")
+	service.newPublicID = func() (string, error) { return "", generationErr }
+
+	input := validCommentInput(postID, ipAddress)
+	if _, err := service.Create(input); !errors.Is(err, generationErr) {
+		t.Fatalf("Create() error = %v, want generation failure", err)
+	}
+	assertOnlyCommentAttempt(t, service, rateKey, previous)
+
+	service.newPublicID = func() (string, error) { return content.NewPublicID() }
+	if _, err := service.Create(input); err != nil {
+		t.Fatalf("retry Create() = %v", err)
+	}
+	if values := service.recent[rateKey]; len(values) != 2 || !values[0].Equal(previous) {
+		t.Fatalf("attempts after successful retry = %#v", values)
+	}
+}
+
+func TestCommentWriteFailureRefundsOnlyLatestAttemptAndRetrySucceeds(t *testing.T) {
+	service, repository, postID, secret := testCommentCreateService(t)
+	ipAddress := "203.0.113.41"
+	rateKey := hashIP([]byte(secret), ipAddress)
+	previous := time.Now().Add(-time.Minute)
+	service.recent[rateKey] = []time.Time{previous}
+	subjectDirectory := filepath.Join(repository.Root(), "comments", "Post", postID)
+	if err := os.MkdirAll(filepath.Dir(subjectDirectory), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(subjectDirectory, []byte("blocks comment directory"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	input := validCommentInput(postID, ipAddress)
+	if _, err := service.Create(input); err == nil {
+		t.Fatal("Create() succeeded while the comment directory was blocked")
+	}
+	assertOnlyCommentAttempt(t, service, rateKey, previous)
+
+	if err := os.Remove(subjectDirectory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(subjectDirectory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Create(input); err != nil {
+		t.Fatalf("retry Create() = %v", err)
+	}
+	if values := service.recent[rateKey]; len(values) != 2 || !values[0].Equal(previous) {
+		t.Fatalf("attempts after successful retry = %#v", values)
+	}
+}
+
+func TestInvalidCommentParentStillConsumesAttempt(t *testing.T) {
+	service, _, postID, secret := testCommentCreateService(t)
+	ipAddress := "203.0.113.42"
+	rateKey := hashIP([]byte(secret), ipAddress)
+	previous := time.Now().Add(-time.Minute)
+	service.recent[rateKey] = []time.Time{previous}
+	input := validCommentInput(postID, ipAddress)
+	input.ParentID = "missing-comment"
+
+	if _, err := service.Create(input); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create() error = %v, want ErrInvalid", err)
+	}
+	if values := service.recent[rateKey]; len(values) != 2 || !values[0].Equal(previous) {
+		t.Fatalf("invalid parent attempts = %#v, want both attempts", values)
+	}
+}
+
 func TestCommentPrivacyModerationAndFileTruth(t *testing.T) {
 	repository, err := fsrepo.Open(t.TempDir())
 	if err != nil {
@@ -158,5 +249,66 @@ func TestPaginationRejectsOverflowingPageWithoutPanicking(t *testing.T) {
 	page := int(^uint(0) >> 1)
 	if got := paginate(items, page, 100); len(got) != 0 {
 		t.Fatalf("overflowing page returned %#v", got)
+	}
+}
+
+func testCommentCreateService(t *testing.T) (*Service, *fsrepo.Repository, string, string) {
+	t.Helper()
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  "en",
+		Enabled:       []domain.LocaleDefinition{{Code: "en", Label: "English", Enabled: true}},
+		Fallback:      []string{"en"},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/comments.yaml", domain.CommentsConfig{
+		SchemaVersion: domain.SchemaVersion,
+		Moderation:    "pending",
+		PageSize:      20,
+		MaxLength:     2000,
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	secret := "test-comment-secret"
+	if err := repository.WriteYAML("config/secrets.yaml", domain.SecretsConfig{
+		SchemaVersion:  domain.SchemaVersion,
+		Providers:      map[string]string{},
+		CommentHMACKey: secret,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+	contentService := content.NewService(repository)
+	post, err := contentService.CreatePost(content.CreatePostInput{ID: "comment-refund-post", Title: "Comment refund", Markdown: "Body"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post, err = contentService.PublishPost(post.Meta.ID, post.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewService(repository), repository, post.Meta.ID, secret
+}
+
+func validCommentInput(postID, ipAddress string) CreateInput {
+	return CreateInput{
+		SubjectKind: "Post",
+		SubjectID:   postID,
+		Name:        "Visitor",
+		Content:     "A retryable comment.",
+		Locale:      "en",
+		IPAddress:   ipAddress,
+	}
+}
+
+func assertOnlyCommentAttempt(t *testing.T, service *Service, rateKey string, expected time.Time) {
+	t.Helper()
+	values := service.recent[rateKey]
+	if len(values) != 1 || !values[0].Equal(expected) {
+		t.Fatalf("attempts after failed operation = %#v, want only %v", values, expected)
 	}
 }

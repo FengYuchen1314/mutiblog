@@ -92,7 +92,12 @@ export async function buildSite(input: BuildInput, outputDirectory: string): Pro
 				const totalPages = totalPageCount(taxonomyPosts.length);
 				const basePath = `/${kind}/${item.id}/`;
         if (selection.locale !== locale) {
-					for (let page = 1; page <= totalPages; page += 1) {
+					const destinationPostCount = input.posts.filter((post) =>
+						post.status === "published"
+						&& Boolean(selectPost(input, post.locales, selection.locale, post.sourceLocale))
+						&& (kind === "categories" ? post.categories : post.tags)?.includes(item.id),
+					).length;
+					for (let page = 1; page <= totalPageCount(destinationPostCount); page += 1) {
 						const path = paginatedPath(basePath, page);
 						const from = `/${locale}${path}`;
 						const to = `/${selection.locale}${path}`;

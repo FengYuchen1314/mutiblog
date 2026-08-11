@@ -166,6 +166,11 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	resumeTranslations := s.translator.Pause()
 	defer resumeTranslations()
+	resumeScheduled := func() {}
+	if s.scheduler != nil {
+		resumeScheduled = s.scheduler.Pause()
+	}
+	defer resumeScheduled()
 	if !progress("restore-safety-backup", 1, 10, "creating-pre-restore-safety-backup") {
 		return
 	}
@@ -276,6 +281,10 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		// here are cleanup-only and must not be reported as a rolled-back restore.
 		s.logger.Warn("backup restore committed with cleanup warning", "backup", r.PathValue("id"), "error", err)
 	}
+	// Reconcile owns runMu internally. Release the restore barrier only after the
+	// repository and public build are committed, while the request still owns the
+	// global mutation gate and the translation pause gate.
+	resumeScheduled()
 	if s.scheduler != nil {
 		if _, err := s.scheduler.Reconcile(); err != nil {
 			// Publication intent is part of restored content, so a later process

@@ -6,13 +6,16 @@ import { editorMathJaxConfiguration, sanitizeMathJaxOutput } from "./mathJaxPrev
 describe("editor MathJax safety", () => {
   test("disables dynamic TeX package loading for untrusted Markdown", () => {
     expect(editorMathJaxConfiguration.startup.typeset).toBe(false);
-    expect(editorMathJaxConfiguration.tex.packages["[-]"]).toEqual(expect.arrayContaining(["require", "autoload", "configmacros", "textmacros"]));
+    expect(editorMathJaxConfiguration.tex.packages["[-]"]).toEqual(
+      expect.arrayContaining(["require", "autoload", "configmacros", "textmacros"]),
+    );
     expect(editorMathJaxConfiguration.svg.fontCache).toBe("none");
   });
 
   test("removes active or unsafe nodes and attributes from MathJax SVG output", () => {
     const output = document.createElement("mjx-container");
-    output.innerHTML = '<svg onclick="alert(1)" style="fill: url(javascript:alert(1))"><a href="https://example.com" xlink:href="javascript:alert(1)"><path /></a><foreignObject><iframe src="https://example.com"></iframe></foreignObject></svg>';
+    output.innerHTML =
+      '<svg onclick="alert(1)" style="fill: url(javascript:alert(1))"><a href="https://example.com" xlink:href="javascript:alert(1)"><path /></a><foreignObject><iframe src="https://example.com"></iframe></foreignObject></svg>';
 
     sanitizeMathJaxOutput(output);
 

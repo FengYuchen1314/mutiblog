@@ -16,7 +16,6 @@ import (
 
 var (
 	ErrProviderNotFound = errors.New("AI provider not found")
-	ErrKeyMissing       = errors.New("AI provider key is missing")
 	// ErrMaxOutputTokensExceeded prevents a caller from relying on a hidden
 	// provider-side clamp. A clamp can turn a valid-looking 2xx answer into a
 	// truncated translation, so callers must deliberately fit their request
@@ -73,7 +72,7 @@ func (s *Service) List() ([]ProviderView, error) {
 	}
 	views := make([]ProviderView, 0, len(config.Providers))
 	for _, provider := range config.Providers {
-		key := secrets.Providers[provider.ID]
+		key := strings.TrimSpace(secrets.Providers[provider.ID])
 		views = append(views, ProviderView{AIProviderConfig: provider, Default: provider.ID == config.DefaultProvider, HasKey: key != "", MaskedKey: maskKey(key)})
 	}
 	return views, nil
@@ -146,7 +145,7 @@ func (s *Service) Upsert(id string, input UpsertProviderInput) (ProviderView, er
 		}
 		return ProviderView{}, err
 	}
-	key := secrets.Providers[id]
+	key := strings.TrimSpace(secrets.Providers[id])
 	return ProviderView{AIProviderConfig: provider, Default: config.DefaultProvider == id, HasKey: key != "", MaskedKey: maskKey(key)}, nil
 }
 
@@ -285,7 +284,7 @@ func (s *Service) credentials(id string) (domain.AIProviderConfig, string, error
 			if provider.MaxOutputTokens == 0 {
 				provider.MaxOutputTokens = 8192
 			}
-			key := secrets.Providers[id]
+			key := strings.TrimSpace(secrets.Providers[id])
 			if key == "" {
 				return domain.AIProviderConfig{}, "", ErrKeyMissing
 			}

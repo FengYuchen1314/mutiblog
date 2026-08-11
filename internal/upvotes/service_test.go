@@ -31,6 +31,10 @@ func TestUpvotesPersistCountDeduplicateAndDoNotStoreVisitorData(t *testing.T) {
 	if err != nil || duplicate.Created || !duplicate.Upvoted || duplicate.Count != 1 {
 		t.Fatalf("duplicate result = %#v, %v", duplicate, err)
 	}
+	duplicateRateKey := keyedHash([]byte(strings.Repeat("1", 64)), "address\x00"+"203.0.113.10")
+	if attempts := service.attempts[duplicateRateKey]; len(attempts) != 2 {
+		t.Fatalf("duplicate attempts = %#v, want both attempts counted", attempts)
+	}
 	second, err := service.Add("Post", postID, secondToken, "203.0.113.11")
 	if err != nil || !second.Created || second.Count != 2 {
 		t.Fatalf("second result = %#v, %v", second, err)
@@ -132,9 +136,29 @@ func TestUpvoteRateLimiterHasStrictHighCardinalityBound(t *testing.T) {
 	}
 }
 
-func TestUpvoteWriteFailureDoesNotCommitVoteInMemory(t *testing.T) {
+func TestRefundLatestUpvoteAttemptPreservesEarlierAttempts(t *testing.T) {
+	first := time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC)
+	second := first.Add(time.Minute)
+	attempts := map[string][]time.Time{"address": {first, second}}
+
+	refundLatestAttempt(attempts, "address")
+	if values := attempts["address"]; len(values) != 1 || !values[0].Equal(first) {
+		t.Fatalf("two-attempt refund = %#v, want only the first attempt", values)
+	}
+
+	refundLatestAttempt(attempts, "address")
+	if _, exists := attempts["address"]; exists {
+		t.Fatalf("single-attempt refund retained key: %#v", attempts["address"])
+	}
+}
+
+func TestUpvoteReadFailureRefundsOnlyLatestAttemptAndRetrySucceeds(t *testing.T) {
 	service, repository, postID := testUpvoteService(t)
 	token := strings.Repeat("9", 64)
+	ipAddress := "203.0.113.80"
+	rateKey := upvoteRateKey(ipAddress)
+	previous := time.Now().Add(-time.Minute)
+	service.attempts[rateKey] = []time.Time{previous}
 	postsDirectory := filepath.Join(repository.Root(), "upvotes", "posts")
 	if err := os.RemoveAll(postsDirectory); err != nil {
 		t.Fatal(err)
@@ -142,18 +166,87 @@ func TestUpvoteWriteFailureDoesNotCommitVoteInMemory(t *testing.T) {
 	if err := os.WriteFile(postsDirectory, []byte("blocks counter directory"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if result, err := service.Add("Post", postID, token, "203.0.113.80"); err == nil || result.Created {
-		t.Fatalf("failed write result = %#v, %v", result, err)
+	if result, err := service.Add("Post", postID, token, ipAddress); err == nil || result.Created {
+		t.Fatalf("failed read result = %#v, %v", result, err)
 	}
+	assertOnlyUpvoteAttempt(t, service, rateKey, previous)
 	if err := os.Remove(postsDirectory); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(postsDirectory, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.Add("Post", postID, token, "203.0.113.80")
+	result, err := service.Add("Post", postID, token, ipAddress)
 	if err != nil || !result.Created || result.Count != 1 {
 		t.Fatalf("retry result = %#v, %v", result, err)
+	}
+	if values := service.attempts[rateKey]; len(values) != 2 || !values[0].Equal(previous) {
+		t.Fatalf("attempts after successful retry = %#v", values)
+	}
+}
+
+func TestUpvoteWriteFailureRefundsOnlyLatestAttemptAndRetrySucceeds(t *testing.T) {
+	service, repository, postID := testUpvoteService(t)
+	token := strings.Repeat("7", 64)
+	ipAddress := "203.0.113.82"
+	rateKey := upvoteRateKey(ipAddress)
+	previous := time.Now().Add(-time.Minute)
+	service.attempts[rateKey] = []time.Time{previous}
+	postsDirectory := filepath.Join(repository.Root(), "upvotes", "posts")
+	service.writeCounter = func(path string, counter storedCounter) error {
+		if err := os.RemoveAll(postsDirectory); err != nil {
+			return err
+		}
+		if err := os.WriteFile(postsDirectory, []byte("blocks counter directory"), 0o640); err != nil {
+			return err
+		}
+		return repository.WriteYAML(path, counter, false)
+	}
+
+	if result, err := service.Add("Post", postID, token, ipAddress); err == nil || result.Created {
+		t.Fatalf("failed write result = %#v, %v", result, err)
+	}
+	assertOnlyUpvoteAttempt(t, service, rateKey, previous)
+
+	if err := os.Remove(postsDirectory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(postsDirectory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	service.writeCounter = nil
+	result, err := service.Add("Post", postID, token, ipAddress)
+	if err != nil || !result.Created || result.Count != 1 {
+		t.Fatalf("retry result = %#v, %v", result, err)
+	}
+	if values := service.attempts[rateKey]; len(values) != 2 || !values[0].Equal(previous) {
+		t.Fatalf("attempts after successful retry = %#v", values)
+	}
+}
+
+func TestInvalidUpvoteCounterStillConsumesAttempt(t *testing.T) {
+	service, repository, postID := testUpvoteService(t)
+	token := strings.Repeat("6", 64)
+	ipAddress := "203.0.113.83"
+	rateKey := upvoteRateKey(ipAddress)
+	previous := time.Now().Add(-time.Minute)
+	service.attempts[rateKey] = []time.Time{previous}
+	subject, err := service.content.GetPublishedRelease("Post", postID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counter := newCounter("Post", postID, subjectIdentity(subject))
+	counter.Count = 1
+	counter.UpdatedAt = time.Now().UTC()
+	if err := repository.WriteYAML(counterPath("Post", postID), counter, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.Add("Post", postID, token, ipAddress); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("Add() error = %v, want ErrInvalidState", err)
+	}
+	if values := service.attempts[rateKey]; len(values) != 2 || !values[0].Equal(previous) {
+		t.Fatalf("invalid counter attempts = %#v, want both attempts", values)
 	}
 }
 
@@ -219,4 +312,16 @@ func testUpvoteService(t *testing.T) (*Service, *fsrepo.Repository, string) {
 		t.Fatal(err)
 	}
 	return NewService(repository, contentService), repository, post.Meta.ID
+}
+
+func upvoteRateKey(ipAddress string) string {
+	return keyedHash([]byte(strings.Repeat("1", 64)), "address\x00"+ipAddress)
+}
+
+func assertOnlyUpvoteAttempt(t *testing.T, service *Service, rateKey string, expected time.Time) {
+	t.Helper()
+	values := service.attempts[rateKey]
+	if len(values) != 1 || !values[0].Equal(expected) {
+		t.Fatalf("attempts after failed operation = %#v, want only %v", values, expected)
+	}
 }
