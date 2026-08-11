@@ -187,7 +187,7 @@ func (s *Server) adminLocale() string {
 	if err := s.repository.ReadYAML("config/site.yaml", &site); err == nil && site.AdminLocale != "" {
 		return site.AdminLocale
 	}
-	return "en"
+	return "zh-CN"
 }
 
 func (s *Server) requireSession(next http.HandlerFunc) http.HandlerFunc {
@@ -208,16 +208,25 @@ func (s *Server) requireSession(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
-	return s.requireAdminWithGate(next, false)
+	return s.requireAdminWithGate(next, false, true)
 }
 
 func (s *Server) requireExclusiveAdmin(next http.HandlerFunc) http.HandlerFunc {
-	return s.requireAdminWithGate(next, true)
+	return s.requireAdminWithGate(next, true, true)
 }
 
-func (s *Server) requireAdminWithGate(next http.HandlerFunc, exclusive bool) http.HandlerFunc {
+// requireAdminWithoutProjectionSync is for durable operations that rebuild only
+// derived state themselves. They still require the normal session, CSRF, and
+// shared mutation gate, but must not synchronously rebuild the same projection
+// once more while their own task is queued.
+func (s *Server) requireAdminWithoutProjectionSync(next http.HandlerFunc) http.HandlerFunc {
+	return s.requireAdminWithGate(next, false, false)
+}
+
+func (s *Server) requireAdminWithGate(next http.HandlerFunc, exclusive, syncProjection bool) http.HandlerFunc {
 	return s.requireSession(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+		managedMutation := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
+		if managedMutation {
 			current := r.Context().Value(sessionContextKey{}).(sessionContext)
 			if !validCSRF(r, current.Session.CSRFToken) {
 				s.writeError(w, http.StatusForbidden, "invalid_csrf", "The CSRF token is invalid.", nil)
@@ -231,8 +240,22 @@ func (s *Server) requireAdminWithGate(next http.HandlerFunc, exclusive bool) htt
 			s.mutationGate.RLock()
 			defer s.mutationGate.RUnlock()
 		}
+		if managedMutation && syncProjection {
+			defer s.syncProjectionAfterManagedMutation()
+		}
 		next(w, r)
 	})
+}
+
+func (s *Server) syncProjectionAfterManagedMutation() {
+	if s.projection == nil {
+		return
+	}
+	if _, err := s.projection.RebuildIfChanged(); err != nil {
+		// The projection is derived state and the watcher will retry it. The
+		// already-durable domain mutation remains the authoritative result.
+		s.logger.Error("refresh projection after managed mutation failed", "error", err)
+	}
 }
 
 func (s *Server) withSharedMutation(next http.HandlerFunc) http.HandlerFunc {

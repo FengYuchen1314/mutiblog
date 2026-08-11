@@ -9,12 +9,38 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type CommandRenderer struct {
 	NodeBinary  string
 	RendererCLI string
+}
+
+// ValidateNodeBinary fails closed on runtimes whose Permission Model does not
+// include default-denied network access. --allow-net was introduced after
+// Node 24; MutiBlog's production contract starts at Node 26.
+func ValidateNodeBinary(parent context.Context, binary string) error {
+	if strings.TrimSpace(binary) == "" {
+		binary = "node"
+	}
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, binary, "--version")
+	command.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin"}
+	output, err := command.Output()
+	if err != nil {
+		return fmt.Errorf("check renderer Node.js version: %w", err)
+	}
+	version := strings.TrimSpace(strings.TrimPrefix(string(output), "v"))
+	majorText, _, _ := strings.Cut(version, ".")
+	major, err := strconv.Atoi(majorText)
+	if err != nil || major < 26 {
+		return fmt.Errorf("renderer requires Node.js 26 or newer, found %q", strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func (r CommandRenderer) Render(ctx context.Context, inputPath, outputPath string) (BuildReport, error) {
@@ -31,6 +57,18 @@ func (r CommandRenderer) Render(ctx context.Context, inputPath, outputPath strin
 	}
 	arguments := append(permissionArgs, r.RendererCLI, "--input", inputPath, "--output", outputPath)
 	command := exec.CommandContext(ctx, node, arguments...)
+	// A theme is server-side code, but it has no reason to inherit deployment
+	// credentials or runtime tuning from the long-lived application process.
+	// Node 26's Permission Model denies network access unless --allow-net is
+	// explicitly granted; keeping the environment minimal also prevents
+	// NODE_OPTIONS and provider-specific variables from weakening that boundary.
+	command.Env = []string{
+		"HOME=/tmp",
+		"LANG=C.UTF-8",
+		"LC_ALL=C.UTF-8",
+		"PATH=/usr/local/bin:/usr/bin:/bin",
+		"TZ=UTC",
+	}
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -103,6 +141,7 @@ func rendererPermissionArgs(rendererCLI, inputPath, outputPath string) ([]string
 	// The renderer output deliberately does not exist when the permission model
 	// starts, so grant both the directory entry (rm/mkdir) and its future tree.
 	arguments = append(arguments,
+		"--allow-fs-read="+outputPath+string(filepath.Separator)+"*",
 		"--allow-fs-write="+outputPath,
 		"--allow-fs-write="+outputPath+string(filepath.Separator)+"*",
 	)

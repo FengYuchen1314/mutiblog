@@ -1,9 +1,30 @@
 package server
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
+
+func TestLoginLimiterHasHardClientBound(t *testing.T) {
+	limiter := newLoginLimiter()
+	now := time.Now()
+	for index := 0; index < loginClientLimit; index++ {
+		limiter.attempts[fmt.Sprintf("client-%d", index)] = loginAttempt{Failures: 1, WindowStarted: now}
+	}
+	if allowed, _ := limiter.Allow("one-client-too-many"); allowed {
+		t.Fatal("high-cardinality client was accepted beyond the hard bound")
+	}
+	limiter.Failed("one-client-too-many")
+	if len(limiter.attempts) != loginClientLimit {
+		t.Fatalf("attempts = %d, want %d", len(limiter.attempts), loginClientLimit)
+	}
+	limiter.attempts["client-0"] = loginAttempt{Failures: 1, WindowStarted: now.Add(-loginWindow)}
+	if allowed, _ := limiter.Allow("replacement-client"); !allowed {
+		t.Fatal("expired login slot was not reclaimed")
+	}
+}
 
 func TestClientIPOnlyTrustsForwardingHeadersFromPrivateProxy(t *testing.T) {
 	direct := httptest.NewRequest("GET", "https://example.com/", nil)

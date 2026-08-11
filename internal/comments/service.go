@@ -54,6 +54,8 @@ type Service struct {
 	recent     map[string][]time.Time
 }
 
+const recentClientLimit = 4096
+
 func NewService(repository *fsrepo.Repository) *Service {
 	return &Service{repository: repository, recent: make(map[string][]time.Time)}
 }
@@ -371,6 +373,27 @@ func (s *Service) normalizeEnabledLocale(raw string) (string, error) {
 func (s *Service) allow(key string) bool {
 	now := time.Now()
 	cutoff := now.Add(-10 * time.Minute)
+	if _, exists := s.recent[key]; !exists && len(s.recent) >= recentClientLimit {
+		for candidate, values := range s.recent {
+			kept := values[:0]
+			for _, value := range values {
+				if value.After(cutoff) {
+					kept = append(kept, value)
+				}
+			}
+			if len(kept) == 0 {
+				delete(s.recent, candidate)
+			} else {
+				s.recent[candidate] = kept
+			}
+		}
+		// Keep the unauthenticated limiter strictly bounded even during a
+		// high-cardinality address rotation attack. Existing clients retain
+		// their windows; unseen clients fail closed until an entry expires.
+		if len(s.recent) >= recentClientLimit {
+			return false
+		}
+	}
 	recent := s.recent[key][:0]
 	for _, value := range s.recent[key] {
 		if value.After(cutoff) {

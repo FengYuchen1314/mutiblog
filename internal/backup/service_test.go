@@ -26,13 +26,23 @@ func TestBackupWhitelistsFileTruthAndExcludesSecrets(t *testing.T) {
 	if err := repository.WriteFile("config/locales.yaml", []byte("sourceLocale: en\n"), 0640); err != nil {
 		t.Fatal(err)
 	}
+	writeValidBackupAdmin(t, repository)
 	if err := repository.WriteFile("config/secrets.yaml", []byte("apiKey: test-provider-secret-never-archive\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteFile("config/secrets.yaml.bak", []byte("apiKey: backup-copy-secret-never-archive\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteFile("config/admin.yaml.bak-login-reset", []byte("passwordHash: old-admin-hash-never-archive\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.WriteFile("content/posts/hello/meta.yaml", []byte("id: hello\n"), 0640); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.WriteFile("releases/posts/hello/current.yaml", []byte("snapshot: 000001-1000000000000\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteFile("visits/posts/hello.yaml", []byte("kind: VisitCounter\ncount: 3\n"), 0640); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.WriteFile("generated/releases/build/index.html", []byte("generated"), 0640); err != nil {
@@ -80,10 +90,10 @@ func TestBackupWhitelistsFileTruthAndExcludesSecrets(t *testing.T) {
 		contents += string(data)
 	}
 	joined := strings.Join(names, "\n")
-	if !strings.Contains(joined, "config/site.yaml") || !strings.Contains(joined, "content/posts/hello/meta.yaml") || !strings.Contains(joined, "releases/posts/hello/current.yaml") {
+	if !strings.Contains(joined, "config/site.yaml") || !strings.Contains(joined, "content/posts/hello/meta.yaml") || !strings.Contains(joined, "releases/posts/hello/current.yaml") || !strings.Contains(joined, "visits/posts/hello.yaml") {
 		t.Fatalf("archive names:\n%s", joined)
 	}
-	for _, forbidden := range []string{"config/secrets.yaml", "media/.trash/", "deleted-private-stage", "themes/installed/.previous-", "themes/settings/.delete-", "private-theme-stage", "generated/", "state/", "test-provider-secret-never-archive"} {
+	for _, forbidden := range []string{"config/secrets.yaml", "config/admin.yaml.bak-login-reset", "media/.trash/", "deleted-private-stage", "themes/installed/.previous-", "themes/settings/.delete-", "private-theme-stage", "generated/", "state/", "test-provider-secret-never-archive", "backup-copy-secret-never-archive", "old-admin-hash-never-archive"} {
 		if strings.Contains(joined+contents, forbidden) {
 			t.Fatalf("backup contains %q", forbidden)
 		}

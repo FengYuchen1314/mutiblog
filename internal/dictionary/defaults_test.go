@@ -45,7 +45,19 @@ func TestWriteKeepsOnlyFrameworkKeysAndRestoresBuiltInSafetyNet(t *testing.T) {
 		t.Fatalf("French dictionary = %#v", dictionaries["fr"])
 	}
 	if dictionaries["en"]["home"] != "Custom home" || dictionaries["en"]["commentsUnavailable"] == "" {
-		t.Fatalf("English safety dictionary = %#v", dictionaries["en"])
+		t.Fatalf("built-in English dictionary = %#v", dictionaries["en"])
+	}
+}
+
+func TestBuiltInDictionariesMatchChineseRequiredKeys(t *testing.T) {
+	required := RequiredKeys()
+	if len(required) != len(defaults["zh-CN"]) || len(required) != len(defaults["en"]) {
+		t.Fatalf("built-in dictionary key counts = required %d, zh-CN %d, en %d", len(required), len(defaults["zh-CN"]), len(defaults["en"]))
+	}
+	for _, key := range required {
+		if defaults["zh-CN"][key] == "" || defaults["en"][key] == "" {
+			t.Fatalf("built-in dictionary key %q is missing or empty", key)
+		}
 	}
 }
 

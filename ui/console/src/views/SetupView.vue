@@ -3,16 +3,19 @@ import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { VButton } from "@halo-dev/components";
-import { ApiError, api } from "@/api/client";
+import { ApiError, api, createStaticBuildTaskId } from "@/api/client";
 import { markSetupComplete } from "@/router";
+import { useSessionStore } from "@/stores/session";
 
 const router = useRouter();
+const session = useSessionStore();
 const { t } = useI18n();
 const submitting = ref(false);
 const error = ref("");
 const fields = ref<Record<string, string>>({});
 const form = reactive({
   siteTitle: "MutiBlog",
+	baseUrl: window.location.origin,
   sourceLocale: "zh-CN",
   adminLocale: "zh-CN",
   timezone: "Asia/Shanghai",
@@ -25,9 +28,14 @@ async function submit() {
   error.value = "";
   fields.value = {};
   try {
-    await api.setup({ ...form });
+    const result = await api.setup({ ...form }, createStaticBuildTaskId());
+    session.establish(result.session);
     markSetupComplete();
-    await router.push({ name: "login" });
+    if (result.build.status === "failed" && !result.build.taskId) {
+      await router.push({ name: "tools", query: { setupBuildFailed: "1" } });
+      return;
+    }
+    await router.push({ name: "tasks", query: result.build.taskId ? { focus: result.build.taskId } : undefined });
   } catch (caught) {
     if (caught instanceof ApiError) {
       error.value = caught.message;
@@ -55,6 +63,12 @@ async function submit() {
           <input v-model="form.siteTitle" autocomplete="organization" />
           <small v-if="fields.siteTitle" class="field-error">{{ fields.siteTitle }}</small>
         </label>
+		<label class="field field--wide">
+		  <span>{{ t("setupPage.publicBaseUrl") }}</span>
+		  <input v-model="form.baseUrl" type="url" autocomplete="url" placeholder="https://blog.example.com" />
+		  <small>{{ t("setupPage.publicBaseUrlHelp") }}</small>
+		  <small v-if="fields.baseUrl" class="field-error">{{ fields.baseUrl }}</small>
+		</label>
         <label class="field">
           <span>{{ t("setupPage.sourceLocale") }}</span>
           <input v-model="form.sourceLocale" placeholder="zh-CN" />

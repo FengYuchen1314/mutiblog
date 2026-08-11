@@ -17,7 +17,7 @@ func TestInstallActivateUpgradeAndUninstallTheme(t *testing.T) {
 	service, repository := themeFixture(t)
 
 	installed, err := service.Install(themeArchive(t, map[string]string{
-		"theme.yaml":      "schemaVersion: 1\nid: midnight\nname: Midnight\nversion: 1.0.0\nengine: react-ssr\nserver: server.mjs\nassets: assets\nscreenshot: screenshot.webp\npostTemplates:\n  - id: gallery\n    name: Gallery\npageTemplates:\n  - id: landing\n    name: Landing\n",
+		"theme.yaml":      "schemaVersion: 1\nid: midnight\nname: Midnight\nversion: 1.0.0\nengine: react-ssr\nserver: server.mjs\nassets: assets\nscreenshot: screenshot.webp\npostTemplates:\n  - id: gallery\n    name: Gallery\npageTemplates:\n  - id: landing\n    name: Landing\ncategoryTemplates:\n  - id: masonry\n    name: Masonry\n",
 		"server.mjs":      "export const css = 'body{}';\n",
 		"assets/app.js":   "console.log('theme');\n",
 		"screenshot.webp": "preview",
@@ -53,6 +53,9 @@ func TestInstallActivateUpgradeAndUninstallTheme(t *testing.T) {
 	}
 	if supported, err := service.SupportsActiveTemplate("page", "landing"); err != nil || !supported {
 		t.Fatalf("landing template support = %v, %v", supported, err)
+	}
+	if supported, err := service.SupportsActiveTemplate("category", "masonry"); err != nil || !supported {
+		t.Fatalf("masonry template support = %v, %v", supported, err)
 	}
 	if err := service.Uninstall("midnight"); !errors.Is(err, ErrActive) {
 		t.Fatalf("active uninstall error = %v, want ErrActive", err)
@@ -101,6 +104,7 @@ func TestInstallRejectsUnsafeArchives(t *testing.T) {
 		{"theme.yaml": "schemaVersion: 1\nid: bad6\nname: Bad\nversion: 1\nengine: react-ssr\nserver: server.mjs\nscreenshot: missing.png\n", "server.mjs": ""},
 		{"theme.yaml": "schemaVersion: 1\nid: bad7\nname: Bad\nversion: 1\nrequires: latest\nengine: react-ssr\nserver: server.mjs\n", "server.mjs": ""},
 		{"theme.yaml": "schemaVersion: 1\nid: bad8\nname: Bad\nversion: 1\nengine: react-ssr\nserver: server.mjs\nsettingsReload: hot\n", "server.mjs": ""},
+		{"theme.yaml": "schemaVersion: 1\nid: bad9\nname: Bad\nversion: 1\nengine: react-ssr\nserver: server.mjs\ncategoryTemplates:\n  - id: category\n    name: Reserved\n", "server.mjs": ""},
 		{"theme.yaml": "schemaVersion: 1\nid: earth\nname: Shadow Earth\nversion: 1\nengine: react-ssr\nserver: server.mjs\n", "server.mjs": ""},
 	}
 	for index, files := range unsafe {
@@ -370,11 +374,16 @@ func TestEarthSettingsUseDefaultsValidateAndReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	style := settings.Values["style"].(map[string]any)
-	if style["accentColor"] != "#4ccba0" {
+	sidebar := settings.Values["sidebar"].(map[string]any)
+	widgets, widgetsOK := sidebar["widgets"].([]any)
+	if style["accentColor"] != "#4ccba0" || !widgetsOK || len(widgets) != 3 || widgets[0] != "popular-posts" || widgets[1] != "categories" || widgets[2] != "tags" {
 		t.Fatalf("default settings = %#v", settings.Values)
 	}
 	if _, err := service.SaveSettings("earth", map[string]any{"unknown": true}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unknown setting error = %v, want ErrInvalid", err)
+	}
+	if _, err := service.SaveSettings("earth", map[string]any{"sidebar": map[string]any{"socialLinks": []any{map[string]any{"name": "Unsafe", "url": "https://example.com", "kind": "unsupported"}}}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid nested array setting error = %v, want ErrInvalid", err)
 	}
 	updated, err := service.SaveSettings("earth", map[string]any{"style": map[string]any{"accentColor": "#ff0000"}})
 	if err != nil {
@@ -382,6 +391,10 @@ func TestEarthSettingsUseDefaultsValidateAndReset(t *testing.T) {
 	}
 	if updated.Values["style"].(map[string]any)["accentColor"] != "#ff0000" || updated.Values["layout"] == nil {
 		t.Fatalf("updated settings did not merge defaults: %#v", updated.Values)
+	}
+	updated, err = service.SaveSettings("earth", map[string]any{"sidebar": map[string]any{"widgets": []any{"tags", "profile"}, "socialLinks": []any{map[string]any{"name": "Example", "url": "https://example.com", "kind": "link"}}}})
+	if err != nil || len(updated.Values["sidebar"].(map[string]any)["widgets"].([]any)) != 2 {
+		t.Fatalf("save nested array settings = %#v, %v", updated.Values, err)
 	}
 	runtime, err := service.Runtime()
 	if err != nil {

@@ -3,6 +3,7 @@ package backup
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -31,16 +32,79 @@ type Record struct {
 }
 
 type Service struct {
-	repository *fsrepo.Repository
-	mu         sync.Mutex
+	repository      *fsrepo.Repository
+	mu              sync.Mutex
+	root            context.Context
+	cancel          context.CancelFunc
+	lifecycleMu     sync.Mutex
+	closed          bool
+	runWG           sync.WaitGroup
+	terminalMu      sync.Mutex
+	terminalClosed  bool
+	terminalRetries map[string]terminalRetry
+	terminalWG      sync.WaitGroup
+	writeTaskHook   func(Task) error
 }
 
-func NewService(repository *fsrepo.Repository) *Service { return &Service{repository: repository} }
+func NewService(repository *fsrepo.Repository) *Service {
+	root, cancel := context.WithCancel(context.Background())
+	return &Service{repository: repository, root: root, cancel: cancel, terminalRetries: make(map[string]terminalRetry)}
+}
+
+func (s *Service) Close() {
+	s.lifecycleMu.Lock()
+	s.closed = true
+	s.lifecycleMu.Unlock()
+	s.cancel()
+	s.runWG.Wait()
+	s.terminalMu.Lock()
+	s.terminalClosed = true
+	s.terminalMu.Unlock()
+	s.terminalWG.Wait()
+}
+
+func (s *Service) Launch(work func(context.Context)) bool {
+	if work == nil {
+		return false
+	}
+	s.lifecycleMu.Lock()
+	if s.closed {
+		s.lifecycleMu.Unlock()
+		return false
+	}
+	s.runWG.Add(1)
+	s.lifecycleMu.Unlock()
+	go func() {
+		defer s.runWG.Done()
+		work(s.root)
+	}()
+	return true
+}
 
 func (s *Service) Create() (Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := "backup-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	return s.createLocked(id)
+}
+
+// CreateForTask gives asynchronous create work a deterministic receipt. If a
+// process stops after the archive commit but before its task checkpoint, the
+// recovered runner returns the same record instead of creating a duplicate.
+func (s *Service) CreateForTask(taskID string) (Record, error) {
+	if !validTaskID(taskID) {
+		return Record{}, ErrTaskNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := taskResultID(taskID)
+	if record, ok := s.taskRecordLocked(id); ok {
+		return record, nil
+	}
+	return s.createLocked(id)
+}
+
+func (s *Service) createLocked(id string) (Record, error) {
 	filename := id + ".tar.gz"
 	target := filepath.Join(s.repository.Root(), "backups", filename)
 	temporary, err := os.CreateTemp(filepath.Dir(target), ".mutiblog-backup-*")
@@ -51,7 +115,7 @@ func (s *Service) Create() (Record, error) {
 	defer os.Remove(temporaryPath)
 	gzipWriter := gzip.NewWriter(temporary)
 	tarWriter := tar.NewWriter(gzipWriter)
-	for _, root := range []string{"config", "content", "comments", "media/originals", "media/metadata", "themes/installed", "themes/settings", "revisions", "releases"} {
+	for _, root := range []string{"config", "content", "comments", "upvotes", "visits", "media/originals", "media/metadata", "themes/installed", "themes/settings", "revisions", "releases"} {
 		if err := s.addTree(tarWriter, root); err != nil {
 			tarWriter.Close()
 			gzipWriter.Close()
@@ -107,7 +171,35 @@ func (s *Service) Import(reader io.Reader) (Record, error) {
 	if written > MaxImportSize {
 		return Record{}, ErrInvalidArchive
 	}
-	return s.importTemporaryLocked(temporaryPath, written)
+	return s.importTemporaryLocked(temporaryPath, written, "")
+}
+
+func (s *Service) ImportForTask(taskID string, reader io.Reader) (Record, error) {
+	if !validTaskID(taskID) {
+		return Record{}, ErrTaskNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := taskResultID(taskID)
+	if record, ok := s.taskRecordLocked(id); ok {
+		return record, nil
+	}
+	temporary, err := os.CreateTemp(filepath.Join(s.repository.Root(), "backups"), ".mutiblog-import-*")
+	if err != nil {
+		return Record{}, err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	written, copyErr := io.Copy(temporary, io.LimitReader(reader, MaxImportSize+1))
+	if closeErr := temporary.Close(); copyErr != nil {
+		return Record{}, copyErr
+	} else if closeErr != nil {
+		return Record{}, closeErr
+	}
+	if written > MaxImportSize {
+		return Record{}, ErrInvalidArchive
+	}
+	return s.importTemporaryLocked(temporaryPath, written, id)
 }
 
 func (s *Service) ImportStaged(taskID string) (Record, error) {
@@ -116,17 +208,24 @@ func (s *Service) ImportStaged(taskID string) (Record, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	id := taskResultID(taskID)
+	if record, ok := s.taskRecordLocked(id); ok {
+		return record, nil
+	}
 	path := s.stagedImportPath(taskID)
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > MaxImportSize {
 		return Record{}, ErrInvalidArchive
 	}
 	defer os.Remove(path)
-	return s.importTemporaryLocked(path, info.Size())
+	return s.importTemporaryLocked(path, info.Size(), id)
 }
 
-func (s *Service) importTemporaryLocked(temporaryPath string, size int64) (Record, error) {
-	id := "backup-import-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+func (s *Service) importTemporaryLocked(temporaryPath string, size int64, requestedID string) (Record, error) {
+	id := requestedID
+	if id == "" {
+		id = "backup-import-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
 	filename := id + ".tar.gz"
 	target := filepath.Join(s.repository.Root(), "backups", filename)
 	staging, err := os.MkdirTemp(s.repository.Root(), ".import-validation-")
@@ -154,6 +253,11 @@ func (s *Service) importTemporaryLocked(temporaryPath string, size int64) (Recor
 		return Record{}, err
 	}
 	return record, nil
+}
+
+func (s *Service) taskRecordLocked(id string) (Record, bool) {
+	_, record, err := s.Path(id)
+	return record, err == nil
 }
 
 func (s *Service) List() ([]Record, error) {
@@ -222,7 +326,7 @@ func (s *Service) addTree(writer *tar.Writer, relativeRoot string) error {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
-		if relative == "config/secrets.yaml" || relative == "config/initialized" {
+		if relative != "config" && strings.HasPrefix(relative, "config/") && !backupConfigPathAllowed(relative) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -274,6 +378,16 @@ func (s *Service) addTree(writer *tar.Writer, relativeRoot string) error {
 		return closeErr
 	})
 }
+
+func backupConfigPathAllowed(relative string) bool {
+	switch relative {
+	case "config/admin.yaml", "config/comments.yaml", "config/locales.yaml", "config/providers.yaml", "config/site.yaml":
+		return true
+	default:
+		return false
+	}
+}
+
 func validID(id string) bool {
 	return strings.HasPrefix(id, "backup-") && !strings.ContainsAny(id, "/\\") && filepath.Base(id) == id && len(id) < 96
 }

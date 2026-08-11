@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
-FROM node:24-bookworm AS web-build
+FROM node:26-bookworm AS web-build
 WORKDIR /src
-RUN corepack enable
+RUN npm install --global pnpm@11.20.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY ui/console/package.json ui/console/package.json
 COPY apps/renderer/package.json apps/renderer/package.json
@@ -23,7 +23,7 @@ COPY internal ./internal
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/mutiblog ./cmd/mutiblog
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:26-bookworm-slim AS runtime
 LABEL org.opencontainers.image.source="https://github.com/FengYuchen1314/mutiblog"
 WORKDIR /app
 RUN apt-get update \

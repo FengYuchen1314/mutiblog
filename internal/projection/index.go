@@ -47,6 +47,7 @@ type Service struct {
 	db          *sql.DB
 	path        string
 	mu          sync.RWMutex
+	taskMu      sync.Mutex
 	lastHash    string
 	stats       Stats
 	cancelWatch context.CancelFunc
@@ -109,6 +110,30 @@ func (s *Service) openDatabase() error {
 func (s *Service) Rebuild() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.rebuildLocked()
+}
+
+// RebuildIfChanged refreshes the derived search index only when one of its
+// source files changed since the last successful rebuild. The check and the
+// rebuild share the same lock so concurrent request finalizers and the file
+// watcher cannot both claim the same filesystem change.
+func (s *Service) RebuildIfChanged() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fingerprint, err := s.fingerprint()
+	if err != nil {
+		return false, s.fail(err)
+	}
+	if fingerprint == s.lastHash && s.stats.Status == "ready" {
+		return false, nil
+	}
+	if err := s.rebuildLocked(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Service) rebuildLocked() error {
 	posts, err := s.content.ListPosts()
 	if err != nil {
 		return s.fail(err)
@@ -179,7 +204,13 @@ func (s *Service) Rebuild() error {
 	return nil
 }
 
-func (s *Service) StartWatcher(parent context.Context, onExternalChange func(context.Context) error) {
+// StartWatcher observes direct filesystem edits. onExternalChange is expected
+// to acquire the application's exclusive mutation gate and call
+// RebuildIfChanged before publishing. It returns false when a managed request
+// refreshed the projection while the watcher was waiting for that gate; in
+// that case the apparent change was internal and must not trigger a second
+// static build.
+func (s *Service) StartWatcher(parent context.Context, onExternalChange func(context.Context) (bool, error)) {
 	s.mu.Lock()
 	if s.cancelWatch != nil {
 		s.mu.Unlock()
@@ -209,8 +240,26 @@ func (s *Service) StartWatcher(parent context.Context, onExternalChange func(con
 				if unchanged {
 					continue
 				}
-				if err := s.Rebuild(); err != nil {
-					s.logger.Error("projection rebuild after file change failed", "error", err)
+				external := true
+				if onExternalChange == nil {
+					changed, err := s.RebuildIfChanged()
+					if err != nil {
+						s.logger.Error("projection rebuild after file change failed", "error", err)
+						continue
+					}
+					external = changed
+				} else {
+					changeCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+					changed, err := onExternalChange(changeCtx)
+					cancel()
+					if err != nil {
+						s.recordWatchError(err)
+						s.logger.Error("external file change could not be indexed and published; previous release retained", "error", err)
+						continue
+					}
+					external = changed
+				}
+				if !external {
 					continue
 				}
 				now := time.Now().UTC()
@@ -218,15 +267,7 @@ func (s *Service) StartWatcher(parent context.Context, onExternalChange func(con
 				s.stats.LastExternalChangeAt = &now
 				s.mu.Unlock()
 				if onExternalChange != nil {
-					changeCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-					err := onExternalChange(changeCtx)
-					cancel()
-					if err != nil {
-						s.recordWatchError(err)
-						s.logger.Error("static rebuild after file change failed; previous release retained", "error", err)
-					} else {
-						s.logger.Info("external file change indexed and published")
-					}
+					s.logger.Info("external file change indexed and published")
 				}
 			}
 		}

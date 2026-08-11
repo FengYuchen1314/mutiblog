@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
@@ -23,7 +24,7 @@ func testService(t *testing.T) (*Service, *fsrepo.Repository) {
 			{Code: "zh-CN", Label: "简体中文", Enabled: true},
 			{Code: "en", Label: "English", Enabled: true},
 		},
-		Fallback: []string{"en", "zh-CN"},
+		Fallback: []string{"zh-CN"},
 	}
 	if err := repository.WriteYAML("config/locales.yaml", locales, false); err != nil {
 		t.Fatal(err)
@@ -255,12 +256,94 @@ func TestPostSettingsValidateTaxonomyAndLocalMedia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	post, err = service.UpdatePostSettings(post.Meta.ID, UpdatePostSettingsInput{ExpectedRevision: post.Meta.Revision, Categories: []string{"engineering", "engineering"}, Cover: "/media/2026/08/cover.webp", CommentPolicy: "closed", Template: "post"})
-	if err != nil || len(post.Meta.Categories) != 1 || post.Meta.CommentPolicy != "closed" {
+	pinned := true
+	visibility := domain.ContentVisibilityPrivate
+	publishedAt := time.Date(2026, time.August, 12, 8, 30, 0, 0, time.UTC)
+	post, err = service.UpdatePostSettings(post.Meta.ID, UpdatePostSettingsInput{
+		ExpectedRevision: post.Meta.Revision,
+		Categories:       []string{"engineering", "engineering"},
+		Cover:            "/media/2026/08/cover.webp",
+		Pinned:           &pinned,
+		Visibility:       &visibility,
+		PublishedAt:      &publishedAt,
+		PublishTimeSet:   true,
+		CommentPolicy:    "closed",
+		Template:         "post",
+	})
+	if err != nil || len(post.Meta.Categories) != 1 || post.Meta.CommentPolicy != "closed" || !post.Meta.Pinned || post.Meta.Visibility != domain.ContentVisibilityPrivate || post.Meta.PublishedAt == nil || !post.Meta.PublishedAt.Equal(publishedAt) {
 		t.Fatalf("post settings = %#v, err = %v", post.Meta, err)
 	}
 	if _, err := service.UpdatePostSettings(post.Meta.ID, UpdatePostSettingsInput{ExpectedRevision: post.Meta.Revision, Cover: "https://example.com/cover.jpg"}); err == nil {
 		t.Fatal("external cover URL was accepted")
+	}
+}
+
+func TestPrivateReleaseIsExcludedFromPublicBuildAndComments(t *testing.T) {
+	service, _ := testService(t)
+	post, err := service.CreatePost(CreatePostInput{ID: "private-post", Title: "Private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post, err = service.PublishPost(post.Meta.ID, post.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visibility := domain.ContentVisibilityPrivate
+	post, err = service.UpdatePostSettings(post.Meta.ID, UpdatePostSettingsInput{ExpectedRevision: post.Meta.Revision, Visibility: &visibility})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.ListPostsForBuild()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stillPublic := false
+	for _, item := range items {
+		if item.Meta.ID == post.Meta.ID {
+			stillPublic = true
+		}
+	}
+	if !stillPublic {
+		t.Fatal("unpublished visibility edit changed the active public release")
+	}
+	if _, err := service.GetPublishedRelease("Post", post.Meta.ID); err != nil {
+		t.Fatalf("public release disappeared before explicit publish: %v", err)
+	}
+	post, err = service.PublishPost(post.Meta.ID, post.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = service.ListPostsForBuild()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.Meta.ID == post.Meta.ID {
+			t.Fatal("private post leaked into the public build")
+		}
+	}
+	if _, err := service.GetPublishedRelease("Post", post.Meta.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("private release lookup error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestLegacyContentDefaultsToPublicVisibility(t *testing.T) {
+	service, repository := testService(t)
+	post, err := service.CreatePost(CreatePostInput{ID: "legacy-visibility", Title: "Legacy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta domain.PostMeta
+	if err := repository.ReadYAML(postPath(post.Meta.ID, "meta.yaml"), &meta); err != nil {
+		t.Fatal(err)
+	}
+	meta.Visibility = ""
+	if err := repository.WriteYAML(postPath(post.Meta.ID, "meta.yaml"), meta, false); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := service.GetPost(post.Meta.ID)
+	if err != nil || reloaded.Meta.Visibility != domain.ContentVisibilityPublic {
+		t.Fatalf("legacy visibility = %q, err = %v", reloaded.Meta.Visibility, err)
 	}
 }
 
@@ -457,5 +540,69 @@ func TestRestoreRevisionCreatesHeadWithoutChangingRelease(t *testing.T) {
 	buildPosts, err := service.ListPostsForBuild()
 	if err != nil || buildPosts[0].Content[post.Meta.SourceLocale].Title != "Second" {
 		t.Fatalf("release changed during restore: %#v, %v", buildPosts, err)
+	}
+}
+
+func TestRestoreRevisionKeepsCurrentScheduleIntentInsteadOfSnapshotIntent(t *testing.T) {
+	service, _ := testService(t)
+	post, err := service.CreatePost(CreatePostInput{ID: "restore-schedule-intent", Title: "First", Markdown: "One"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dueAt := time.Now().UTC().Add(time.Hour)
+	visibility := post.Meta.Visibility
+	post, err = service.UpdatePostSettings(post.Meta.ID, UpdatePostSettingsInput{
+		ExpectedRevision: post.Meta.Revision, Categories: post.Meta.Categories, Tags: post.Meta.Tags,
+		Pinned: &post.Meta.Pinned, Visibility: &visibility, PublishedAt: &dueAt, PublishTimeSet: true,
+		CommentPolicy: post.Meta.CommentPolicy, Template: post.Meta.Template,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetScheduledPublish("Post", post.Meta.ID, post.Meta.Revision, dueAt); err != nil {
+		t.Fatal(err)
+	}
+	oldScheduledRevision := post.Meta.Revision
+	post, err = service.UpdateLocale(post.Meta.ID, post.Meta.SourceLocale, UpdateLocaleInput{
+		ExpectedRevision: post.Meta.Revision, Title: "Second", Markdown: "Two",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ClearScheduledPublish("Post", post.Meta.ID, oldScheduledRevision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SetScheduledPublish("Post", post.Meta.ID, post.Meta.Revision, dueAt); err != nil {
+		t.Fatal(err)
+	}
+	currentScheduledRevision := post.Meta.Revision
+
+	revisions, err := service.ListRevisions("Post", post.Meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldSnapshot := ""
+	for _, revision := range revisions {
+		if revision.Revision == oldScheduledRevision {
+			oldSnapshot = revision.ID
+			break
+		}
+	}
+	if oldSnapshot == "" {
+		t.Fatal("snapshot containing the old schedule intent was not found")
+	}
+	restored, err := service.RestoreRevision("Post", post.Meta.ID, oldSnapshot, post.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Meta.ScheduledRevision != currentScheduledRevision || restored.Meta.ScheduledRevision == oldScheduledRevision {
+		t.Fatalf("restored schedule marker = %d, want current marker %d (not snapshot marker %d)", restored.Meta.ScheduledRevision, currentScheduledRevision, oldScheduledRevision)
+	}
+	if err := service.ClearScheduledPublish("Post", restored.Meta.ID, currentScheduledRevision); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.GetPost(restored.Meta.ID)
+	if err != nil || stored.Meta.ScheduledRevision != 0 {
+		t.Fatalf("current schedule intent was not clearable after restore: %#v, %v", stored.Meta, err)
 	}
 }

@@ -4,9 +4,10 @@ import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { Icon } from "@iconify/vue";
 import { VButton, VCard, VEmpty, VPageHeader, VStatusDot, VTag } from "@halo-dev/components";
-import { api, type Post } from "@/api/client";
+import { ApiError, api, createStaticBuildTaskId, type Post } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
+import TaskProgress from "@/components/TaskProgress.vue";
 
 const session = useSessionStore();
 const route = useRoute();
@@ -26,6 +27,9 @@ const page = ref(Math.max(1, Number.parseInt(queryValue("page", "1"), 10) || 1))
 const pageSize = 20;
 const selectedIDs = ref<string[]>([]);
 const bulkBusy = ref(false);
+const activeTaskId = ref("");
+const bulkCurrent = ref(0);
+const bulkTotal = ref(0);
 const localeOptions = computed(() => [...new Set(pages.value.flatMap((page) => Object.keys(page.meta.locales)))].sort());
 const visiblePages = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase();
@@ -93,18 +97,38 @@ function togglePageSelection() {
     : [...new Set([...selectedIDs.value, ...ids])];
 }
 
+function startBuildTask(bulk = false) {
+  const taskId = createStaticBuildTaskId();
+  activeTaskId.value = taskId;
+  if (!bulk) {
+    bulkCurrent.value = 0;
+    bulkTotal.value = 0;
+  }
+  return taskId;
+}
+
+async function discardTaskIfMissing(taskId: string) {
+  try {
+    await api.task(taskId);
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.status === 404 && activeTaskId.value === taskId) activeTaskId.value = "";
+  }
+}
+
 async function transition(page: Post, action: "unpublish" | "recycle" | "restore") {
   if (!session.session) return;
   if (action === "recycle" && !window.confirm(t("contentList.confirmRecyclePage", { title: sourceTitle(page) }))) return;
   error.value = "";
-  try { await api.changePageStatus(session.session.csrfToken, page.meta.id, action, page.meta.revision); await load(); }
-  catch (caught) { error.value = caught instanceof Error ? caught.message : t("contentList.updatePageFailed"); }
+  const taskId = startBuildTask();
+  try { const result=await api.changePageStatus(session.session.csrfToken, page.meta.id, action, page.meta.revision, taskId);await load();if(result.build.status==="failed")error.value=t("common.publicationFailed"); }
+  catch (caught) { await discardTaskIfMissing(taskId); error.value = caught instanceof Error ? caught.message : t("contentList.updatePageFailed"); }
 }
 
 async function removeForever(page: Post) {
   if (!session.session || !window.confirm(t("contentList.confirmDelete", { title: sourceTitle(page) }))) return;
-  try { await api.deletePage(session.session.csrfToken, page.meta.id, page.meta.revision); await load(); }
-  catch (caught) { error.value = caught instanceof Error ? caught.message : t("contentList.deleteFailed"); }
+  const taskId = startBuildTask();
+  try { const result=await api.deletePage(session.session.csrfToken, page.meta.id, page.meta.revision, taskId);await load();if(result.build.status==="failed")error.value=t("common.publicationFailed"); }
+  catch (caught) { await discardTaskIfMissing(taskId); error.value = caught instanceof Error ? caught.message : t("contentList.deleteFailed"); }
 }
 
 async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore" | "delete") {
@@ -118,13 +142,28 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
   if (!window.confirm(t(action === "delete" ? "contentList.confirmBulkDelete" : "contentList.confirmBulkAction", { count, action: actionLabel }))) return;
   bulkBusy.value = true;
   error.value = "";
+  bulkCurrent.value = 0;
+  bulkTotal.value = count;
   let failed = 0;
-  for (const pageItem of targets) {
+  for (const [index, pageItem] of targets.entries()) {
+    bulkCurrent.value = index + 1;
+    const taskId = startBuildTask(true);
     try {
-      if (action === "delete") await api.deletePage(csrfToken, pageItem.meta.id, pageItem.meta.revision);
-      else if (action === "publish") await api.publishPage(csrfToken, pageItem.meta.id, pageItem.meta.revision);
-      else await api.changePageStatus(csrfToken, pageItem.meta.id, action, pageItem.meta.revision);
-    } catch { failed += 1; }
+      if (action === "delete") {
+        const result=await api.deletePage(csrfToken, pageItem.meta.id, pageItem.meta.revision, taskId);
+        if(result.build.status==="failed")failed+=1;
+      }
+      else if (action === "publish") {
+        const result = await api.publishPage(csrfToken, pageItem.meta.id, pageItem.meta.revision, taskId);
+        if (result.build.status === "scheduled") activeTaskId.value = result.build.taskId ?? "";
+        else if (result.translation.status === "queued") activeTaskId.value = result.translation.taskId ?? "";
+        if(result.build.status==="failed"||result.translation.status==="failed")failed+=1;
+      }
+      else {
+        const result=await api.changePageStatus(csrfToken, pageItem.meta.id, action, pageItem.meta.revision, taskId);
+        if(result.build.status==="failed")failed+=1;
+      }
+    } catch { await discardTaskIfMissing(taskId); failed += 1; }
   }
   selectedIDs.value = [];
   await load();
@@ -139,6 +178,7 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
     <div class="page-body"><VCard>
       <div class="filter-bar"><input v-model="query" :placeholder="t('contentList.keyword')" /><select v-if="!recycleMode" v-model="statusFilter" :aria-label="t('common.status')"><option value="all">{{ t("common.status") }}：{{ t("common.all") }}</option><option v-for="value in ['draft','published','unpublished']" :key="value" :value="value">{{ codeLabel(value) }}</option></select><select v-model="localeFilter" :aria-label="t('common.language')"><option value="all">{{ t("common.language") }}：{{ t("common.all") }}</option><option v-for="locale in localeOptions" :key="locale" :value="locale">{{ locale }}</option></select><select v-model="sortOrder" :aria-label="t('common.sort')"><option value="updated-desc">{{ t("contentList.newest") }}</option><option value="updated-asc">{{ t("contentList.oldest") }}</option><option value="title">{{ t("contentList.byTitle") }}</option></select><button @click="load">{{ t("common.refresh") }}</button></div>
       <div v-if="visiblePages.length" class="bulk-bar"><label><input type="checkbox" :checked="pageAllSelected" @change="togglePageSelection" />{{ t("contentList.selectPage") }}</label><span>{{ t("contentList.selected", { count: selectedIDs.length }) }}</span><template v-if="!recycleMode"><button :disabled="!selectedPublishable.length || bulkBusy" @click="bulkAction('publish')">{{ t("contentList.bulkPublish") }}</button><button :disabled="!selectedPublished.length || bulkBusy" @click="bulkAction('unpublish')">{{ t("contentList.bulkUnpublish") }}</button><button :disabled="!selectedIDs.length || bulkBusy" @click="bulkAction('recycle')">{{ t("contentList.bulkRecycle") }}</button></template><template v-else><button :disabled="!selectedIDs.length || bulkBusy" @click="bulkAction('restore')">{{ t("contentList.bulkRestore") }}</button><button class="text-danger" :disabled="!selectedIDs.length || bulkBusy" @click="bulkAction('delete')">{{ t("contentList.bulkDelete") }}</button></template></div>
+      <div v-if="activeTaskId || bulkTotal"><span v-if="bulkTotal">{{ bulkCurrent }} / {{ bulkTotal }}</span><TaskProgress v-if="activeTaskId" :task-id="activeTaskId" /></div>
       <div v-if="error" class="form-alert resource-alert">{{ error }}</div>
       <div v-if="loading" class="resource-loading">{{ t("contentList.loadingPages") }}</div>
       <div v-else-if="visiblePages.length" class="post-rows">

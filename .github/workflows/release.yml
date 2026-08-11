@@ -30,7 +30,7 @@ jobs:
           version: 11.20.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: bash -n deploy/*.sh && bash deploy/update-test.sh

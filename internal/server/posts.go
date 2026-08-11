@@ -3,9 +3,13 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/FengYuchen1314/mutiblog/internal/ai"
 	"github.com/FengYuchen1314/mutiblog/internal/content"
+	"github.com/FengYuchen1314/mutiblog/internal/domain"
+	"github.com/FengYuchen1314/mutiblog/internal/scheduled"
 	"github.com/FengYuchen1314/mutiblog/internal/translation"
 )
 
@@ -36,6 +40,9 @@ type updatePostSettingsRequest struct {
 	Categories    []string `json:"categories"`
 	Tags          []string `json:"tags"`
 	Cover         string   `json:"cover"`
+	Pinned        *bool    `json:"pinned,omitempty"`
+	Visibility    *string  `json:"visibility,omitempty"`
+	PublishedAt   *string  `json:"publishedAt,omitempty"`
 	CommentPolicy string   `json:"commentPolicy"`
 	Template      string   `json:"template"`
 }
@@ -91,6 +98,9 @@ func (s *Server) handleUpdatePostLocale(w http.ResponseWriter, r *http.Request) 
 		s.writeContentError(w, err)
 		return
 	}
+	if !s.invalidateScheduledContent(w, "Post", post.Meta.ID, post.Meta.Revision) {
+		return
+	}
 	s.writeJSON(w, http.StatusOK, post)
 }
 
@@ -102,6 +112,11 @@ func (s *Server) handleUpdatePostSettings(w http.ResponseWriter, r *http.Request
 	}
 	if request.Template == "" {
 		request.Template = "post"
+	}
+	settings, err := contentSettingsInput(request)
+	if err != nil {
+		s.writeError(w, http.StatusUnprocessableEntity, "content_invalid", err.Error(), nil)
+		return
 	}
 	s.themeGate.RLock()
 	defer s.themeGate.RUnlock()
@@ -119,15 +134,44 @@ func (s *Server) handleUpdatePostSettings(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	post, err := s.content.UpdatePostSettings(r.PathValue("id"), content.UpdatePostSettingsInput{
-		ExpectedRevision: request.Revision, Categories: request.Categories, Tags: request.Tags,
-		Cover: request.Cover, CommentPolicy: request.CommentPolicy, Template: request.Template,
-	})
+	post, err := s.content.UpdatePostSettings(r.PathValue("id"), settings)
 	if err != nil {
 		s.writeContentError(w, err)
 		return
 	}
+	if !s.invalidateScheduledContent(w, "Post", post.Meta.ID, post.Meta.Revision) {
+		return
+	}
 	s.writeJSON(w, http.StatusOK, post)
+}
+
+func contentSettingsInput(request updatePostSettingsRequest) (content.UpdatePostSettingsInput, error) {
+	input := content.UpdatePostSettingsInput{
+		ExpectedRevision: request.Revision,
+		Categories:       request.Categories,
+		Tags:             request.Tags,
+		Cover:            request.Cover,
+		Pinned:           request.Pinned,
+		CommentPolicy:    request.CommentPolicy,
+		Template:         request.Template,
+	}
+	if request.Visibility != nil {
+		visibility := domain.ContentVisibility(strings.TrimSpace(*request.Visibility))
+		input.Visibility = &visibility
+	}
+	if request.PublishedAt != nil {
+		input.PublishTimeSet = true
+		value := strings.TrimSpace(*request.PublishedAt)
+		if value != "" {
+			publishedAt, err := time.Parse(time.RFC3339, value)
+			if err != nil {
+				return content.UpdatePostSettingsInput{}, errors.New("publish time must be an RFC 3339 timestamp")
+			}
+			publishedAt = publishedAt.UTC()
+			input.PublishedAt = &publishedAt
+		}
+	}
+	return input, nil
 }
 
 func (s *Server) handlePublishPost(w http.ResponseWriter, r *http.Request) {
@@ -141,11 +185,39 @@ func (s *Server) handlePublishPost(w http.ResponseWriter, r *http.Request) {
 		s.writeContentError(w, err)
 		return
 	}
-	firstPublish := before.Meta.PublishedAt == nil
+	firstPublish := before.Meta.ReleaseRevision == 0
+	if before.Meta.PublishedAt != nil && before.Meta.PublishedAt.After(time.Now().UTC()) {
+		task, scheduleErr := s.scheduler.Start(scheduled.StartInput{EntityKind: "Post", EntityID: before.Meta.ID, Revision: request.Revision, DueAt: *before.Meta.PublishedAt})
+		if scheduleErr != nil {
+			s.logger.Error("schedule post publish failed", "post", before.Meta.ID, "error", scheduleErr)
+			if errors.Is(scheduleErr, content.ErrConflict) {
+				s.writeContentError(w, scheduleErr)
+				return
+			}
+			if errors.Is(scheduleErr, scheduled.ErrTaskRunning) {
+				s.writeError(w, http.StatusConflict, "scheduled_publish_running", "A scheduled publication is already running for this post.", nil)
+				return
+			}
+			s.writeError(w, http.StatusUnprocessableEntity, "scheduled_publish_failed", "The future publication could not be scheduled.", nil)
+			return
+		}
+		s.writeJSON(w, http.StatusAccepted, map[string]any{
+			"post":        before,
+			"build":       map[string]any{"status": "scheduled", "taskId": task.ID, "dueAt": task.DueAt},
+			"translation": map[string]any{"status": "deferred"},
+		})
+		return
+	}
 	post, err := s.content.PublishPost(r.PathValue("id"), request.Revision)
 	if err != nil {
 		s.writeContentError(w, err)
 		return
+	}
+	s.clearPublicStatsCache()
+	if s.scheduler != nil {
+		if _, cancelErr := s.scheduler.CancelForEntity("Post", before.Meta.ID); cancelErr != nil {
+			s.logger.Error("cancel superseded scheduled post publish failed after successful publish", "post", before.Meta.ID, "error", cancelErr)
+		}
 	}
 	report, buildErr := s.publisher.Build(r.Context())
 	translationState := map[string]any{"status": "not-needed"}
@@ -165,10 +237,27 @@ func (s *Server) handlePublishPost(w http.ResponseWriter, r *http.Request) {
 	}
 	if buildErr != nil {
 		s.logger.Error("static build after publish failed", "post", post.Meta.ID, "error", buildErr)
+		w.Header().Set("X-MutiBlog-Static-Build", "failed")
 		s.writeJSON(w, http.StatusAccepted, map[string]any{"post": post, "build": map[string]any{"status": "failed"}, "translation": translationState})
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"post": post, "build": map[string]any{"status": "succeeded", "report": report}, "translation": translationState})
+}
+
+func (s *Server) invalidateScheduledContent(w http.ResponseWriter, kind, id string, revision int) bool {
+	if s.scheduler == nil {
+		return true
+	}
+	if _, err := s.scheduler.InvalidateForEntity(kind, id, revision); err != nil {
+		s.logger.Error("invalidate changed scheduled publication failed", "kind", kind, "id", id, "revision", revision, "error", err)
+		if errors.Is(err, scheduled.ErrTaskRunning) {
+			s.writeError(w, http.StatusConflict, "scheduled_publish_running", "The scheduled publication is already running.", nil)
+		} else {
+			s.writeError(w, http.StatusInternalServerError, "scheduled_publish_invalidate_failed", "The saved content could not update its publication schedule.", nil)
+		}
+		return false
+	}
+	return true
 }
 
 func (s *Server) handleBuildSite(w http.ResponseWriter, r *http.Request) {

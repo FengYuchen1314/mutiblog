@@ -61,6 +61,9 @@ func (s *Server) handleRestoreContentRevision(w http.ResponseWriter, r *http.Req
 		s.writeContentError(w, err)
 		return
 	}
+	if !s.invalidateScheduledContent(w, scheduledEntityKind(kind), item.Meta.ID, item.Meta.Revision) {
+		return
+	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"post": item, "build": map[string]any{"status": "not-needed"}, "message": "Revision restored as a new head revision; publish explicitly to update the public release."})
 }
 
@@ -81,6 +84,10 @@ func (s *Server) handleContentLifecycle(w http.ResponseWriter, r *http.Request, 
 	item, err := s.content.ChangeStatus(kind, r.PathValue("id"), r.PathValue("action"), request.Revision)
 	if err != nil {
 		s.writeContentError(w, err)
+		return
+	}
+	s.clearPublicStatsCache()
+	if !s.invalidateScheduledContent(w, scheduledEntityKind(kind), item.Meta.ID, item.Meta.Revision) {
 		return
 	}
 	s.writeContentBuildResult(w, r, item, "Content status updated.")
@@ -104,18 +111,34 @@ func (s *Server) handleDeleteContent(w http.ResponseWriter, r *http.Request, kin
 		s.writeContentError(w, err)
 		return
 	}
-	if _, err := s.publisher.Build(r.Context()); err != nil {
-		s.logger.Error("static build after permanent content deletion failed", "kind", kind, "id", r.PathValue("id"), "error", err)
-		s.writeError(w, http.StatusAccepted, "static_build_failed", "The content was deleted, but the previous public release is still active.", nil)
+	s.clearPublicStatsCache()
+	// The entity no longer exists, so no current revision can legitimately keep
+	// a schedule alive. Clear every queued/stale-running record before rebuilding
+	// the public release; ClearScheduledPublish deliberately tolerates not-found.
+	if !s.invalidateScheduledContent(w, scheduledEntityKind(kind), r.PathValue("id"), -1) {
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if _, err := s.publisher.Build(r.Context()); err != nil {
+		s.logger.Error("static build after permanent content deletion failed", "kind", kind, "id", r.PathValue("id"), "error", err)
+		w.Header().Set("X-MutiBlog-Static-Build", "failed")
+		s.writeJSON(w, http.StatusAccepted, map[string]any{"deleted": true, "build": map[string]any{"status": "failed"}, "message": "The content was deleted, but the previous public release is still active."})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "build": map[string]any{"status": "succeeded"}})
+}
+
+func scheduledEntityKind(kind string) string {
+	if kind == "page" {
+		return "Page"
+	}
+	return "Post"
 }
 
 func (s *Server) writeContentBuildResult(w http.ResponseWriter, r *http.Request, item any, message string) {
 	report, err := s.publisher.Build(r.Context())
 	if err != nil {
 		s.logger.Error("static build after content lifecycle operation failed", "error", err)
+		w.Header().Set("X-MutiBlog-Static-Build", "failed")
 		s.writeJSON(w, http.StatusAccepted, map[string]any{"post": item, "build": map[string]any{"status": "failed"}, "message": message})
 		return
 	}

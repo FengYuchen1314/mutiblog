@@ -36,6 +36,9 @@ func (s *Service) decoratePublicationState(kind string, item *domain.Post) {
 }
 
 func normalizeRevisionPointers(meta *domain.PostMeta) {
+	if meta.Visibility == "" {
+		meta.Visibility = domain.ContentVisibilityPublic
+	}
 	if meta.BaseRevision <= 0 {
 		meta.BaseRevision = 1
 	}
@@ -106,14 +109,15 @@ func (s *Service) InitializePublishedReleases() (int, error) {
 }
 
 // ListPostsForBuild and ListPagesForBuild substitute the immutable public
-// release for every published head. Draft, unpublished, and recycled heads are
-// retained so the renderer can apply its normal status filter.
+// release for every published head. Private releases are omitted entirely;
+// draft, unpublished, and recycled heads are retained for the renderer's
+// normal status filter.
 func (s *Service) ListPostsForBuild() ([]domain.Post, error) {
 	posts, err := s.ListPosts()
 	if err != nil {
 		return nil, err
 	}
-	return s.releasesForBuild("Post", posts)
+	return s.publicReleasesForBuild("Post", posts)
 }
 
 func (s *Service) ListPagesForBuild() ([]domain.Post, error) {
@@ -121,7 +125,22 @@ func (s *Service) ListPagesForBuild() ([]domain.Post, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.releasesForBuild("Page", pages)
+	return s.publicReleasesForBuild("Page", pages)
+}
+
+func (s *Service) publicReleasesForBuild(kind string, heads []domain.Post) ([]domain.Post, error) {
+	items, err := s.releasesForBuild(kind, heads)
+	if err != nil {
+		return nil, err
+	}
+	public := make([]domain.Post, 0, len(items))
+	for _, item := range items {
+		if item.Meta.Visibility == domain.ContentVisibilityPrivate {
+			continue
+		}
+		public = append(public, item)
+	}
+	return public, nil
 }
 
 // GetPublishedRelease returns the same immutable snapshot that the public
@@ -137,7 +156,13 @@ func (s *Service) GetPublishedRelease(kind, id string) (domain.Post, error) {
 	}
 	released, err := s.readRelease(kind, id)
 	if errors.Is(err, os.ErrNotExist) {
+		if head.Meta.Visibility == domain.ContentVisibilityPrivate {
+			return domain.Post{}, ErrNotFound
+		}
 		return head, nil
+	}
+	if err == nil && released.Meta.Visibility == domain.ContentVisibilityPrivate {
+		return domain.Post{}, ErrNotFound
 	}
 	return released, err
 }

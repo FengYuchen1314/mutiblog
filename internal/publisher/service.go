@@ -19,6 +19,7 @@ import (
 	"github.com/FengYuchen1314/mutiblog/internal/dictionary"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	linkservice "github.com/FengYuchen1314/mutiblog/internal/links"
+	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
 	menuservice "github.com/FengYuchen1314/mutiblog/internal/menus"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
 	"github.com/FengYuchen1314/mutiblog/internal/taskstore"
@@ -40,6 +41,7 @@ type PostInput struct {
 	Status        domain.ContentStatus     `json:"status"`
 	Template      string                   `json:"template"`
 	Cover         string                   `json:"cover,omitempty"`
+	Pinned        bool                     `json:"pinned,omitempty"`
 	PublishedAt   *time.Time               `json:"publishedAt,omitempty"`
 	Categories    []string                 `json:"categories"`
 	Tags          []string                 `json:"tags"`
@@ -58,25 +60,30 @@ type TaxonomyInput struct {
 	ID           string                            `json:"id"`
 	SourceLocale string                            `json:"sourceLocale"`
 	ParentID     string                            `json:"parentId,omitempty"`
+	Cover        string                            `json:"cover,omitempty"`
+	Template     string                            `json:"template,omitempty"`
 	Locales      map[string]LocalizedTaxonomyInput `json:"locales"`
 }
 
 type ThemeInput struct {
-	ID            string                         `json:"id"`
-	ModulePath    string                         `json:"modulePath,omitempty"`
-	AssetsPath    string                         `json:"assetsPath,omitempty"`
-	Settings      map[string]any                 `json:"settings"`
-	PostTemplates []themeservice.ContentTemplate `json:"postTemplates,omitempty"`
-	PageTemplates []themeservice.ContentTemplate `json:"pageTemplates,omitempty"`
+	ID                string                         `json:"id"`
+	ModulePath        string                         `json:"modulePath,omitempty"`
+	AssetsPath        string                         `json:"assetsPath,omitempty"`
+	Settings          map[string]any                 `json:"settings"`
+	PostTemplates     []themeservice.ContentTemplate `json:"postTemplates,omitempty"`
+	PageTemplates     []themeservice.ContentTemplate `json:"pageTemplates,omitempty"`
+	CategoryTemplates []themeservice.ContentTemplate `json:"categoryTemplates,omitempty"`
 }
 
 type BuildInput struct {
 	SchemaVersion int                       `json:"schemaVersion"`
 	SourceLocale  string                    `json:"sourceLocale"`
+	Timezone      string                    `json:"timezone"`
 	BaseURL       string                    `json:"baseUrl,omitempty"`
 	PrimaryMenu   string                    `json:"primaryMenu,omitempty"`
 	Locales       []domain.LocaleDefinition `json:"locales"`
 	Site          struct {
+		Logo    string                          `json:"logo,omitempty"`
 		Locales map[string]domain.LocalizedSite `json:"locales"`
 	} `json:"site"`
 	Posts        []PostInput                  `json:"posts"`
@@ -87,6 +94,7 @@ type BuildInput struct {
 	Links        []domain.Link                `json:"links"`
 	Menus        []domain.Menu                `json:"menus"`
 	Dictionaries map[string]map[string]string `json:"dictionaries"`
+	Comments     domain.CommentsConfig        `json:"comments"`
 	Theme        ThemeInput                   `json:"theme"`
 	Fallback     []string                     `json:"fallback"`
 	GeneratedAt  time.Time                    `json:"generatedAt"`
@@ -108,6 +116,10 @@ type BuildReport struct {
 
 var ErrPreviewNotFound = errors.New("theme preview not found")
 
+var ErrBuildTaskNotFound = errors.New("static build task not found")
+
+var ErrServiceClosed = errors.New("publisher service is closed")
+
 type PreviewRecord struct {
 	SchemaVersion int         `yaml:"schemaVersion" json:"schemaVersion"`
 	ID            string      `yaml:"id" json:"id"`
@@ -122,11 +134,48 @@ type Renderer interface {
 	Render(context.Context, string, string) (BuildReport, error)
 }
 
+type buildRequestContextKey struct{}
+type preparedBuildTaskContextKey struct{}
+
+// BuildRequest supplies durable task metadata without changing the small
+// SitePublisher interface used by the server and tests. TaskID may be generated
+// by the console before the mutating request starts, allowing that same page to
+// poll progress while the HTTP request is still running.
+type BuildRequest struct {
+	TaskID       string
+	Operation    string
+	SubjectKind  string
+	SubjectID    string
+	ParentTaskID string
+}
+
+func WithBuildRequest(ctx context.Context, request BuildRequest) context.Context {
+	return context.WithValue(ctx, buildRequestContextKey{}, request)
+}
+
+func BuildRequestFromContext(ctx context.Context) BuildRequest {
+	request, _ := ctx.Value(buildRequestContextKey{}).(BuildRequest)
+	return request
+}
+
 type Service struct {
-	repository *fsrepo.Repository
-	content    *content.Service
-	renderer   Renderer
-	mu         sync.Mutex
+	repository      *fsrepo.Repository
+	content         *content.Service
+	renderer        Renderer
+	prepareMu       sync.Mutex
+	mu              sync.Mutex
+	writeMu         sync.Mutex
+	writeTaskHook   func(Task) error
+	root            context.Context
+	cancel          context.CancelFunc
+	lifecycleMu     sync.Mutex
+	closed          bool
+	closeOnce       sync.Once
+	workWG          sync.WaitGroup
+	terminalMu      sync.Mutex
+	terminalClosed  bool
+	terminalRetries map[string]terminalRetry
+	terminalWG      sync.WaitGroup
 }
 
 const (
@@ -137,24 +186,93 @@ const (
 	themePreviewTTL        = 30 * time.Minute
 	maxBuildFiles          = 100000
 	maxBuildBytes          = int64(1 << 30)
+	taskCheckpointAttempts = 3
+	terminalRetryInitial   = 100 * time.Millisecond
+	terminalRetryMaximum   = 5 * time.Second
 )
 
+type terminalRetry struct {
+	task    Task
+	version uint64
+	running bool
+}
+
 type Task struct {
-	SchemaVersion int          `yaml:"schemaVersion" json:"schemaVersion"`
-	ID            string       `yaml:"id" json:"id"`
-	Kind          string       `yaml:"kind" json:"kind"`
-	Status        string       `yaml:"status" json:"status"`
-	StartedAt     time.Time    `yaml:"startedAt" json:"startedAt"`
-	CompletedAt   *time.Time   `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
-	Report        *BuildReport `yaml:"report,omitempty" json:"report,omitempty"`
-	Error         string       `yaml:"error,omitempty" json:"error,omitempty"`
+	SchemaVersion int                `yaml:"schemaVersion" json:"schemaVersion"`
+	ID            string             `yaml:"id" json:"id"`
+	Kind          string             `yaml:"kind" json:"kind"`
+	Operation     string             `yaml:"operation,omitempty" json:"operation,omitempty"`
+	SubjectKind   string             `yaml:"subjectKind,omitempty" json:"subjectKind,omitempty"`
+	SubjectID     string             `yaml:"subjectId,omitempty" json:"subjectId,omitempty"`
+	ParentTaskID  string             `yaml:"parentTaskId,omitempty" json:"parentTaskId,omitempty"`
+	Status        string             `yaml:"status" json:"status"`
+	Progress      taskstore.Progress `yaml:"progress" json:"progress"`
+	CreatedAt     time.Time          `yaml:"createdAt,omitempty" json:"createdAt,omitempty"`
+	StartedAt     time.Time          `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
+	CompletedAt   *time.Time         `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
+	Report        *BuildReport       `yaml:"report,omitempty" json:"report,omitempty"`
+	Error         string             `yaml:"error,omitempty" json:"error,omitempty"`
 }
 
 func NewService(repository *fsrepo.Repository, contentService *content.Service, renderer Renderer) *Service {
-	return &Service{repository: repository, content: contentService, renderer: renderer}
+	root, cancel := context.WithCancel(context.Background())
+	return &Service{
+		repository: repository, content: contentService, renderer: renderer,
+		root: root, cancel: cancel, terminalRetries: make(map[string]terminalRetry),
+	}
+}
+
+// Close rejects new render work, cancels in-flight renderer processes, waits
+// for Build and Preview to leave their activation/cleanup paths, then stops any
+// best-effort terminal checkpoint persistence. A task that cannot be flushed
+// before Close remains recoverable from its queued/running record and active
+// release on the next process start.
+func (s *Service) Close() {
+	s.closeOnce.Do(func() {
+		s.lifecycleMu.Lock()
+		s.closed = true
+		s.cancel()
+		s.lifecycleMu.Unlock()
+		s.workWG.Wait()
+		s.terminalMu.Lock()
+		s.terminalClosed = true
+		s.terminalMu.Unlock()
+		s.terminalWG.Wait()
+	})
+}
+
+func (s *Service) beginWork(parent context.Context) (context.Context, func(), error) {
+	finishLifecycle, err := s.beginLifecycle()
+	if err != nil {
+		return nil, nil, err
+	}
+	ctx, cancel := context.WithCancel(parent)
+	stopRootCancellation := context.AfterFunc(s.root, cancel)
+	done := func() {
+		stopRootCancellation()
+		cancel()
+		finishLifecycle()
+	}
+	return ctx, done, nil
+}
+
+func (s *Service) beginLifecycle() (func(), error) {
+	s.lifecycleMu.Lock()
+	if s.closed {
+		s.lifecycleMu.Unlock()
+		return nil, ErrServiceClosed
+	}
+	s.workWG.Add(1)
+	s.lifecycleMu.Unlock()
+	return s.workWG.Done, nil
 }
 
 func (s *Service) Recover() (int, error) {
+	finishLifecycle, err := s.beginLifecycle()
+	if err != nil {
+		return 0, err
+	}
+	defer finishLifecycle()
 	recovered := 0
 	entries, err := s.repository.ReadDir(filepath.Join("state", "tasks"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -173,15 +291,32 @@ func (s *Service) Recover() (int, error) {
 		if err := taskstore.Validate(taskstore.Header{SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind}, expectedID); err != nil {
 			return recovered, fmt.Errorf("static build task directory entry %q is invalid: %w", expectedID, err)
 		}
-		if task.Kind != "StaticBuild" || task.Status != "running" {
+		if task.Kind != "StaticBuild" || (task.Status != "queued" && task.Status != "running") {
 			continue
 		}
 		completed := time.Now().UTC()
-		task.Status = "failed"
-		task.CompletedAt = &completed
-		task.Error = "interrupted"
-		if err := s.repository.WriteYAML(path, task, false); err != nil {
+		report, active, err := s.activatedTaskReport(task.ID)
+		if err != nil {
 			return recovered, err
+		}
+		task.CompletedAt = &completed
+		if active {
+			task.Status = "succeeded"
+			task.Error = ""
+			task.Report = &report
+			task.Progress = taskstore.Complete(task.Progress, "release-active")
+		} else {
+			task.Status = "failed"
+			task.Error = "interrupted"
+			task.Progress = taskstore.Advance(task.Progress, task.Progress.Phase, task.Progress.Current, task.Progress.Total, task.Progress.Percent, "interrupted")
+		}
+		if err := s.persistTerminal(task); err != nil {
+			// Recovery has already derived the terminal state from durable public
+			// facts. Keep recovering sibling tasks and let the versioned retry
+			// worker converge this record without making startup repeat cleanup.
+			slog.Error("persist recovered terminal static build task failed; retrying in background", "task", task.ID, "status", task.Status, "error", err)
+		} else {
+			s.pruneTaskHistory()
 		}
 		recovered++
 	}
@@ -235,66 +370,262 @@ func (s *Service) Recover() (int, error) {
 	return recovered, nil
 }
 
-func (s *Service) Build(ctx context.Context) (BuildReport, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.renderer == nil {
-		return BuildReport{}, errors.New("publisher renderer is not configured")
+// activatedTaskReport closes the crash window between atomically switching
+// generated/current and persisting the task's succeeded terminal state.
+func (s *Service) activatedTaskReport(taskID string) (BuildReport, bool, error) {
+	generatedRoot := filepath.Join(s.repository.Root(), "generated")
+	target, err := os.Readlink(filepath.Join(generatedRoot, "current"))
+	if errors.Is(err, os.ErrNotExist) {
+		return BuildReport{}, false, nil
 	}
-	taskID, err := newBuildID()
+	if err != nil {
+		return BuildReport{}, false, nil
+	}
+	activeID, valid := releaseIDFromTarget(target)
+	if !valid || activeID != taskID {
+		return BuildReport{}, false, nil
+	}
+	releasePath := filepath.Join(generatedRoot, "releases", taskID)
+	if err := requireBuildOutputs(releasePath); err != nil {
+		return BuildReport{}, false, fmt.Errorf("validate activated release for task recovery: %w", err)
+	}
+	data, err := os.ReadFile(filepath.Join(releasePath, "build-report.json"))
+	if err != nil {
+		return BuildReport{}, false, err
+	}
+	var report BuildReport
+	if err := json.Unmarshal(data, &report); err != nil || report.SchemaVersion != domain.SchemaVersion {
+		return BuildReport{}, false, errors.New("activated release has an invalid build report")
+	}
+	return report, true, nil
+}
+
+// ListTasks exposes durable static builds to the server's cross-kind task
+// center. Every directory entry is identity-checked before a legal foreign kind
+// is skipped, preserving the shared task directory's tamper detection.
+func (s *Service) ListTasks() ([]Task, error) {
+	entries, err := s.repository.ReadDir(filepath.Join("state", "tasks"))
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]Task, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		expectedID := strings.TrimSuffix(entry.Name(), ".yaml")
+		var task Task
+		if err := s.repository.ReadYAML(filepath.Join("state", "tasks", entry.Name()), &task); err != nil {
+			return nil, fmt.Errorf("read static build task directory entry %q: %w", expectedID, err)
+		}
+		if err := taskstore.Validate(taskstore.Header{SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind}, expectedID); err != nil {
+			return nil, fmt.Errorf("static build task directory entry %q is invalid: %w", expectedID, err)
+		}
+		if task.Kind != "StaticBuild" {
+			continue
+		}
+		if !validStoredBuildTask(task, expectedID) {
+			return nil, fmt.Errorf("static build task %q is invalid", expectedID)
+		}
+		normalizeLegacyBuildTask(&task)
+		tasks = append(tasks, task)
+	}
+	sort.Slice(tasks, func(i, j int) bool { return buildTaskCreatedAt(tasks[i]).After(buildTaskCreatedAt(tasks[j])) })
+	return tasks, nil
+}
+
+func (s *Service) GetTask(id string) (Task, error) {
+	if !taskstore.ValidStaticBuildID(id) {
+		return Task{}, ErrBuildTaskNotFound
+	}
+	var task Task
+	if err := s.repository.ReadYAML(filepath.Join("state", "tasks", id+".yaml"), &task); err != nil || !validStoredBuildTask(task, id) {
+		return Task{}, ErrBuildTaskNotFound
+	}
+	normalizeLegacyBuildTask(&task)
+	return task, nil
+}
+
+func validStoredBuildTask(task Task, expectedID string) bool {
+	if task.SchemaVersion != domain.SchemaVersion || task.Kind != "StaticBuild" || task.ID != expectedID || !taskstore.ValidStaticBuildID(task.ID) {
+		return false
+	}
+	switch task.Status {
+	case "queued", "running", "succeeded", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeLegacyBuildTask(task *Task) {
+	if task.Operation == "" {
+		task.Operation = "rebuild"
+	}
+	if task.CreatedAt.IsZero() {
+		task.CreatedAt = task.StartedAt
+	}
+	if task.Status == "succeeded" && task.Progress.Percent < 100 {
+		task.Progress = taskstore.Complete(task.Progress, "completed")
+	}
+}
+
+func buildTaskCreatedAt(task Task) time.Time {
+	if !task.CreatedAt.IsZero() {
+		return task.CreatedAt
+	}
+	return task.StartedAt
+}
+
+// PrepareBuild persists the queued task before any publisher serialization
+// gate is acquired. A second build can therefore be observed as queued instead
+// of disappearing until the first render finishes.
+func (s *Service) PrepareBuild(ctx context.Context) (context.Context, error) {
+	if _, ok := ctx.Value(preparedBuildTaskContextKey{}).(Task); ok {
+		return ctx, nil
+	}
+	finishLifecycle, err := s.beginLifecycle()
+	if err != nil {
+		return ctx, err
+	}
+	defer finishLifecycle()
+	if s.renderer == nil {
+		return ctx, errors.New("publisher renderer is not configured")
+	}
+	s.prepareMu.Lock()
+	defer s.prepareMu.Unlock()
+	request := BuildRequestFromContext(ctx)
+	taskID, err := s.resolveBuildTaskID(request.TaskID)
+	if err != nil {
+		return ctx, err
+	}
+	now := time.Now().UTC()
+	operation := strings.TrimSpace(request.Operation)
+	if operation == "" {
+		operation = "rebuild"
+	}
+	task := Task{
+		SchemaVersion: domain.SchemaVersion, ID: taskID, Kind: "StaticBuild", Operation: operation,
+		SubjectKind: request.SubjectKind, SubjectID: request.SubjectID, ParentTaskID: request.ParentTaskID,
+		Status: "queued", CreatedAt: now, Progress: taskstore.Progress{Phase: "queued", Total: 4},
+	}
+	if err := s.writeTask(task); err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, preparedBuildTaskContextKey{}, task), nil
+}
+
+func (s *Service) Build(ctx context.Context) (BuildReport, error) {
+	workContext, done, err := s.beginWork(ctx)
 	if err != nil {
 		return BuildReport{}, err
 	}
-	task := Task{SchemaVersion: domain.SchemaVersion, ID: taskID, Kind: "StaticBuild", Status: "running", StartedAt: time.Now().UTC()}
-	if err := s.writeTask(task); err != nil {
+	defer done()
+	ctx = workContext
+	ctx, err = s.PrepareBuild(ctx)
+	if err != nil {
+		return BuildReport{}, err
+	}
+	task, ok := ctx.Value(preparedBuildTaskContextKey{}).(Task)
+	if !ok {
+		return BuildReport{}, errors.New("static build task was not prepared")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return BuildReport{}, s.failTask(task, err)
+	}
+	task.Status = "running"
+	task.StartedAt = time.Now().UTC()
+	if err := s.advanceTask(&task, "snapshot", 0, 4, 5, "capturing-content-snapshot"); err != nil {
 		return BuildReport{}, err
 	}
 	input, err := s.snapshot("")
 	if err != nil {
 		return BuildReport{}, s.failTask(task, err)
 	}
+	if err := s.advanceTask(&task, "snapshot", 1, 4, 20, "snapshot-ready"); err != nil {
+		return BuildReport{}, err
+	}
 	inputData, err := json.MarshalIndent(input, "", "  ")
 	if err != nil {
 		return BuildReport{}, s.failTask(task, err)
 	}
 	generatedRoot := filepath.Join(s.repository.Root(), "generated")
-	inputPath := filepath.Join(generatedRoot, "staging", taskID+".input.json")
-	stagePath := filepath.Join(generatedRoot, "staging", taskID)
+	inputPath := filepath.Join(generatedRoot, "staging", task.ID+".input.json")
+	stagePath := filepath.Join(generatedRoot, "staging", task.ID)
 	if err := os.WriteFile(inputPath, inputData, 0o640); err != nil {
 		return BuildReport{}, s.failTask(task, err)
 	}
 	defer os.Remove(inputPath)
 	defer os.RemoveAll(stagePath)
 
+	if err := s.advanceTask(&task, "render", 1, 4, 25, "rendering-static-pages"); err != nil {
+		return BuildReport{}, err
+	}
 	renderContext, cancelRender := context.WithTimeout(ctx, rendererTimeout)
 	defer cancelRender()
 	report, err := s.renderer.Render(renderContext, inputPath, stagePath)
 	if err != nil {
 		return BuildReport{}, s.failTask(task, err)
 	}
+	if err := ctx.Err(); err != nil {
+		return BuildReport{}, s.failTask(task, err)
+	}
+	if err := s.advanceTask(&task, "render", 2, 4, 70, "render-complete"); err != nil {
+		return BuildReport{}, err
+	}
 	if report.SchemaVersion != domain.SchemaVersion {
 		return BuildReport{}, s.failTask(task, errors.New("renderer returned an unsupported report schema"))
+	}
+	if err := s.advanceTask(&task, "validate", 2, 4, 75, "validating-static-output"); err != nil {
+		return BuildReport{}, err
 	}
 	if err := requireBuildOutputs(stagePath); err != nil {
 		return BuildReport{}, s.failTask(task, err)
 	}
-	if err := s.activate(taskID, stagePath); err != nil {
+	if err := s.advanceTask(&task, "validate", 3, 4, 85, "static-output-valid"); err != nil {
+		return BuildReport{}, err
+	}
+	if err := s.advanceTask(&task, "activate", 3, 4, 90, "activating-release"); err != nil {
+		return BuildReport{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return BuildReport{}, s.failTask(task, err)
+	}
+	if err := s.activate(task.ID, stagePath); err != nil {
 		return BuildReport{}, s.failTask(task, err)
 	}
 	completed := time.Now().UTC()
 	task.Status = "succeeded"
 	task.CompletedAt = &completed
 	task.Report = &report
-	if err := s.writeTask(task); err != nil {
-		return BuildReport{}, err
+	task.Progress = taskstore.Complete(task.Progress, "release-active")
+	if err := s.persistTerminal(task); err != nil {
+		// generated/current is already the atomic public commit. Returning an
+		// error here would make theme transactions roll configuration back while
+		// visitors see the new release. Keep the business result successful while
+		// a version-safe background worker converges the durable terminal record;
+		// startup recovery remains the final crash fallback.
+		slog.Error("persist succeeded static build task after activation failed; retrying in background", "task", task.ID, "error", err)
+		return report, nil
 	}
 	s.pruneTaskHistory()
 	return report, nil
 }
 
 func (s *Service) Preview(ctx context.Context, themeID, baseURL string) (PreviewRecord, error) {
+	workContext, done, err := s.beginWork(ctx)
+	if err != nil {
+		return PreviewRecord{}, err
+	}
+	defer done()
+	ctx = workContext
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return PreviewRecord{}, err
+	}
 	if s.renderer == nil {
 		return PreviewRecord{}, errors.New("publisher renderer is not configured")
 	}
@@ -323,6 +654,9 @@ func (s *Service) Preview(ctx context.Context, themeID, baseURL string) (Preview
 	defer cancelRender()
 	report, err := s.renderer.Render(renderContext, inputPath, stagePath)
 	if err != nil {
+		return PreviewRecord{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return PreviewRecord{}, err
 	}
 	if report.SchemaVersion != domain.SchemaVersion {
@@ -412,6 +746,18 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 	if err := s.repository.ReadYAML("config/locales.yaml", &locales); err != nil {
 		return BuildInput{}, err
 	}
+	localeconfig.Normalize(&locales)
+	commentSettings := domain.CommentsConfig{SchemaVersion: domain.SchemaVersion, Moderation: "pending", PageSize: 20, MaxLength: 2000}
+	if err := s.repository.ReadYAML("config/comments.yaml", &commentSettings); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return BuildInput{}, err
+	}
+	if commentSettings.MaxLength < 100 || commentSettings.MaxLength > 10000 {
+		commentSettings.MaxLength = 2000
+	}
+	timezone := strings.TrimSpace(site.Timezone)
+	if timezone == "" {
+		timezone = "UTC"
+	}
 	posts, err := s.content.ListPostsForBuild()
 	if err != nil {
 		return BuildInput{}, err
@@ -419,11 +765,13 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 	input := BuildInput{
 		SchemaVersion: domain.SchemaVersion,
 		SourceLocale:  locales.SourceLocale,
+		Timezone:      timezone,
 		BaseURL:       site.BaseURL,
 		PrimaryMenu:   site.PrimaryMenu,
 		Fallback:      append([]string(nil), locales.Fallback...),
 		GeneratedAt:   time.Now().UTC(),
 		Posts:         make([]PostInput, 0, len(posts)),
+		Comments:      commentSettings,
 	}
 	pages, err := s.content.ListPagesForBuild()
 	if err != nil {
@@ -471,25 +819,27 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 		return BuildInput{}, err
 	}
 	input.Theme = ThemeInput{
-		ID:            themeRuntime.ID,
-		ModulePath:    themeRuntime.ModulePath,
-		AssetsPath:    themeRuntime.AssetsPath,
-		Settings:      themeRuntime.Settings,
-		PostTemplates: themeRuntime.PostTemplates,
-		PageTemplates: themeRuntime.PageTemplates,
+		ID:                themeRuntime.ID,
+		ModulePath:        themeRuntime.ModulePath,
+		AssetsPath:        themeRuntime.AssetsPath,
+		Settings:          themeRuntime.Settings,
+		PostTemplates:     themeRuntime.PostTemplates,
+		PageTemplates:     themeRuntime.PageTemplates,
+		CategoryTemplates: themeRuntime.CategoryTemplates,
 	}
 	for _, locale := range locales.Enabled {
 		if locale.Enabled {
 			input.Locales = append(input.Locales, locale)
 		}
 	}
+	input.Site.Logo = site.Logo
 	input.Site.Locales = site.Locales
 	for _, post := range posts {
 		localized := make(map[string]LocalizedPost, len(post.Content))
 		for locale, value := range post.Content {
 			localized[locale] = LocalizedPost{Title: value.Title, Summary: value.Summary, SEOTitle: value.SEOTitle, SEODescription: value.SEODescription, Markdown: value.Markdown}
 		}
-		input.Posts = append(input.Posts, PostInput{ID: post.Meta.ID, SourceLocale: post.Meta.SourceLocale, Status: post.Meta.Status, Template: post.Meta.Template, Cover: post.Meta.Cover, PublishedAt: post.Meta.PublishedAt, Categories: append([]string(nil), post.Meta.Categories...), Tags: append([]string(nil), post.Meta.Tags...), CommentPolicy: post.Meta.CommentPolicy, Locales: localized})
+		input.Posts = append(input.Posts, PostInput{ID: post.Meta.ID, SourceLocale: post.Meta.SourceLocale, Status: post.Meta.Status, Template: post.Meta.Template, Cover: post.Meta.Cover, Pinned: post.Meta.Pinned, PublishedAt: post.Meta.PublishedAt, Categories: append([]string(nil), post.Meta.Categories...), Tags: append([]string(nil), post.Meta.Tags...), CommentPolicy: post.Meta.CommentPolicy, Locales: localized})
 	}
 	for _, page := range pages {
 		localized := make(map[string]LocalizedPost, len(page.Content))
@@ -501,7 +851,18 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 	input.Categories = toTaxonomyInputs(categories)
 	input.Tags = toTaxonomyInputs(tags)
 	sort.Slice(input.Locales, func(i, j int) bool { return input.Locales[i].Code < input.Locales[j].Code })
-	sort.Slice(input.Posts, func(i, j int) bool { return input.Posts[i].ID < input.Posts[j].ID })
+	sort.SliceStable(input.Posts, func(i, j int) bool {
+		if input.Posts[i].Pinned != input.Posts[j].Pinned {
+			return input.Posts[i].Pinned
+		}
+		if input.Posts[i].PublishedAt != nil && input.Posts[j].PublishedAt != nil && !input.Posts[i].PublishedAt.Equal(*input.Posts[j].PublishedAt) {
+			return input.Posts[i].PublishedAt.After(*input.Posts[j].PublishedAt)
+		}
+		if input.Posts[i].PublishedAt != nil || input.Posts[j].PublishedAt != nil {
+			return input.Posts[i].PublishedAt != nil
+		}
+		return input.Posts[i].ID < input.Posts[j].ID
+	})
 	sort.Slice(input.Pages, func(i, j int) bool { return input.Pages[i].ID < input.Pages[j].ID })
 	sort.Slice(input.Categories, func(i, j int) bool { return input.Categories[i].ID < input.Categories[j].ID })
 	sort.Slice(input.Tags, func(i, j int) bool { return input.Tags[i].ID < input.Tags[j].ID })
@@ -520,7 +881,7 @@ func toTaxonomyInputs(items []domain.Taxonomy) []TaxonomyInput {
 				SEODescription: value.SEODescription,
 			}
 		}
-		result = append(result, TaxonomyInput{ID: item.ID, SourceLocale: item.SourceLocale, ParentID: item.ParentID, Locales: localized})
+		result = append(result, TaxonomyInput{ID: item.ID, SourceLocale: item.SourceLocale, ParentID: item.ParentID, Cover: item.Cover, Template: item.Template, Locales: localized})
 	}
 	return result
 }
@@ -554,7 +915,10 @@ func (s *Service) activate(buildID, stagePath string) error {
 		return fmt.Errorf("activate static release: %w", err)
 	}
 	if err := syncDirectory(generatedRoot); err != nil {
-		return err
+		// The atomic current switch is already the publication commit point. Do
+		// not report a failed build after clients can observe the new release;
+		// startup recovery validates the active release and reconciles its task.
+		slog.Warn("sync activated release directory failed", "error", err)
 	}
 	if err := pruneStaticReleases(generatedRoot, buildID, retainedStaticReleases, previousReleaseID); err != nil {
 		slog.Warn("prune stale static releases failed", "error", err)
@@ -614,15 +978,192 @@ func (s *Service) failTask(task Task, buildErr error) error {
 	task.Status = "failed"
 	task.CompletedAt = &completed
 	task.Error = buildErr.Error()
-	if err := s.writeTask(task); err != nil {
-		return fmt.Errorf("%v; record task: %w", buildErr, err)
+	task.Progress = taskstore.Advance(task.Progress, task.Progress.Phase, task.Progress.Current, task.Progress.Total, task.Progress.Percent, "build-failed")
+	if err := s.persistTerminal(task); err != nil {
+		// The build's business failure is authoritative. Do not replace it with
+		// checkpoint I/O, and do not strand the task as running: persistTerminal
+		// has already installed a background retry for the failed state.
+		slog.Error("persist failed static build task failed; retrying in background", "task", task.ID, "buildError", buildErr, "error", err)
+		return buildErr
 	}
 	s.pruneTaskHistory()
 	return buildErr
 }
 
+func (s *Service) advanceTask(task *Task, phase string, current, total, percent int, message string) error {
+	task.Progress = taskstore.Advance(task.Progress, phase, current, total, percent, message)
+	if err := s.writeTask(*task); err != nil {
+		return s.failTask(*task, fmt.Errorf("persist static build checkpoint %q: %w", message, err))
+	}
+	return nil
+}
+
+func (s *Service) resolveBuildTaskID(requested string) (string, error) {
+	if requested == "" {
+		return newBuildID()
+	}
+	if !taskstore.ValidStaticBuildID(requested) {
+		return "", errors.New("static build task ID is invalid")
+	}
+	exists, err := s.repository.Exists(filepath.Join("state", "tasks", requested+".yaml"))
+	if err != nil {
+		return "", err
+	}
+	if exists {
+		return "", errors.New("static build task ID already exists")
+	}
+	return requested, nil
+}
+
 func (s *Service) writeTask(task Task) error {
+	if !taskstore.ValidStaticBuildID(task.ID) {
+		return ErrBuildTaskNotFound
+	}
+	var lastErr error
+	for attempt := 1; attempt <= taskCheckpointAttempts; attempt++ {
+		lastErr = s.writeTaskOnce(task)
+		if lastErr == nil {
+			return nil
+		}
+		if attempt < taskCheckpointAttempts {
+			slog.Warn("persist static build task failed; retrying", "task", task.ID, "attempt", attempt, "error", lastErr)
+			time.Sleep(time.Duration(attempt) * 5 * time.Millisecond)
+		}
+	}
+	return lastErr
+}
+
+func (s *Service) writeTaskOnce(task Task) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.writeTaskOnceLocked(task)
+}
+
+func (s *Service) writeTaskOnceLocked(task Task) error {
+	if s.writeTaskHook != nil {
+		if err := s.writeTaskHook(task); err != nil {
+			return err
+		}
+	}
 	return s.repository.WriteYAML(filepath.Join("state", "tasks", task.ID+".yaml"), task, false)
+}
+
+// persistTerminal registers every terminal state before attempting I/O. The
+// monotonically increasing pending version makes an older background retry
+// unable to overwrite a newer terminal state, even if the newer state is
+// persisted directly while the old worker is between retries.
+func (s *Service) persistTerminal(task Task) error {
+	if !taskstore.ValidStaticBuildID(task.ID) {
+		return ErrBuildTaskNotFound
+	}
+	if task.Status != "succeeded" && task.Status != "failed" {
+		return errors.New("static build terminal status is invalid")
+	}
+	s.terminalMu.Lock()
+	if s.terminalClosed {
+		s.terminalMu.Unlock()
+		return ErrServiceClosed
+	}
+	entry := s.terminalRetries[task.ID]
+	entry.task = task
+	entry.version++
+	s.terminalRetries[task.ID] = entry
+	version := entry.version
+	s.terminalMu.Unlock()
+
+	err := s.writeTerminalVersion(task.ID, version)
+	if err == nil || errors.Is(err, errStaleTerminalVersion) {
+		return nil
+	}
+	s.startTerminalRetry(task.ID)
+	return err
+}
+
+var errStaleTerminalVersion = errors.New("stale terminal task version")
+
+func (s *Service) writeTerminalVersion(taskID string, version uint64) error {
+	var lastErr error
+	for attempt := 1; attempt <= taskCheckpointAttempts; attempt++ {
+		lastErr = s.writeTerminalVersionOnce(taskID, version)
+		if lastErr == nil || errors.Is(lastErr, errStaleTerminalVersion) {
+			return lastErr
+		}
+		if attempt < taskCheckpointAttempts {
+			slog.Warn("persist terminal static build task failed; retrying", "task", taskID, "attempt", attempt, "error", lastErr)
+			time.Sleep(time.Duration(attempt) * 5 * time.Millisecond)
+		}
+	}
+	return lastErr
+}
+
+func (s *Service) writeTerminalVersionOnce(taskID string, version uint64) error {
+	// Serialize the version check and write with all ordinary checkpoint writes.
+	// Holding terminalMu across the atomic repository replacement means a newer
+	// version is either registered before this check (so this write is skipped)
+	// or after this write (so the newer state necessarily writes last).
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.terminalMu.Lock()
+	defer s.terminalMu.Unlock()
+	entry, exists := s.terminalRetries[taskID]
+	if !exists || entry.version != version {
+		return errStaleTerminalVersion
+	}
+	if err := s.writeTaskOnceLocked(entry.task); err != nil {
+		return err
+	}
+	delete(s.terminalRetries, taskID)
+	return nil
+}
+
+func (s *Service) startTerminalRetry(taskID string) {
+	s.terminalMu.Lock()
+	entry, exists := s.terminalRetries[taskID]
+	if !exists || entry.running || s.terminalClosed {
+		s.terminalMu.Unlock()
+		return
+	}
+	entry.running = true
+	s.terminalRetries[taskID] = entry
+	s.terminalWG.Add(1)
+	s.terminalMu.Unlock()
+	go s.persistTerminalUntilDone(taskID)
+}
+
+func (s *Service) persistTerminalUntilDone(taskID string) {
+	defer s.terminalWG.Done()
+	delay := terminalRetryInitial
+	for {
+		timer := time.NewTimer(delay)
+		select {
+		case <-s.root.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		s.terminalMu.Lock()
+		entry, exists := s.terminalRetries[taskID]
+		s.terminalMu.Unlock()
+		if !exists {
+			return
+		}
+		err := s.writeTerminalVersion(taskID, entry.version)
+		if err == nil {
+			s.pruneTaskHistory()
+			return
+		}
+		if errors.Is(err, errStaleTerminalVersion) {
+			delay = terminalRetryInitial
+			continue
+		}
+		slog.Error("retry terminal static build task persistence failed", "task", taskID, "error", err)
+		if delay < terminalRetryMaximum {
+			delay *= 2
+			if delay > terminalRetryMaximum {
+				delay = terminalRetryMaximum
+			}
+		}
+	}
 }
 
 func (s *Service) pruneTaskHistory() {
@@ -658,7 +1199,7 @@ func pruneBuildTasks(repository *fsrepo.Repository, retain int) error {
 		if task.Kind != "StaticBuild" {
 			continue
 		}
-		if task.Status != "running" {
+		if task.Status == "succeeded" || task.Status == "failed" {
 			terminal = append(terminal, entry.Name())
 		}
 	}
@@ -716,6 +1257,12 @@ func newBuildID() (string, error) {
 	}
 	return time.Now().UTC().Format("20060102T150405.000000000Z") + "-" + hex.EncodeToString(random), nil
 }
+
+// NewBuildTaskID exposes the same collision-resistant ID format used by the
+// publisher when an HTTP client did not supply a correlation ID. Callers that
+// must return a queued task before Build starts can therefore persist and
+// report the exact same durable record.
+func NewBuildTaskID() (string, error) { return newBuildID() }
 
 func newPreviewID() (string, error) {
 	random := make([]byte, 16)

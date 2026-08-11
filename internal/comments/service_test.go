@@ -2,15 +2,38 @@ package comments
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FengYuchen1314/mutiblog/internal/content"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
 )
+
+func TestCommentRateLimiterHasHardClientBound(t *testing.T) {
+	service := &Service{recent: make(map[string][]time.Time)}
+	now := time.Now()
+	for index := 0; index < recentClientLimit; index++ {
+		service.recent[fmt.Sprintf("client-%d", index)] = []time.Time{now}
+	}
+	if service.allow("one-client-too-many") {
+		t.Fatal("high-cardinality client was accepted beyond the hard bound")
+	}
+	if len(service.recent) != recentClientLimit {
+		t.Fatalf("recent clients = %d, want %d", len(service.recent), recentClientLimit)
+	}
+	service.recent["client-0"] = []time.Time{now.Add(-11 * time.Minute)}
+	if !service.allow("replacement-client") {
+		t.Fatal("expired client slot was not reclaimed")
+	}
+	if len(service.recent) != recentClientLimit {
+		t.Fatalf("recent clients after reclaim = %d, want %d", len(service.recent), recentClientLimit)
+	}
+}
 
 func TestCommentPrivacyModerationAndFileTruth(t *testing.T) {
 	repository, err := fsrepo.Open(t.TempDir())

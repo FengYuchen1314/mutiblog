@@ -54,11 +54,22 @@ type chatRequest struct {
 	Messages    []ChatMessage `json:"messages"`
 	Temperature float64       `json:"temperature"`
 	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Thinking    *thinkingMode `json:"thinking,omitempty"`
+}
+
+// thinkingMode is intentionally narrow. DeepSeek V4 enables thinking by
+// default, which can exhaust a small connectivity-check budget before it
+// emits any visible assistant content. Translation does not benefit from the
+// hidden reasoning channel, so disable it for the official V4 endpoint while
+// leaving every other OpenAI-compatible provider request untouched.
+type thinkingMode struct {
+	Type string `json:"type"`
 }
 
 type chatResponse struct {
 	Choices []struct {
-		Message ChatMessage `json:"message"`
+		Message      ChatMessage `json:"message"`
+		FinishReason string      `json:"finish_reason"`
 	} `json:"choices"`
 }
 
@@ -67,7 +78,13 @@ func (c Client) Chat(ctx context.Context, provider domain.AIProviderConfig, apiK
 	if err != nil || strings.TrimSpace(apiKey) == "" {
 		return "", ErrInvalidProvider
 	}
-	requestBody, err := json.Marshal(chatRequest{Model: provider.Model, Messages: messages, Temperature: 0.1, MaxTokens: maxTokens})
+	requestBody, err := json.Marshal(chatRequest{
+		Model:       provider.Model,
+		Messages:    messages,
+		Temperature: 0.1,
+		MaxTokens:   maxTokens,
+		Thinking:    disabledThinkingMode(provider),
+	})
 	if err != nil {
 		return "", err
 	}
@@ -111,10 +128,33 @@ func (c Client) Chat(ctx context.Context, provider domain.AIProviderConfig, apiK
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return "", &providerRequestError{reason: "invalid response", retryable: true}
 	}
-	if len(result.Choices) == 0 || strings.TrimSpace(result.Choices[0].Message.Content) == "" {
+	if len(result.Choices) == 0 {
+		return "", &providerRequestError{reason: "empty response", retryable: true}
+	}
+	// A syntactically valid 2xx response is not necessarily complete. In
+	// particular, OpenAI-compatible APIs return finish_reason=length when an
+	// output cap truncates a response. Persisting that partial Markdown would
+	// silently corrupt a translation, so accept only an explicit normal stop.
+	// Do not retry a completed-but-truncated response at the same budget: the
+	// caller must reduce its chunk size before making another request.
+	if finishReason := strings.TrimSpace(strings.ToLower(result.Choices[0].FinishReason)); finishReason != "stop" && finishReason != "end_turn" {
+		return "", &providerRequestError{reason: "incomplete response", retryable: false}
+	}
+	if strings.TrimSpace(result.Choices[0].Message.Content) == "" {
 		return "", &providerRequestError{reason: "empty response", retryable: true}
 	}
 	return result.Choices[0].Message.Content, nil
+}
+
+func disabledThinkingMode(provider domain.AIProviderConfig) *thinkingMode {
+	base, err := url.Parse(strings.TrimSpace(provider.BaseURL))
+	if err != nil || !strings.EqualFold(base.Hostname(), "api.deepseek.com") {
+		return nil
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(provider.Model)), "deepseek-v4-") {
+		return nil
+	}
+	return &thinkingMode{Type: "disabled"}
 }
 
 func chatEndpoint(provider domain.AIProviderConfig) (string, error) {

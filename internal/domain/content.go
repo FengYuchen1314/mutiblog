@@ -11,6 +11,13 @@ const (
 	ContentStatusRecycled    ContentStatus = "recycled"
 )
 
+type ContentVisibility string
+
+const (
+	ContentVisibilityPublic  ContentVisibility = "public"
+	ContentVisibilityPrivate ContentVisibility = "private"
+)
+
 type LocaleOrigin string
 
 const (
@@ -38,12 +45,15 @@ type PostMeta struct {
 	Categories            []string                      `yaml:"categories" json:"categories"`
 	Tags                  []string                      `yaml:"tags" json:"tags"`
 	Cover                 string                        `yaml:"cover,omitempty" json:"cover,omitempty"`
+	Pinned                bool                          `yaml:"pinned,omitempty" json:"pinned"`
+	Visibility            ContentVisibility             `yaml:"visibility,omitempty" json:"visibility"`
 	CommentPolicy         string                        `yaml:"commentPolicy" json:"commentPolicy"`
 	Template              string                        `yaml:"template" json:"template"`
 	Revision              int                           `yaml:"revision" json:"revision"`
 	BaseRevision          int                           `yaml:"baseRevision" json:"baseRevision"`
 	HeadRevision          int                           `yaml:"headRevision" json:"headRevision"`
 	ReleaseRevision       int                           `yaml:"releaseRevision,omitempty" json:"releaseRevision,omitempty"`
+	ScheduledRevision     int                           `yaml:"scheduledRevision,omitempty" json:"scheduledRevision,omitempty"`
 	HasUnpublishedChanges bool                          `yaml:"-" json:"hasUnpublishedChanges"`
 	Locales               map[string]LocaleContentState `yaml:"locales" json:"locales"`
 }

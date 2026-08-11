@@ -17,6 +17,10 @@ type UpdatePostSettingsInput struct {
 	Categories       []string
 	Tags             []string
 	Cover            string
+	Pinned           *bool
+	Visibility       *domain.ContentVisibility
+	PublishedAt      *time.Time
+	PublishTimeSet   bool
 	CommentPolicy    string
 	Template         string
 }
@@ -57,12 +61,16 @@ func (s *Service) UpdatePostSettings(id string, input UpdatePostSettingsInput) (
 	if !templatePattern.MatchString(template) {
 		return domain.Post{}, errors.New("invalid template")
 	}
+	if err := validateAdvancedSettings(input); err != nil {
+		return domain.Post{}, err
+	}
 	if err := s.snapshot(post); err != nil {
 		return domain.Post{}, err
 	}
 	post.Meta.Categories = categories
 	post.Meta.Tags = tags
 	post.Meta.Cover = cover
+	applyAdvancedSettings(&post.Meta, input, true)
 	post.Meta.CommentPolicy = policy
 	post.Meta.Template = template
 	advanceHead(&post.Meta)
@@ -102,10 +110,14 @@ func (s *Service) UpdatePageSettings(id string, input UpdatePostSettingsInput) (
 	if !templatePattern.MatchString(template) {
 		return domain.Post{}, errors.New("invalid template")
 	}
+	if err := validateAdvancedSettings(input); err != nil {
+		return domain.Post{}, err
+	}
 	if err := s.snapshotPage(page); err != nil {
 		return domain.Post{}, err
 	}
 	page.Meta.Cover = cover
+	applyAdvancedSettings(&page.Meta, input, false)
 	page.Meta.CommentPolicy = policy
 	page.Meta.Template = template
 	advanceHead(&page.Meta)
@@ -115,6 +127,32 @@ func (s *Service) UpdatePageSettings(id string, input UpdatePostSettingsInput) (
 	}
 	page.Meta.HasUnpublishedChanges = page.Meta.Status == domain.ContentStatusPublished
 	return page, nil
+}
+
+func validateAdvancedSettings(input UpdatePostSettingsInput) error {
+	if input.Visibility != nil && *input.Visibility != domain.ContentVisibilityPublic && *input.Visibility != domain.ContentVisibilityPrivate {
+		return errors.New("invalid content visibility")
+	}
+	if input.PublishTimeSet && input.PublishedAt != nil && input.PublishedAt.IsZero() {
+		return errors.New("invalid publish time")
+	}
+	return nil
+}
+
+func applyAdvancedSettings(meta *domain.PostMeta, input UpdatePostSettingsInput, allowPinned bool) {
+	if allowPinned && input.Pinned != nil {
+		meta.Pinned = *input.Pinned
+	}
+	if input.Visibility != nil {
+		meta.Visibility = *input.Visibility
+	}
+	if input.PublishTimeSet {
+		meta.PublishedAt = nil
+		if input.PublishedAt != nil {
+			publishedAt := input.PublishedAt.UTC()
+			meta.PublishedAt = &publishedAt
+		}
+	}
 }
 
 func (s *Service) validateTaxonomyIDs(directory string, values []string) ([]string, error) {

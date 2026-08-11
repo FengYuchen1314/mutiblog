@@ -23,6 +23,7 @@ export interface PostInput {
   status: "published" | string;
   template?: string;
   cover?: string;
+  pinned?: boolean;
   publishedAt?: string;
   categories?: string[];
   tags?: string[];
@@ -36,7 +37,7 @@ export interface LocalizedTaxonomyInput {
   seoTitle?: string;
   seoDescription?: string;
 }
-export interface TaxonomyInput { id: string; sourceLocale?: string; parentId?: string; locales: Record<string, LocalizedTaxonomyInput>; }
+export interface TaxonomyInput { id: string; sourceLocale?: string; parentId?: string; cover?: string; template?: string; locales: Record<string, LocalizedTaxonomyInput>; }
 export interface LocalizedLinkInput { name: string; description?: string; }
 export interface LinkGroupInput { id: string; sourceLocale?: string; order: number; locales: Record<string, LocalizedLinkInput>; }
 export interface LinkInput { id: string; sourceLocale?: string; groupId: string; url: string; logo?: string; order: number; locales: Record<string, LocalizedLinkInput>; }
@@ -44,15 +45,16 @@ export interface LocalizedMenuInput { label: string; }
 export interface MenuItemInput { id: string; parentId?: string; targetKind: "internal" | "external"; url: string; openInNew: boolean; order: number; locales: Record<string, LocalizedMenuInput>; }
 export interface MenuInput { id: string; sourceLocale?: string; locales: Record<string, LocalizedMenuInput>; items: MenuItemInput[]; }
 export interface ContentTemplateInput { id: string; name: string; }
-export interface ThemeInput { id: string; modulePath?: string; assetsPath?: string; settings?: Record<string, unknown>; postTemplates?: ContentTemplateInput[]; pageTemplates?: ContentTemplateInput[]; }
+export interface ThemeInput { id: string; modulePath?: string; assetsPath?: string; settings?: Record<string, unknown>; postTemplates?: ContentTemplateInput[]; pageTemplates?: ContentTemplateInput[]; categoryTemplates?: ContentTemplateInput[]; }
 
 export interface BuildInput {
   schemaVersion: 1;
   sourceLocale: string;
+  timezone?: string;
   baseUrl?: string;
   primaryMenu?: string;
   locales: LocaleInput[];
-  site: { locales: Record<string, LocalizedSiteInput> };
+  site: { logo?: string; locales: Record<string, LocalizedSiteInput> };
   posts: PostInput[];
   pages?: PostInput[];
   categories?: TaxonomyInput[];
@@ -61,6 +63,7 @@ export interface BuildInput {
   links?: LinkInput[];
   menus?: MenuInput[];
   dictionaries?: Record<string, Record<string, string>>;
+  comments?: { moderation?: "pending" | "none"; pageSize?: number; maxLength?: number };
   theme?: ThemeInput;
   fallback?: string[];
   generatedAt?: string;

@@ -16,11 +16,12 @@ import (
 )
 
 var (
-	ErrNotFound      = errors.New("taxonomy not found")
-	ErrConflict      = errors.New("taxonomy revision conflict")
-	ErrInvalidKind   = errors.New("invalid taxonomy kind")
-	ErrInvalidParent = errors.New("invalid category parent")
-	ErrInUse         = errors.New("taxonomy is in use")
+	ErrNotFound        = errors.New("taxonomy not found")
+	ErrConflict        = errors.New("taxonomy revision conflict")
+	ErrInvalidKind     = errors.New("invalid taxonomy kind")
+	ErrInvalidParent   = errors.New("invalid category parent")
+	ErrInvalidSettings = errors.New("invalid taxonomy settings")
+	ErrInUse           = errors.New("taxonomy is in use")
 )
 
 type CreateInput struct {
@@ -28,6 +29,8 @@ type CreateInput struct {
 	Name        string
 	Description string
 	ParentID    string
+	Cover       string
+	Template    string
 }
 
 type UpdateLocaleInput struct {
@@ -41,6 +44,8 @@ type UpdateLocaleInput struct {
 type UpdateStructureInput struct {
 	ExpectedRevision int
 	ParentID         string
+	Cover            string
+	Template         string
 }
 
 type Service struct {
@@ -137,9 +142,13 @@ func (s *Service) Create(kind string, input CreateInput) (domain.Taxonomy, error
 		return domain.Taxonomy{}, errors.New("name is required")
 	}
 	now := time.Now().UTC()
+	cover, template, err := normalizeCategorySettings(normalizedKind, input.Cover, input.Template)
+	if err != nil {
+		return domain.Taxonomy{}, err
+	}
 	item := domain.Taxonomy{
 		SchemaVersion: domain.SchemaVersion, Kind: normalizedKind, ID: id, SourceLocale: locales.SourceLocale,
-		ParentID: input.ParentID, Template: strings.ToLower(normalizedKind), Revision: 1, CreatedAt: now, UpdatedAt: now,
+		ParentID: input.ParentID, Cover: cover, Template: template, Revision: 1, CreatedAt: now, UpdatedAt: now,
 		Locales: map[string]domain.LocalizedTaxonomy{locales.SourceLocale: {Name: name, Description: strings.TrimSpace(input.Description), State: "current", Origin: domain.LocaleOriginSource, Revision: 1, SourceRevision: 1}},
 	}
 	if err := s.repository.WriteYAML(path, item, false); err != nil {
@@ -276,10 +285,16 @@ func (s *Service) UpdateStructure(kind, id string, input UpdateStructureInput) (
 			return domain.Taxonomy{}, ErrInvalidParent
 		}
 	}
-	if item.ParentID == parentID {
+	cover, template, err := normalizeCategorySettings(item.Kind, input.Cover, input.Template)
+	if err != nil {
+		return domain.Taxonomy{}, err
+	}
+	if item.ParentID == parentID && item.Cover == cover && item.Template == template {
 		return item, nil
 	}
 	item.ParentID = parentID
+	item.Cover = cover
+	item.Template = template
 	item.Revision++
 	item.UpdatedAt = time.Now().UTC()
 	path, _ := taxonomyPath(item.Kind, item.ID)
@@ -287,6 +302,24 @@ func (s *Service) UpdateStructure(kind, id string, input UpdateStructureInput) (
 		return domain.Taxonomy{}, err
 	}
 	return item, nil
+}
+
+func normalizeCategorySettings(kind, rawCover, rawTemplate string) (string, string, error) {
+	if kind != "Category" {
+		return "", "tag", nil
+	}
+	cover := strings.TrimSpace(rawCover)
+	if cover != "" && (!strings.HasPrefix(cover, "/media/") || strings.Contains(cover, "..")) {
+		return "", "", ErrInvalidSettings
+	}
+	template := strings.TrimSpace(rawTemplate)
+	if template == "" {
+		template = "category"
+	}
+	if !content.ValidPublicID(template, true) {
+		return "", "", ErrInvalidSettings
+	}
+	return cover, template, nil
 }
 
 func (s *Service) locales() (domain.LocalesConfig, error) {

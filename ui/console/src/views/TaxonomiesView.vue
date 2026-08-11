@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
 import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
-import { api, type LocalesConfig, type Taxonomy } from "@/api/client";
+import { ApiError, api, createStaticBuildTaskId, type LocalesConfig, type Taxonomy, type ThemeRecord } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
+import TaskProgress from "@/components/TaskProgress.vue";
+import MediaPickerField from "@/components/MediaPickerField.vue";
 
 const route = useRoute();
 const session = useSessionStore();
@@ -21,15 +23,22 @@ const activeLocale = ref("");
 const creating = ref(false);
 const customID = ref("");
 const parentID = ref("");
+const cover = ref("");
+const template = ref("category");
+const activeTheme = ref<ThemeRecord>();
 const error = ref("");
 const notice = ref("");
+const buildTaskIds = ref<string[]>([]);
 const form = reactive({ name: "", description: "", seoTitle: "", seoDescription: "" });
+const categoryTemplates = computed(() => [{ id: "category", name: t("taxonomyPage.defaultTemplate") }, ...(activeTheme.value?.categoryTemplates ?? [])]);
 
 async function load() {
   error.value = "";
   try {
-    locales.value = await api.locales();
-    items.value = (await api.taxonomies(kind)).items;
+    const [localeConfig, taxonomyResult, themeResult] = await Promise.all([api.locales(), api.taxonomies(kind), api.themes()]);
+    locales.value = localeConfig;
+    items.value = taxonomyResult.items;
+    activeTheme.value = themeResult.items.find((theme) => theme.active);
     activeLocale.value ||= locales.value.sourceLocale;
   } catch (caught) { error.value = caught instanceof Error ? caught.message : t("taxonomyPage.loadFailed", { name: title() }); }
 }
@@ -40,10 +49,12 @@ function edit(item: Taxonomy) {
   creating.value = false;
   activeLocale.value = item.sourceLocale;
 	parentID.value = item.parentId ?? "";
+	cover.value = item.cover ?? "";
+	template.value = item.template || "category";
   loadLocale();
 }
 function startCreate() {
-  selected.value = undefined; creating.value = true; customID.value = ""; parentID.value = "";
+  selected.value = undefined; creating.value = true; customID.value = ""; parentID.value = ""; cover.value = ""; template.value = "category";
   activeLocale.value = locales.value?.sourceLocale ?? "";
   Object.assign(form, { name: "", description: "", seoTitle: "", seoDescription: "" });
 }
@@ -52,18 +63,39 @@ function loadLocale() {
   const value = selected.value?.locales[activeLocale.value];
   Object.assign(form, { name: value?.name ?? "", description: value?.description ?? "", seoTitle: value?.seoTitle ?? "", seoDescription: value?.seoDescription ?? "" });
 }
+
+async function discardTaskIfMissing(taskId: string) {
+  try {
+    await api.task(taskId);
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.status === 404) buildTaskIds.value = buildTaskIds.value.filter((id) => id !== taskId);
+  }
+}
+
+async function withBuildTask<T>(request: (taskId: string) => Promise<T>) {
+  const taskId = createStaticBuildTaskId();
+  buildTaskIds.value = [...buildTaskIds.value, taskId];
+  try {
+    return await request(taskId);
+  } catch (caught) {
+    await discardTaskIfMissing(taskId);
+    throw caught;
+  }
+}
+
 async function save() {
   if (!session.session) return;
   error.value = ""; notice.value = "";
+  buildTaskIds.value = [];
   try {
     if (!selected.value) {
-      selected.value = await api.createTaxonomy(session.session.csrfToken, kind, { id: customID.value || undefined, name: form.name, description: form.description, parentId: kind === "categories" ? parentID.value || undefined : undefined });
+      selected.value = await withBuildTask((taskId) => api.createTaxonomy(session.session!.csrfToken, kind, { id: customID.value || undefined, name: form.name, description: form.description, parentId: kind === "categories" ? parentID.value || undefined : undefined, cover: kind === "categories" ? cover.value : undefined, template: kind === "categories" ? template.value : undefined }, taskId));
       creating.value = false;
     } else {
-	  if (kind === "categories" && parentID.value !== (selected.value.parentId ?? "")) {
-		selected.value = await api.updateTaxonomyStructure(session.session.csrfToken, kind, selected.value.id, selected.value.revision, parentID.value || undefined);
+	  if (kind === "categories" && (parentID.value !== (selected.value.parentId ?? "") || cover.value !== (selected.value.cover ?? "") || template.value !== selected.value.template)) {
+		selected.value = await withBuildTask((taskId) => api.updateTaxonomyStructure(session.session!.csrfToken, kind, selected.value!.id, selected.value!.revision, { parentId: parentID.value || undefined, cover: cover.value, template: template.value }, taskId));
 	  }
-      selected.value = await api.updateTaxonomyLocale(session.session.csrfToken, kind, selected.value.id, activeLocale.value, { revision: selected.value.revision, ...form });
+      selected.value = await withBuildTask((taskId) => api.updateTaxonomyLocale(session.session!.csrfToken, kind, selected.value!.id, activeLocale.value, { revision: selected.value!.revision, ...form }, taskId));
     }
     notice.value = t("taxonomyPage.saved", { name: entityName() });
     await load();
@@ -71,8 +103,9 @@ async function save() {
 }
 async function removeSelected() {
   if (!session.session || !selected.value || !window.confirm(t("taxonomyPage.confirmDelete", { name: selected.value.locales[selected.value.sourceLocale]?.name ?? selected.value.id }))) return;
+  buildTaskIds.value = [];
   try {
-    await api.deleteTaxonomy(session.session.csrfToken, kind, selected.value.id, selected.value.revision);
+    await withBuildTask((taskId) => api.deleteTaxonomy(session.session!.csrfToken, kind, selected.value!.id, selected.value!.revision, taskId));
     selected.value = undefined;
     notice.value = t("taxonomyPage.deleted");
     await load();
@@ -91,11 +124,14 @@ async function removeSelected() {
           <div v-if="notice" class="form-success">{{ notice }}</div><div v-if="error" class="form-alert">{{ error }}</div>
           <label v-if="!selected"><span>{{ t("taxonomyPage.customId") }}</span><input v-model="customID" placeholder="engineering" /></label>
           <label v-if="kind === 'categories'"><span>{{ t("taxonomyPage.parentCategory") }}</span><select v-model="parentID"><option value="">{{ t("taxonomyPage.none") }}</option><option v-for="item in items.filter(candidate => candidate.id !== selected?.id)" :key="item.id" :value="item.id">{{ item.locales[item.sourceLocale]?.name }}</option></select></label>
+          <MediaPickerField v-if="kind === 'categories'" v-model="cover" :label="t('taxonomyPage.cover')" />
+          <label v-if="kind === 'categories'"><span>{{ t("taxonomyPage.template") }}</span><select v-model="template"><option v-for="option in categoryTemplates" :key="option.id" :value="option.id">{{ option.name }}</option><option v-if="selected && !categoryTemplates.some(option => option.id === selected?.template)" :value="selected?.template ?? 'category'">{{ t("taxonomyPage.unavailableTemplate", { id: selected?.template ?? "category" }) }}</option></select></label>
           <div v-if="selected && locales" class="locale-tabs"><button v-for="locale in locales.enabled.filter(item => item.enabled)" :key="locale.code" type="button" :class="{ active: activeLocale === locale.code }" @click="selectLocale(locale.code)">{{ locale.label }} <span v-if="selected.locales[locale.code]" class="locale-origin-badge">{{ codeLabel(selected.locales[locale.code].origin) }}</span></button></div>
           <label><span>{{ t("taxonomyPage.name") }}</span><input v-model="form.name" /></label><label><span>{{ t("taxonomyPage.description") }}</span><textarea v-model="form.description" rows="4" /></label><label><span>{{ t("taxonomyPage.seoTitle") }}</span><input v-model="form.seoTitle" /></label><label><span>{{ t("taxonomyPage.seoDescription") }}</span><textarea v-model="form.seoDescription" rows="3" /></label>
           <VButton type="secondary" @click="save">{{ t("common.save") }}</VButton><button v-if="selected" type="button" class="text-danger" @click="removeSelected">{{ t("common.deleteForever") }}</button>
         </div>
       </VCard>
+      <VCard v-if="buildTaskIds.length"><TaskProgress v-for="taskId in buildTaskIds" :key="taskId" :task-id="taskId" /></VCard>
     </div>
   </div>
 </template>

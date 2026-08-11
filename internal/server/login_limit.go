@@ -12,6 +12,7 @@ const (
 	loginFailureLimit = 8
 	loginWindow       = 10 * time.Minute
 	loginBlock        = 15 * time.Minute
+	loginClientLimit  = 4096
 )
 
 type loginAttempt struct {
@@ -35,6 +36,10 @@ func (l *loginLimiter) Allow(key string) (bool, time.Duration) {
 	defer l.mu.Unlock()
 	attempt, ok := l.attempts[key]
 	if !ok {
+		l.prune(now)
+		if len(l.attempts) >= loginClientLimit {
+			return false, loginWindow
+		}
 		return true, 0
 	}
 	if now.Before(attempt.BlockedUntil) {
@@ -50,7 +55,13 @@ func (l *loginLimiter) Failed(key string) {
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	attempt := l.attempts[key]
+	attempt, exists := l.attempts[key]
+	if !exists && len(l.attempts) >= loginClientLimit {
+		l.prune(now)
+		if len(l.attempts) >= loginClientLimit {
+			return
+		}
+	}
 	if attempt.WindowStarted.IsZero() || now.Sub(attempt.WindowStarted) >= loginWindow {
 		attempt = loginAttempt{WindowStarted: now}
 	}
@@ -59,6 +70,14 @@ func (l *loginLimiter) Failed(key string) {
 		attempt.BlockedUntil = now.Add(loginBlock)
 	}
 	l.attempts[key] = attempt
+}
+
+func (l *loginLimiter) prune(now time.Time) {
+	for key, attempt := range l.attempts {
+		if !now.Before(attempt.BlockedUntil) && now.Sub(attempt.WindowStarted) >= loginWindow {
+			delete(l.attempts, key)
+		}
+	}
 }
 
 func (l *loginLimiter) Reset(key string) {

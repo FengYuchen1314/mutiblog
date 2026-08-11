@@ -28,14 +28,18 @@ import (
 	"github.com/FengYuchen1314/mutiblog/internal/dictionary"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/links"
+	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
 	"github.com/FengYuchen1314/mutiblog/internal/media"
 	"github.com/FengYuchen1314/mutiblog/internal/menus"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
 	"github.com/FengYuchen1314/mutiblog/internal/projection"
 	"github.com/FengYuchen1314/mutiblog/internal/publisher"
+	"github.com/FengYuchen1314/mutiblog/internal/scheduled"
 	"github.com/FengYuchen1314/mutiblog/internal/taxonomy"
 	"github.com/FengYuchen1314/mutiblog/internal/themes"
 	"github.com/FengYuchen1314/mutiblog/internal/translation"
+	"github.com/FengYuchen1314/mutiblog/internal/upvotes"
+	"github.com/FengYuchen1314/mutiblog/internal/visits"
 	"golang.org/x/text/language"
 )
 
@@ -60,30 +64,51 @@ type SitePublisher interface {
 	Build(context.Context) (publisher.BuildReport, error)
 }
 
+// backupTaskStarter narrows the backup task-start checkpoint used by the
+// asynchronous runners. The concrete backup service remains responsible for
+// all other task lifecycle operations; keeping this seam small lets callers
+// exercise an unavailable checkpoint without coupling it to filesystem
+// permission semantics.
+type backupTaskStarter interface {
+	StartTask(string) (backup.Task, error)
+}
+
 type Server struct {
-	repository   *fsrepo.Repository
-	consoleDir   string
-	version      string
-	logger       *slog.Logger
-	sessions     *auth.SessionStore
-	logins       *loginLimiter
-	content      *content.Service
-	media        *media.Service
-	ai           *ai.Service
-	audit        *audit.Service
-	publisher    SitePublisher
-	translator   *translation.Service
-	taxonomies   *taxonomy.Service
-	comments     *comments.Service
-	links        *links.Service
-	menus        *menus.Service
-	backups      *backup.Service
-	themes       *themes.Service
-	projection   *projection.Service
-	mux          *http.ServeMux
-	setupMu      sync.Mutex
-	themeGate    sync.RWMutex
-	mutationGate sync.RWMutex
+	repository         *fsrepo.Repository
+	consoleDir         string
+	version            string
+	logger             *slog.Logger
+	sessions           *auth.SessionStore
+	logins             *loginLimiter
+	content            *content.Service
+	media              *media.Service
+	ai                 *ai.Service
+	audit              *audit.Service
+	publisher          SitePublisher
+	translator         *translation.Service
+	scheduler          *scheduled.Service
+	taxonomies         *taxonomy.Service
+	comments           *comments.Service
+	upvotes            *upvotes.Service
+	visits             *visits.Service
+	links              *links.Service
+	menus              *menus.Service
+	backups            *backup.Service
+	backupTaskStarter  backupTaskStarter
+	themes             *themes.Service
+	projection         *projection.Service
+	mux                *http.ServeMux
+	lifecycle          context.Context
+	cancel             context.CancelFunc
+	startupWG          sync.WaitGroup
+	setupMu            sync.Mutex
+	initialBuildQueued bool
+	themeGate          sync.RWMutex
+	mutationGate       sync.RWMutex
+	statsMu            sync.Mutex
+	statsCache         map[string]cachedPublicStats
+	shareQR            *shareQRService
+	backgroundMu       sync.Mutex
 }
 
 func New(options Options) (*Server, error) {
@@ -96,6 +121,7 @@ func New(options Options) (*Server, error) {
 	if err := dictionary.Ensure(options.Repository); err != nil {
 		return nil, fmt.Errorf("initialize framework dictionaries: %w", err)
 	}
+	lifecycle, cancel := context.WithCancel(context.Background())
 	server := &Server{
 		repository: options.Repository,
 		consoleDir: options.ConsoleDir,
@@ -114,9 +140,30 @@ func New(options Options) (*Server, error) {
 		backups:    backup.NewService(options.Repository),
 		themes:     themes.NewService(options.Repository),
 		mux:        http.NewServeMux(),
+		lifecycle:  lifecycle,
+		cancel:     cancel,
+		statsCache: make(map[string]cachedPublicStats),
+		shareQR:    newShareQRService(),
 	}
+	server.upvotes = upvotes.NewService(options.Repository, server.content)
+	server.visits = visits.NewService(options.Repository, server.content)
+	keepBackupService := false
+	keepPublisherService := false
+	defer func() {
+		if !keepBackupService {
+			server.backups.Close()
+		}
+		if !keepPublisherService {
+			if publisher, ok := server.publisher.(interface{ Close() }); ok {
+				publisher.Close()
+			}
+		}
+	}()
 	if err := server.backups.RecoverInterruptedRestores(); err != nil {
 		return nil, fmt.Errorf("recover interrupted backup restore: %w", err)
+	}
+	if _, err := localeconfig.MigrateFallback(options.Repository); err != nil {
+		return nil, fmt.Errorf("migrate locale fallback: %w", err)
 	}
 	if _, err := server.media.Recover(); err != nil {
 		return nil, fmt.Errorf("recover interrupted media deletion: %w", err)
@@ -131,8 +178,12 @@ func New(options Options) (*Server, error) {
 	if options.Publisher != nil {
 		server.publisher = newTrackedSitePublisher(options.Publisher)
 	} else {
+		if err := publisher.ValidateNodeBinary(context.Background(), options.NodeBinary); err != nil {
+			return nil, err
+		}
 		publisherService := publisher.NewService(options.Repository, server.content, publisher.CommandRenderer{NodeBinary: options.NodeBinary, RendererCLI: options.RendererCLI})
 		if _, err := publisherService.Recover(); err != nil {
+			publisherService.Close()
 			return nil, fmt.Errorf("recover interrupted static builds: %w", err)
 		}
 		server.publisher = newTrackedSitePublisher(publisherService)
@@ -143,41 +194,117 @@ func New(options Options) (*Server, error) {
 	server.translator = translation.NewService(options.Repository, server.content, server.ai, server.publisher)
 	projectionService, err := projection.Open(options.Repository, server.content, options.Logger)
 	if err != nil {
+		server.translator.Close()
 		return nil, fmt.Errorf("open rebuildable projection: %w", err)
 	}
 	server.projection = projectionService
-	server.projection.StartWatcher(context.Background(), func(ctx context.Context) error {
-		initialized, err := server.repository.Exists("config/site.yaml")
-		if err != nil || !initialized {
-			return err
+	if err := server.projection.RecoverTasks(); err != nil {
+		server.translator.Close()
+		_ = server.projection.Close()
+		return nil, fmt.Errorf("recover index rebuild tasks: %w", err)
+	}
+	if tracked, ok := server.publisher.(*trackedSitePublisher); ok {
+		tracked.setBeforeBuild(func() {
+			if _, err := server.projection.RebuildIfChanged(); err != nil {
+				server.logger.Error("refresh projection before static build failed", "error", err)
+			}
+		})
+	}
+	server.projection.StartWatcher(server.lifecycle, server.reconcileExternalSourceChange)
+	server.scheduler = scheduled.NewService(options.Repository, server.content, server.publisher, server.translator, func() func() {
+		server.mutationGate.Lock()
+		server.themeGate.RLock()
+		return func() {
+			server.themeGate.RUnlock()
+			server.mutationGate.Unlock()
 		}
-		_, err = server.publisher.Build(ctx)
-		return err
 	})
-	// Translation recovery starts only after the projection and its watcher are
-	// ready. Otherwise an early recovered write can land between the initial
-	// projection rebuild and watcher startup and remain absent from SQLite.
+	server.translator.SetContentMutationAcquire(func() func() {
+		server.mutationGate.Lock()
+		return server.mutationGate.Unlock
+	})
+	server.translator.SetContentChangedCallback(func(entityKind, entityID string, revision int) {
+		if _, err := server.scheduler.InvalidateForEntity(entityKind, entityID, revision); err != nil {
+			server.logger.Error("invalidate scheduled publication after AI translation failed", "kind", entityKind, "id", entityID, "revision", revision, "error", err)
+		}
+	})
+	// Translation recovery starts only after the projection, its watcher, and the
+	// scheduled-publication invalidation hook are ready. Otherwise a recovered AI
+	// promotion could mutate the head without immediately retiring a stale
+	// publication intent.
 	if _, err := server.translator.Recover(); err != nil {
+		server.cancel()
+		server.scheduler.Close()
+		server.translator.Close()
 		_ = server.projection.Close()
 		return nil, fmt.Errorf("recover translation tasks: %w", err)
+	}
+	if _, err := server.scheduler.Recover(); err != nil {
+		server.cancel()
+		server.scheduler.Close()
+		server.translator.Close()
+		_ = server.projection.Close()
+		return nil, fmt.Errorf("recover scheduled publish tasks: %w", err)
 	}
 	server.resumeBackupTasks(retryBackupTasks)
 	server.routes()
 	// An initialized site already has a last-known-good public release. Do not
 	// delay the HTTP listener (and Docker health checks) behind a best-effort
 	// rebuild that can legitimately take several minutes on a small VPS.
+	server.startupWG.Add(1)
 	go func() {
+		defer server.startupWG.Done()
 		server.mutationGate.RLock()
 		defer server.mutationGate.RUnlock()
 		server.themeGate.RLock()
 		defer server.themeGate.RUnlock()
-		server.rebuildPublicAtStartup()
+		server.rebuildPublicAtStartup(server.lifecycle)
 	}()
+	keepBackupService = true
+	keepPublisherService = true
 	return server, nil
 }
 
-func (s *Server) rebuildPublicAtStartup() {
+func (s *Server) reconcileExternalSourceChange(ctx context.Context) (bool, error) {
+	// Every managed request holds the shared side of this gate until its
+	// deferred projection refresh completes. If the hash is already current
+	// after we obtain the exclusive side, the watcher merely observed that
+	// internal write and must not enqueue a duplicate public build.
+	s.mutationGate.Lock()
+	defer s.mutationGate.Unlock()
+	// A direct YAML edit cannot remove or disable the required Chinese content
+	// fallback. Normalize before claiming the projection fingerprint so a
+	// malformed locale file remains retryable after the operator repairs it.
+	if _, err := localeconfig.MigrateFallback(s.repository); err != nil {
+		return false, fmt.Errorf("normalize externally edited locale fallback: %w", err)
+	}
+	changed, err := s.projection.RebuildIfChanged()
+	if err != nil || !changed {
+		return changed, err
+	}
+	s.clearPublicStatsCache()
+	initialized, err := s.repository.Exists("config/site.yaml")
+	if err != nil || !initialized {
+		return true, err
+	}
+	if err := ctx.Err(); err != nil {
+		return true, err
+	}
+	_, err = s.publisher.Build(ctx)
+	return true, err
+}
+
+func (s *Server) rebuildPublicAtStartup(parent context.Context) {
+	if err := parent.Err(); err != nil {
+		return
+	}
+	s.setupMu.Lock()
+	if s.initialBuildQueued {
+		s.setupMu.Unlock()
+		return
+	}
 	initialized, err := s.repository.Exists("config/initialized")
+	s.setupMu.Unlock()
 	if err != nil {
 		s.logger.Error("check initialization before startup build failed", "error", err)
 		return
@@ -187,7 +314,7 @@ func (s *Server) rebuildPublicAtStartup() {
 	}
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(parent, 60*time.Second)
 		report, err := s.publisher.Build(ctx)
 		cancel()
 		if err == nil {
@@ -196,21 +323,67 @@ func (s *Server) rebuildPublicAtStartup() {
 		}
 		lastErr = err
 		if attempt < 3 {
-			time.Sleep(time.Duration(attempt) * time.Second)
+			timer := time.NewTimer(time.Duration(attempt) * time.Second)
+			select {
+			case <-parent.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return
+			case <-timer.C:
+			}
 		}
 	}
 	s.logger.Error("startup static build failed after limited retries; previous release remains active", "error", lastErr)
 }
 
 func (s *Server) Close() error {
+	s.backgroundMu.Lock()
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.backgroundMu.Unlock()
+	s.startupWG.Wait()
+	if s.backups != nil {
+		s.backups.Close()
+	}
+	if s.scheduler != nil {
+		s.scheduler.Close()
+	}
+	if s.translator != nil {
+		s.translator.Close()
+	}
+	if publisher, ok := s.publisher.(interface{ Close() }); ok {
+		publisher.Close()
+	}
 	if s.projection != nil {
 		return s.projection.Close()
 	}
 	return nil
 }
 
+// launchBackground registers post-startup work before checking the lifecycle
+// cancellation under the same lock used by Close. That prevents a late HTTP
+// request from calling WaitGroup.Add concurrently with shutdown's Wait.
+func (s *Server) launchBackground(work func(context.Context)) bool {
+	if work == nil {
+		return false
+	}
+	s.backgroundMu.Lock()
+	defer s.backgroundMu.Unlock()
+	if s.lifecycle == nil || s.lifecycle.Err() != nil {
+		return false
+	}
+	s.startupWG.Add(1)
+	go func() {
+		defer s.startupWG.Done()
+		work(s.lifecycle)
+	}()
+	return true
+}
+
 func (s *Server) Handler() http.Handler {
-	return s.requestID(s.recoverPanic(s.requestLog(s.securityHeaders(s.previewIsolation(s.mux)))))
+	return s.requestID(s.recoverPanic(s.requestLog(s.securityHeaders(s.withBuildTaskRequest(s.previewIsolation(s.mux))))))
 }
 
 func (s *Server) routes() {
@@ -224,8 +397,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/v1/admin/security/password", s.requireAdmin(s.handleChangePassword))
 	s.mux.HandleFunc("GET /api/v1/admin/security/audit", s.requireAdmin(s.handleSecurityAudit))
 	s.mux.HandleFunc("GET /api/v1/admin/system/status", s.requireAdmin(s.handleSystemStatus))
+	s.mux.HandleFunc("GET /api/v1/admin/tasks", s.requireAdmin(s.handleListTasks))
+	s.mux.HandleFunc("GET /api/v1/admin/tasks/{id}", s.requireAdmin(s.handleGetTask))
 	s.mux.HandleFunc("GET /api/v1/admin/index/status", s.requireAdmin(s.handleIndexStatus))
-	s.mux.HandleFunc("POST /api/v1/admin/index/rebuild", s.requireAdmin(s.handleRebuildIndex))
+	// Index rebuilds mutate only the derived projection. The durable worker owns
+	// that rebuild, so skip the ordinary post-mutation projection refresh here
+	// to avoid doing the same expensive work twice before returning 202.
+	s.mux.HandleFunc("POST /api/v1/admin/index/rebuild", s.requireAdminWithoutProjectionSync(s.handleRebuildIndex))
 	s.mux.HandleFunc("GET /api/v1/admin/index/search", s.requireAdmin(s.handleIndexSearch))
 	s.mux.HandleFunc("GET /api/v1/admin/locales", s.requireAdmin(s.handleLocales))
 	s.mux.HandleFunc("PUT /api/v1/admin/locales", s.requireExclusiveAdmin(s.handleUpdateLocales))
@@ -312,6 +490,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /media/{path...}", s.handlePublicMedia)
 	s.mux.HandleFunc("GET /api/v1/public/comments", s.withSharedMutation(s.handlePublicComments))
 	s.mux.HandleFunc("POST /api/v1/public/comments", s.withSharedMutation(s.handleCreatePublicComment))
+	s.mux.HandleFunc("GET /api/v1/public/upvotes", s.withSharedMutation(s.handlePublicUpvotes))
+	s.mux.HandleFunc("POST /api/v1/public/upvotes", s.withSharedMutation(s.handleCreatePublicUpvote))
+	s.mux.HandleFunc("GET /api/v1/public/stats", s.withSharedMutation(s.handlePublicStats))
+	s.mux.HandleFunc("POST /api/v1/public/visits", s.withSharedMutation(s.handleCreatePublicVisit))
+	s.mux.HandleFunc("GET /api/v1/public/share-qr", s.withSharedMutation(s.handlePublicShareQR))
 	s.mux.HandleFunc("GET /api/v1/admin/comments", s.requireAdmin(s.handleAdminComments))
 	s.mux.HandleFunc("PUT /api/v1/admin/comments/{kind}/{subject}/{id}", s.requireAdmin(s.handleModerateComment))
 	s.mux.HandleFunc("DELETE /api/v1/admin/comments/{kind}/{subject}/{id}", s.requireAdmin(s.handleDeleteComment))
@@ -487,7 +670,10 @@ func (s *Server) localizedNotFound(current, clean string) string {
 			sourceLocale = locales.SourceLocale
 		}
 	}
-	if sourceLocale != requestedLocale {
+	if requestedLocale != localeconfig.DefaultFallback {
+		candidates = append(candidates, localeconfig.DefaultFallback)
+	}
+	if sourceLocale != requestedLocale && sourceLocale != localeconfig.DefaultFallback {
 		candidates = append(candidates, sourceLocale)
 	}
 	for _, locale := range candidates {
@@ -763,7 +949,19 @@ func (s *Server) recoverPanic(next http.Handler) http.Handler {
 }
 
 func isSecureRequest(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	if r.TLS != nil {
+		return true
+	}
+	// Only the local/private reverse-proxy hop may describe the original
+	// scheme. A direct caller can otherwise force a Secure cookie over cleartext
+	// HTTP simply by spoofing X-Forwarded-Proto, leaving login/logout state
+	// inconsistent. Match the strict first-hop rule used by public QR and
+	// upvote endpoints.
+	if !trustedProxyIP(remoteIP(r.RemoteAddr)) {
+		return false
+	}
+	forwarded := strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")
+	return len(forwarded) > 0 && strings.EqualFold(strings.TrimSpace(forwarded[0]), "https")
 }
 
 func isNotExist(err error) bool { return errors.Is(err, fs.ErrNotExist) }

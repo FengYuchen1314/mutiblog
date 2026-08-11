@@ -30,7 +30,7 @@ func TestRendererPermissionArgsConfineCustomTheme(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(arguments, "\n")
-	for _, expected := range []string{"--max-old-space-size=256", "--permission", "--allow-fs-read=" + inputPath, "--allow-fs-read=" + filepath.Join(themeRoot, "server.mjs"), "--allow-fs-read=" + filepath.Join(themeRoot, "assets"), "--allow-fs-write=" + outputPath, "--allow-fs-write=" + outputPath + string(filepath.Separator) + "*"} {
+	for _, expected := range []string{"--max-old-space-size=256", "--permission", "--allow-fs-read=" + inputPath, "--allow-fs-read=" + filepath.Join(themeRoot, "server.mjs"), "--allow-fs-read=" + filepath.Join(themeRoot, "assets"), "--allow-fs-read=" + outputPath + string(filepath.Separator) + "*", "--allow-fs-write=" + outputPath, "--allow-fs-write=" + outputPath + string(filepath.Separator) + "*"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("renderer permissions missing %q:\n%s", expected, joined)
 		}
@@ -47,6 +47,9 @@ func TestCommandRendererCanCreateMissingOutputTreeUnderNodePermissionModel(t *te
 	if err != nil {
 		t.Skip("Node.js is not installed")
 	}
+	if err := ValidateNodeBinary(context.Background(), node); err != nil {
+		t.Skip(err)
+	}
 	root := t.TempDir()
 	staging := filepath.Join(root, "generated", "staging")
 	if err := os.MkdirAll(staging, 0o750); err != nil {
@@ -58,18 +61,23 @@ func TestCommandRendererCanCreateMissingOutputTreeUnderNodePermissionModel(t *te
 	}
 	rendererCLI := filepath.Join(root, "renderer.mjs")
 	program := `
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+if (process.env.MUTIBLOG_RENDERER_TEST_SECRET) throw new Error("renderer inherited parent secret");
 const output = process.argv[process.argv.indexOf("--output") + 1];
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 await writeFile(join(output, "index.html"), "ok", "utf8");
+await mkdir(join(output, "assets"), { recursive: true });
+await writeFile(join(output, "assets", "theme.css"), "body{}", "utf8");
+if (!(await readdir(join(output, "assets"))).includes("theme.css")) throw new Error("cannot inspect generated assets");
 process.stdout.write("{}\n");
 `
 	if err := os.WriteFile(rendererCLI, []byte(program), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	outputPath := filepath.Join(staging, "missing-output")
+	t.Setenv("MUTIBLOG_RENDERER_TEST_SECRET", "must-not-cross-process-boundary")
 	if _, err := (CommandRenderer{NodeBinary: node, RendererCLI: rendererCLI}).Render(context.Background(), inputPath, outputPath); err != nil {
 		t.Fatal(err)
 	}

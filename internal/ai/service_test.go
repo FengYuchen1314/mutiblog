@@ -15,7 +15,7 @@ import (
 func TestProviderPersistenceMaskingAndConnection(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"OK"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}]}`))
 	}))
 	defer server.Close()
 	repository, err := fsrepo.Open(t.TempDir())
@@ -48,5 +48,20 @@ func TestProviderPersistenceMaskingAndConnection(t *testing.T) {
 	}
 	if _, _, err := service.DefaultCredentials(); !errors.Is(err, ErrProviderNotFound) {
 		t.Fatalf("default credentials error = %v", err)
+	}
+}
+
+func TestChatProviderRejectsOutputBudgetAboveConfiguredLimit(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository, Client{})
+	key := "temporary-test-secret"
+	if _, err := service.Upsert("test-provider", UpsertProviderInput{Name: "Test", BaseURL: "https://example.com/v1", Model: "test-model", Enabled: true, Default: true, MaxOutputTokens: 256, APIKey: &key}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.ChatProvider(context.Background(), "test-provider", nil, 257); !errors.Is(err, ErrMaxOutputTokensExceeded) {
+		t.Fatalf("ChatProvider() error = %v", err)
 	}
 }

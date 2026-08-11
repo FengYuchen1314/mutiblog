@@ -3,8 +3,10 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { VButton, VPageHeader } from "@halo-dev/components";
-import { api, ApiError, type ContentRevision, type LocalesConfig, type LocalizedMarkdown, type Post, type Taxonomy, type ThemeRecord } from "@/api/client";
+import { api, ApiError, createStaticBuildTaskId, type ContentRevision, type LocalesConfig, type LocalizedMarkdown, type Post, type Taxonomy, type ThemeRecord, type UnifiedTask } from "@/api/client";
 import MarkdownEditor from "@/components/MarkdownEditor.vue";
+import MediaPickerField from "@/components/MediaPickerField.vue";
+import TaskProgress from "@/components/TaskProgress.vue";
 import { useSessionStore } from "@/stores/session";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
 
@@ -20,11 +22,16 @@ const post = ref<Post>();
 const locales = ref<LocalesConfig>();
 const activeLocale = ref("");
 const saving = ref(false);
+const settingsSaving = ref(false);
 const publishing = ref(false);
 const uploading = ref(false);
 const translating = ref(false);
+const publicationTaskId = ref("");
+const translationTaskId = ref("");
+const siteTimezone = ref("UTC");
 const saveState = ref(t("editorPage.unsaved"));
 const error = ref("");
+const publicationWarning = ref("");
 const customID = ref("");
 const settingsOpen = ref(false);
 const revisionsOpen = ref(false);
@@ -33,7 +40,16 @@ const revisionComparison = ref<{ summary: ContentRevision; snapshot: Post }>();
 const availableCategories = ref<Taxonomy[]>([]);
 const availableTags = ref<Taxonomy[]>([]);
 const activeTheme = ref<ThemeRecord>();
-const postSettings = reactive({ categories: [] as string[], tags: [] as string[], cover: "", commentPolicy: "open" as "open" | "closed", template: isPage ? "page" : "post" });
+const postSettings = reactive({
+  categories: [] as string[],
+  tags: [] as string[],
+  cover: "",
+  pinned: false,
+  visibility: "public" as "public" | "private",
+  publishedAt: "",
+  commentPolicy: "open" as "open" | "closed",
+  template: isPage ? "page" : "post",
+});
 const drafts = reactive<Record<string, LocalizedMarkdown>>({});
 const dirtyLocales = reactive<Record<string, boolean>>({});
 const form = ref<LocalizedMarkdown>({ title: "", summary: "", seoTitle: "", seoDescription: "", markdown: "" });
@@ -60,9 +76,10 @@ const revisionComparisonLocale = computed(() => {
 
 onMounted(async () => {
   try {
-    const [localeConfig, themeResult] = await Promise.all([api.locales(), api.themes()]);
+    const [localeConfig, themeResult, settings] = await Promise.all([api.locales(), api.themes(), api.settings()]);
     locales.value = localeConfig;
     activeTheme.value = themeResult.items.find((theme) => theme.active);
+    siteTimezone.value = settings.site.timezone || "UTC";
     activeLocale.value = locales.value.sourceLocale;
     const id = typeof route.params.id === "string" ? route.params.id : "";
     if (id) {
@@ -72,7 +89,7 @@ onMounted(async () => {
         dirtyLocales[locale] = false;
       }
       activeLocale.value = post.value.meta.sourceLocale;
-      Object.assign(postSettings, { categories: [...post.value.meta.categories], tags: [...post.value.meta.tags], cover: post.value.meta.cover ?? "", commentPolicy: post.value.meta.commentPolicy, template: post.value.meta.template });
+      loadPostSettings();
       loadDraft(activeLocale.value);
       saveState.value = t("editorPage.saved");
     }
@@ -128,18 +145,117 @@ async function compareRevision(revision: ContentRevision) {
 }
 
 async function saveSettings() {
-	if (!session.session) return;
+  if (!session.session) return;
+  settingsSaving.value = true;
   try {
-	const current = await save();
-	if (!current) return;
+    const current = await save();
+    if (!current) return;
+    const publishedAt = postSettings.publishedAt ? zonedLocalToISOString(postSettings.publishedAt, siteTimezone.value) : "";
     post.value = isPage
-		? await api.updatePageSettings(session.session.csrfToken, current.meta.id, { revision: current.meta.revision, cover: postSettings.cover, commentPolicy: postSettings.commentPolicy, template: postSettings.template })
-		: await api.updatePostSettings(session.session.csrfToken, current.meta.id, { revision: current.meta.revision, ...postSettings });
+      ? await api.updatePageSettings(session.session.csrfToken, current.meta.id, { revision: current.meta.revision, cover: postSettings.cover, visibility: postSettings.visibility, publishedAt, commentPolicy: postSettings.commentPolicy, template: postSettings.template })
+      : await api.updatePostSettings(session.session.csrfToken, current.meta.id, { revision: current.meta.revision, ...postSettings, publishedAt });
+    loadPostSettings();
     saveState.value = t("editorPage.settingsSaved");
     settingsOpen.value = false;
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : t("editorPage.settingsSaveFailed");
+  } finally {
+    settingsSaving.value = false;
   }
+}
+
+function loadPostSettings() {
+  if (!post.value) return;
+  Object.assign(postSettings, {
+    categories: [...post.value.meta.categories],
+    tags: [...post.value.meta.tags],
+    cover: post.value.meta.cover ?? "",
+    pinned: post.value.meta.pinned ?? false,
+    visibility: post.value.meta.visibility || "public",
+    publishedAt: toDatetimeLocal(post.value.meta.publishedAt, siteTimezone.value),
+    commentPolicy: post.value.meta.commentPolicy,
+    template: post.value.meta.template,
+  });
+}
+
+function toDatetimeLocal(value: string | undefined, timezone: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return zonedParts(date.getTime(), timezone).key;
+}
+
+const zonedFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function zonedFormatter(timezone: string) {
+  let formatter = zonedFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+    zonedFormatters.set(timezone, formatter);
+  }
+  return formatter;
+}
+
+function zonedParts(instant: number, timezone: string) {
+  const values: Record<string, string> = {};
+  for (const part of zonedFormatter(timezone).formatToParts(new Date(instant))) {
+    if (part.type !== "literal") values[part.type] = part.value;
+  }
+  const year = Number(values.year);
+  const month = Number(values.month);
+  const day = Number(values.day);
+  const hour = Number(values.hour);
+  const minute = Number(values.minute);
+  return {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    key: `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`,
+  };
+}
+
+function zonedLocalToISOString(value: string, timezone: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) throw new Error(String(t("editorPublishTime.invalid", { timezone })));
+  const [, rawYear, rawMonth, rawDay, rawHour, rawMinute] = match;
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  const wallTime = Date.UTC(year, month - 1, day, hour, minute);
+  const parsed = new Date(wallTime);
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day || parsed.getUTCHours() !== hour || parsed.getUTCMinutes() !== minute) {
+    throw new Error(String(t("editorPublishTime.invalid", { timezone })));
+  }
+
+  // A wall clock has no intrinsic offset. Sample every offset around the date,
+  // then retain only instants which round-trip to the exact requested minute.
+  // Zero matches is a DST gap; two matches is a DST overlap.
+  const offsets = new Set<number>();
+  for (let sampleHour = -48; sampleHour <= 48; sampleHour += 6) {
+    const sampleInstant = wallTime + sampleHour * 60 * 60 * 1000;
+    const sample = zonedParts(sampleInstant, timezone);
+    const representedAsUTC = Date.UTC(sample.year, sample.month - 1, sample.day, sample.hour, sample.minute);
+    offsets.add(representedAsUTC - Math.floor(sampleInstant / 60_000) * 60_000);
+  }
+  const matches = [...offsets]
+    .map((offset) => wallTime - offset)
+    .filter((instant, index, all) => all.indexOf(instant) === index && zonedParts(instant, timezone).key === value)
+    .sort((left, right) => left - right);
+  if (matches.length === 0) throw new Error(String(t("editorPublishTime.invalid", { timezone })));
+  if (matches.length > 1) throw new Error(String(t("editorPublishTime.ambiguous", { timezone })));
+  return new Date(matches[0]).toISOString();
 }
 
 function stashDraft() {
@@ -185,7 +301,6 @@ async function save() {
       activeLocale.value = post.value.meta.sourceLocale;
       drafts[activeLocale.value] = { ...post.value.content[activeLocale.value] };
       dirtyLocales[activeLocale.value] = false;
-      Object.assign(postSettings, { categories: [...post.value.meta.categories], tags: [...post.value.meta.tags], cover: post.value.meta.cover ?? "", commentPolicy: post.value.meta.commentPolicy, template: post.value.meta.template });
       await router.replace(`/${isPage ? "pages" : "posts"}/editor/${post.value.meta.id}`);
     } else {
       const dirty = Object.keys(dirtyLocales).filter((locale) => dirtyLocales[locale]);
@@ -221,25 +336,45 @@ function preview() {
 	editor.value?.showPreview();
 }
 
+function handlePublicationTaskUpdate(task: UnifiedTask) {
+	if (task.kind === "ScheduledPublish" && task.translationTaskId) {
+		translationTaskId.value = task.translationTaskId;
+	}
+}
+
 async function publish() {
   if (!session.session) return;
   publishing.value = true;
+  publicationWarning.value = "";
   const current = await save();
   if (current) {
     try {
+	  const buildTaskId = createStaticBuildTaskId();
+	  publicationTaskId.value = buildTaskId;
+	  translationTaskId.value = "";
       const result = isPage
-        ? await api.publishPage(session.session.csrfToken, current.meta.id, current.meta.revision)
-        : await api.publishPost(session.session.csrfToken, current.meta.id, current.meta.revision);
+		? await api.publishPage(session.session.csrfToken, current.meta.id, current.meta.revision, buildTaskId)
+		: await api.publishPost(session.session.csrfToken, current.meta.id, current.meta.revision, buildTaskId);
       post.value = result.post;
-      if (result.build.status === "succeeded") {
-        if (result.translation.status === "queued") saveState.value = t("editorPage.publishedQueued");
+	  const translationQueued = result.translation.status === "queued" && Boolean(result.translation.taskId);
+	  if (translationQueued) translationTaskId.value = result.translation.taskId ?? "";
+	  if (result.translation.status === "failed") publicationWarning.value = String(t("editorPublishedTranslationFailed"));
+	  if (result.build.status === "scheduled") {
+		publicationTaskId.value = result.build.taskId ?? "";
+		saveState.value = t("taskProgress.scheduled");
+	  } else if (result.build.status === "succeeded") {
+		if (translationQueued) {
+		  saveState.value = t("editorPage.publishedQueued");
+		}
         else if (result.translation.status === "not-configured") saveState.value = t("editorPage.publishedNoAi");
+		else if (result.translation.status === "failed") saveState.value = t("editorPublishedTranslationFailed");
         else saveState.value = t("editorPage.published");
       } else {
         saveState.value = t("editorPage.publishedBuildFailed");
         error.value = t("editorPage.publicBuildFailed", { entity: entityLabel() });
       }
     } catch (caught) {
+	  publicationTaskId.value = "";
       error.value = caught instanceof Error ? caught.message : t("editorPage.publishFailed");
     }
   }
@@ -259,8 +394,10 @@ async function translate(overwriteManual = false, requestedTargets?: string[]) {
   translating.value = true;
   error.value = "";
   try {
-    if (isPage) await api.startPageTranslation(csrfToken, current.meta.id, targets, overwriteManual);
-    else await api.startTranslation(csrfToken, current.meta.id, targets, overwriteManual);
+	const task = isPage
+	  ? await api.startPageTranslation(csrfToken, current.meta.id, targets, overwriteManual)
+	  : await api.startTranslation(csrfToken, current.meta.id, targets, overwriteManual);
+	translationTaskId.value = task.id;
     saveState.value = t("editorPage.queued");
   } catch (caught) {
     if (caught instanceof ApiError && caught.code === "manual_translation_confirmation_required" && !overwriteManual) {
@@ -322,26 +459,67 @@ async function handleImages(files: File[]) {
         </button>
       </div>
       <div v-if="post" class="revision-pointers"><span>{{ t("revisionPointers.base") }} #{{ post.meta.baseRevision }}</span><span>{{ t("revisionPointers.head") }} #{{ post.meta.headRevision }}</span><span>{{ t("revisionPointers.release") }} {{ post.meta.releaseRevision ? `#${post.meta.releaseRevision}` : "—" }}</span></div>
-      <div v-if="settingsOpen" class="provider-form editor-settings">
-        <h3>{{ t("editorPage.contentSettings", { entity: entityLabel() }) }}</h3>
-        <label><span>{{ t("editorPage.seoTitle") }}</span><input v-model="form.seoTitle" :placeholder="form.title" @input="markDirty" /></label>
-        <label><span>{{ t("editorPage.seoDescription") }}</span><textarea v-model="form.seoDescription" :placeholder="form.summary" rows="3" @input="markDirty" /></label>
-        <template v-if="post">
-          <label><span>{{ t("editorPage.cover") }}</span><input v-model="postSettings.cover" placeholder="/media/2026/08/example.webp" /></label>
-          <label><span>{{ t("editorPage.comments") }}</span><select v-model="postSettings.commentPolicy"><option value="open">{{ t("editorPage.open") }}</option><option value="closed">{{ t("editorPage.closed") }}</option></select></label>
-          <label><span>{{ t("editorPage.template") }}</span><select v-model="postSettings.template"><option v-for="template in templateOptions" :key="template.id" :value="template.id">{{ template.name }}</option></select></label>
-          <fieldset v-if="!isPage"><legend>{{ t("editorPage.categories") }}</legend><label v-for="item in availableCategories" :key="item.id" class="check-row"><input v-model="postSettings.categories" type="checkbox" :value="item.id" />{{ item.locales[item.sourceLocale]?.name }}</label></fieldset>
-          <fieldset v-if="!isPage"><legend>{{ t("editorPage.tags") }}</legend><label v-for="item in availableTags" :key="item.id" class="check-row"><input v-model="postSettings.tags" type="checkbox" :value="item.id" />{{ item.locales[item.sourceLocale]?.name }}</label></fieldset>
-        </template>
-        <VButton type="secondary" @click="saveSettings">{{ t("editorPage.saveSettings") }}</VButton>
-      </div>
       <div v-if="revisionsOpen" class="provider-form editor-settings revision-panel">
         <h3>{{ t("editorPage.history") }}</h3><p v-if="!revisions.length">{{ t("editorPage.noHistory") }}</p>
         <article v-for="revision in revisions" :key="revision.id" class="revision-row"><div><strong>#{{ revision.revision }} · {{ revision.title }}</strong><span>{{ new Date(revision.createdAt).toLocaleString() }} · {{ codeLabel(revision.status) }}<template v-if="revision.isBase"> · {{ t("revisionPointers.base") }}</template><template v-if="revision.isRelease"> · {{ t("revisionPointers.release") }}</template></span></div><VButton size="sm" @click="compareRevision(revision)">{{ t("revisionCompare.compare") }}</VButton><VButton size="sm" @click="restoreRevision(revision)">{{ t("editorPage.restoreRevision") }}</VButton></article>
         <section v-if="revisionComparison" class="revision-comparison"><header><strong>{{t("revisionCompare.title",{revision:revisionComparison.summary.revision,locale:revisionComparisonLocale})}}</strong><button type="button" class="icon-button" @click="revisionComparison=undefined">{{t("common.dismiss")}}</button></header><div><article><h4>{{t("revisionCompare.historical")}}</h4><pre>{{revisionComparison.snapshot.content[revisionComparisonLocale]?.markdown}}</pre></article><article><h4>{{t("revisionCompare.current")}}</h4><pre>{{(drafts[revisionComparisonLocale]??post?.content[revisionComparisonLocale])?.markdown}}</pre></article></div></section>
       </div>
     </div>
-    <div v-if="error" class="form-alert editor-alert">{{ error }}</div>
+	  <div v-if="error" class="form-alert editor-alert">{{ error }}</div>
+	  <div v-if="publicationWarning" class="editor-publication-warning">{{ publicationWarning }}</div>
+	  <section v-if="publicationTaskId || translationTaskId" class="editor-task-progress">
+		<div v-if="publicationTaskId"><strong>{{ t("taskProgress.publication") }}</strong><TaskProgress :task-id="publicationTaskId" @update="handlePublicationTaskUpdate" /></div>
+		<div v-if="translationTaskId"><strong>{{ t("taskProgress.translation") }}</strong><TaskProgress :task-id="translationTaskId" /></div>
+	  </section>
     <MarkdownEditor :key="activeLocale" ref="editor" v-model="form.markdown" :uploading="uploading" :source-comparison="sourceComparison" @update:model-value="markDirty" @image-files="handleImages" />
+    <Teleport v-if="settingsOpen" to="body">
+      <div class="content-settings-backdrop" @click.self="settingsOpen = false">
+        <section class="content-settings-modal" role="dialog" aria-modal="true" :aria-label="t('editorPage.contentSettings', { entity: entityLabel() })">
+          <header class="content-settings-header">
+            <h2>{{ t("editorPage.contentSettings", { entity: entityLabel() }) }}</h2>
+            <button type="button" class="icon-button" :aria-label="t('common.dismiss')" @click="settingsOpen = false">×</button>
+          </header>
+          <div class="content-settings-body">
+            <section class="content-settings-group">
+              <h3>{{ t("editorPage.generalSettings") }}</h3>
+              <div class="content-settings-fields">
+                <label class="field--wide"><span>{{ t("editorPage.title") }}</span><input v-model="form.title" @input="markDirty" /></label>
+                <label class="field--wide"><span>{{ t("editorPage.slug") }}</span><input v-if="post" :value="post.meta.id" disabled /><input v-else v-model="customID" pattern="[a-z]+(?:-[a-z]+)*" :placeholder="isPage ? 'about-me' : 'my-first-post'" /></label>
+                <label class="field--wide"><span>{{ t("editorPage.summary") }}</span><textarea v-model="form.summary" rows="3" @input="markDirty" /></label>
+                <fieldset v-if="!isPage"><legend>{{ t("editorPage.categories") }}</legend><label v-for="item in availableCategories" :key="item.id" class="check-row"><input v-model="postSettings.categories" type="checkbox" :value="item.id" />{{ item.locales[item.sourceLocale]?.name }}</label></fieldset>
+                <fieldset v-if="!isPage"><legend>{{ t("editorPage.tags") }}</legend><label v-for="item in availableTags" :key="item.id" class="check-row"><input v-model="postSettings.tags" type="checkbox" :value="item.id" />{{ item.locales[item.sourceLocale]?.name }}</label></fieldset>
+                <MediaPickerField v-model="postSettings.cover" class="field--wide" :label="t('editorPage.cover')" />
+              </div>
+            </section>
+            <section class="content-settings-group">
+              <h3>{{ t("editorPage.advancedSettings") }}</h3>
+              <div class="content-settings-fields">
+                <label><span>{{ t("editorPage.comments") }}</span><select v-model="postSettings.commentPolicy"><option value="open">{{ t("editorPage.open") }}</option><option value="closed">{{ t("editorPage.closed") }}</option></select></label>
+                <label v-if="!isPage" class="provider-check content-settings-check"><input v-model="postSettings.pinned" type="checkbox" />{{ t("editorPage.pinned") }}</label>
+                <label><span>{{ t("editorPage.visibility") }}</span><select v-model="postSettings.visibility"><option value="public">{{ t("editorPage.public") }}</option><option value="private">{{ t("editorPage.private") }}</option></select></label>
+                <label><span>{{ t("editorPage.publishTime") }}</span><input v-model="postSettings.publishedAt" type="datetime-local" step="60" /><small>{{ t("editorPublishTime.timezone", { timezone: siteTimezone }) }}</small></label>
+                <label class="field--wide"><span>{{ t("editorPage.template") }}</span><select v-model="postSettings.template"><option v-for="template in templateOptions" :key="template.id" :value="template.id">{{ template.name }}</option></select></label>
+              </div>
+            </section>
+            <section class="content-settings-group">
+              <h3>SEO</h3>
+              <div class="content-settings-fields">
+                <label><span>{{ t("editorPage.seoTitle") }}</span><input v-model="form.seoTitle" :placeholder="form.title" @input="markDirty" /></label>
+                <label><span>{{ t("editorPage.seoDescription") }}</span><textarea v-model="form.seoDescription" :placeholder="form.summary" rows="3" @input="markDirty" /></label>
+              </div>
+            </section>
+            <div v-if="error" class="form-alert">{{ error }}</div>
+          </div>
+          <footer class="content-settings-footer">
+            <VButton type="secondary" :loading="settingsSaving" @click="saveSettings">{{ t("editorPage.saveSettings") }}</VButton>
+            <VButton @click="settingsOpen = false">{{ t("common.dismiss") }}</VButton>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+.editor-publication-warning { margin: .6rem 1rem 0; border: 1px solid #f1c56c; border-radius: .35rem; background: #fff8e7; padding: .65rem .75rem; color: #78540d; font-size: .75rem; }
+</style>

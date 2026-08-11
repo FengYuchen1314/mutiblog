@@ -13,6 +13,7 @@ import (
 
 type updateSiteSettingsRequest struct {
 	BaseURL     string `json:"baseUrl"`
+	Logo        string `json:"logo"`
 	Timezone    string `json:"timezone"`
 	AdminLocale string `json:"adminLocale"`
 	PrimaryMenu string `json:"primaryMenu"`
@@ -51,8 +52,13 @@ func (s *Server) handleUpdateSiteSettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 	baseURL, err := normalizeBaseURL(request.BaseURL)
-	if err != nil {
+	if err != nil || baseURL == "" {
 		s.writeError(w, 422, "site_settings_invalid", "The public base URL is invalid.", nil)
+		return
+	}
+	logo := strings.TrimSpace(request.Logo)
+	if logo != "" && (!strings.HasPrefix(logo, "/media/") || strings.Contains(logo, "..")) {
+		s.writeError(w, http.StatusUnprocessableEntity, "site_settings_invalid", "The site logo must be a local media URL.", map[string]string{"logo": "Choose an uploaded image."})
 		return
 	}
 	if _, err := time.LoadLocation(request.Timezone); err != nil {
@@ -83,6 +89,7 @@ func (s *Server) handleUpdateSiteSettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 	site.BaseURL = baseURL
+	site.Logo = logo
 	site.Timezone = request.Timezone
 	site.AdminLocale = adminTag.String()
 	site.PrimaryMenu = request.PrimaryMenu
@@ -156,11 +163,20 @@ func (s *Server) handleUpdateCommentSettings(w http.ResponseWriter, r *http.Requ
 		s.writeError(w, 500, "settings_save_failed", "Cannot save settings.", nil)
 		return
 	}
-	s.writeJSON(w, 200, settings)
+	report, err := s.publisher.Build(r.Context())
+	if err != nil {
+		s.logger.Error("static build after comment settings update failed", "error", err)
+		w.Header().Set("X-MutiBlog-Static-Build", "failed")
+		s.writeJSON(w, http.StatusAccepted, map[string]any{"comments": settings, "build": map[string]any{"status": "failed"}})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"comments": settings, "build": map[string]any{"status": "succeeded", "report": report}})
 }
 func (s *Server) rebuildAfterSettings(w http.ResponseWriter, r *http.Request, site domain.SiteConfig) {
 	report, err := s.publisher.Build(r.Context())
 	if err != nil {
+		s.logger.Error("static build after site settings update failed", "error", err)
+		w.Header().Set("X-MutiBlog-Static-Build", "failed")
 		s.writeJSON(w, http.StatusAccepted, map[string]any{"site": site, "build": map[string]any{"status": "failed"}})
 		return
 	}

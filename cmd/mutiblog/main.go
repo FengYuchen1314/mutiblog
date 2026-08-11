@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/FengYuchen1314/mutiblog/internal/auth"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"

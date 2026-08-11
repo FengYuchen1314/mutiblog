@@ -40,19 +40,20 @@ var (
 )
 
 type Manifest struct {
-	SchemaVersion  int               `yaml:"schemaVersion" json:"schemaVersion"`
-	ID             string            `yaml:"id" json:"id"`
-	Name           string            `yaml:"name" json:"name"`
-	Version        string            `yaml:"version" json:"version"`
-	Requires       string            `yaml:"requires,omitempty" json:"requires,omitempty"`
-	Engine         string            `yaml:"engine" json:"engine"`
-	Server         string            `yaml:"server" json:"server"`
-	Assets         string            `yaml:"assets,omitempty" json:"assets,omitempty"`
-	Screenshot     string            `yaml:"screenshot,omitempty" json:"screenshot,omitempty"`
-	SettingsSchema string            `yaml:"settingsSchema,omitempty" json:"settingsSchema,omitempty"`
-	SettingsReload string            `yaml:"settingsReload,omitempty" json:"settingsReload,omitempty"`
-	PostTemplates  []ContentTemplate `yaml:"postTemplates,omitempty" json:"postTemplates,omitempty"`
-	PageTemplates  []ContentTemplate `yaml:"pageTemplates,omitempty" json:"pageTemplates,omitempty"`
+	SchemaVersion     int               `yaml:"schemaVersion" json:"schemaVersion"`
+	ID                string            `yaml:"id" json:"id"`
+	Name              string            `yaml:"name" json:"name"`
+	Version           string            `yaml:"version" json:"version"`
+	Requires          string            `yaml:"requires,omitempty" json:"requires,omitempty"`
+	Engine            string            `yaml:"engine" json:"engine"`
+	Server            string            `yaml:"server" json:"server"`
+	Assets            string            `yaml:"assets,omitempty" json:"assets,omitempty"`
+	Screenshot        string            `yaml:"screenshot,omitempty" json:"screenshot,omitempty"`
+	SettingsSchema    string            `yaml:"settingsSchema,omitempty" json:"settingsSchema,omitempty"`
+	SettingsReload    string            `yaml:"settingsReload,omitempty" json:"settingsReload,omitempty"`
+	PostTemplates     []ContentTemplate `yaml:"postTemplates,omitempty" json:"postTemplates,omitempty"`
+	PageTemplates     []ContentTemplate `yaml:"pageTemplates,omitempty" json:"pageTemplates,omitempty"`
+	CategoryTemplates []ContentTemplate `yaml:"categoryTemplates,omitempty" json:"categoryTemplates,omitempty"`
 }
 
 type ContentTemplate struct {
@@ -77,12 +78,13 @@ type Condition struct {
 }
 
 type Runtime struct {
-	ID            string
-	ModulePath    string
-	AssetsPath    string
-	Settings      map[string]any
-	PostTemplates []ContentTemplate
-	PageTemplates []ContentTemplate
+	ID                string
+	ModulePath        string
+	AssetsPath        string
+	Settings          map[string]any
+	PostTemplates     []ContentTemplate
+	PageTemplates     []ContentTemplate
+	CategoryTemplates []ContentTemplate
 }
 
 type SettingsView struct {
@@ -656,11 +658,12 @@ func (s *Service) RuntimeFor(id string) (Runtime, error) {
 		return Runtime{}, err
 	}
 	runtime := Runtime{
-		ID:            id,
-		ModulePath:    filepath.Join(root, filepath.FromSlash(manifest.Server)),
-		Settings:      settings.Values,
-		PostTemplates: append([]ContentTemplate(nil), manifest.PostTemplates...),
-		PageTemplates: append([]ContentTemplate(nil), manifest.PageTemplates...),
+		ID:                id,
+		ModulePath:        filepath.Join(root, filepath.FromSlash(manifest.Server)),
+		Settings:          settings.Values,
+		PostTemplates:     append([]ContentTemplate(nil), manifest.PostTemplates...),
+		PageTemplates:     append([]ContentTemplate(nil), manifest.PageTemplates...),
+		CategoryTemplates: append([]ContentTemplate(nil), manifest.CategoryTemplates...),
 	}
 	if manifest.Assets != "" {
 		runtime.AssetsPath = filepath.Join(root, filepath.FromSlash(manifest.Assets))
@@ -717,10 +720,28 @@ func (s *Service) SaveSettings(id string, values map[string]any) (SettingsView, 
 	if err != nil {
 		return SettingsView{}, err
 	}
-	if err := validateSettings(view.Schema, values); err != nil {
+	// Settings submissions are patches. The console can save one settings
+	// group at a time, so replacing the persisted document here would silently
+	// discard a value saved by an earlier group. Keep the persisted document as
+	// overrides only, so later schema-default changes still take effect. Apply
+	// the patch deeply to those overrides and validate the resulting effective
+	// values (schema defaults plus the saved overrides).
+	// Arrays intentionally replace rather than merge, which makes ordering and
+	// removals unambiguous for widget and social-link lists.
+	overrides := map[string]any{}
+	if err := s.repository.ReadYAML(settingsPath(id), &overrides); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return SettingsView{}, err
+	}
+	if overrides == nil {
+		overrides = map[string]any{}
+	}
+	mergeSettings(overrides, values)
+	effective := defaultsForSchema(view.Schema)
+	mergeSettings(effective, overrides)
+	if err := validateSettings(view.Schema, effective); err != nil {
 		return SettingsView{}, ErrInvalid
 	}
-	if err := s.repository.WriteYAML(settingsPath(id), values, false); err != nil {
+	if err := s.repository.WriteYAML(settingsPath(id), overrides, false); err != nil {
 		return SettingsView{}, err
 	}
 	return s.Settings(id)
@@ -840,7 +861,8 @@ func validManifest(manifest Manifest) bool {
 		(manifest.SettingsSchema == "" || safeRelativeFile(manifest.SettingsSchema, ".json")) &&
 		(manifest.SettingsReload == "" || manifest.SettingsReload == "rebuild") &&
 		validContentTemplates(manifest.PostTemplates, "post") &&
-		validContentTemplates(manifest.PageTemplates, "page")
+		validContentTemplates(manifest.PageTemplates, "page") &&
+		validContentTemplates(manifest.CategoryTemplates, "category")
 }
 
 func validRequirement(requirement string) bool {
@@ -964,6 +986,9 @@ func (s *Service) ActiveTemplates(kind string) ([]ContentTemplate, error) {
 	if strings.EqualFold(kind, "page") {
 		defaultID = "page"
 		custom = runtime.PageTemplates
+	} else if strings.EqualFold(kind, "category") {
+		defaultID = "category"
+		custom = runtime.CategoryTemplates
 	}
 	return append([]ContentTemplate{{ID: defaultID, Name: "Default"}}, custom...), nil
 }
@@ -1098,33 +1123,74 @@ func validateSettings(schema, values map[string]any) error {
 	for key, value := range values {
 		rawProperty, exists := properties[key]
 		property, ok := rawProperty.(map[string]any)
-		if !exists || !ok {
+		if !exists || !ok || validateSettingValue(property, value) != nil {
 			return ErrInvalid
 		}
-		switch property["type"] {
-		case "object":
-			object, ok := value.(map[string]any)
-			if !ok || validateSettings(property, object) != nil {
+	}
+	return nil
+}
+
+func validateSettingValue(schema map[string]any, value any) error {
+	switch schema["type"] {
+	case "object":
+		object, ok := value.(map[string]any)
+		if !ok {
+			return ErrInvalid
+		}
+		return validateSettings(schema, object)
+	case "array":
+		items, ok := value.([]any)
+		if !ok {
+			return ErrInvalid
+		}
+		if minimum, ok := schema["minItems"].(float64); ok && len(items) < int(minimum) {
+			return ErrInvalid
+		}
+		if maximum, ok := schema["maxItems"].(float64); ok && len(items) > int(maximum) {
+			return ErrInvalid
+		}
+		itemSchema, ok := schema["items"].(map[string]any)
+		if !ok {
+			return ErrInvalid
+		}
+		for _, item := range items {
+			if validateSettingValue(itemSchema, item) != nil {
 				return ErrInvalid
 			}
-		case "string":
-			text, ok := value.(string)
-			if !ok || !validEnum(property, text) {
+		}
+	case "string":
+		text, ok := value.(string)
+		if !ok || !validEnum(schema, text) {
+			return ErrInvalid
+		}
+		if minimum, ok := schema["minLength"].(float64); ok && len([]rune(text)) < int(minimum) {
+			return ErrInvalid
+		}
+		if maximum, ok := schema["maxLength"].(float64); ok && len([]rune(text)) > int(maximum) {
+			return ErrInvalid
+		}
+	case "boolean":
+		if _, ok := value.(bool); !ok {
+			return ErrInvalid
+		}
+	case "number":
+		if _, ok := value.(float64); !ok {
+			if _, ok := value.(int); !ok {
 				return ErrInvalid
 			}
-		case "boolean":
-			if _, ok := value.(bool); !ok {
+		}
+	case "integer":
+		switch number := value.(type) {
+		case int:
+		case float64:
+			if number != float64(int64(number)) {
 				return ErrInvalid
-			}
-		case "number", "integer":
-			if _, ok := value.(float64); !ok {
-				if _, ok := value.(int); !ok {
-					return ErrInvalid
-				}
 			}
 		default:
 			return ErrInvalid
 		}
+	default:
+		return ErrInvalid
 	}
 	return nil
 }

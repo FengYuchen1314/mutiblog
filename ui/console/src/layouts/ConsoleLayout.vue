@@ -42,7 +42,7 @@ const groups = computed(() => [
     items: [
       { to: "/locales", label: t("navigation.locales"), icon: "ri:translate-2" },
       { to: "/ai/providers", label: t("navigation.providers"), icon: "ri:sparkling-2-line" },
-      { to: "/ai/tasks", label: t("navigation.tasks"), icon: "ri:git-merge-line" },
+      { to: "/tasks", label: t("navigation.tasks"), icon: "ri:git-merge-line" },
     ],
   },
   {

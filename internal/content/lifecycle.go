@@ -108,6 +108,10 @@ func (s *Service) RestoreRevision(kind, id, revisionID string, expectedRevision 
 	restored.Meta.CreatedAt = current.Meta.CreatedAt
 	restored.Meta.UpdatedAt = time.Now().UTC()
 	restored.Meta.PublishedAt = current.Meta.PublishedAt
+	// A revision snapshot may contain an obsolete scheduling marker. Keep the
+	// current head's intent long enough for the server to invalidate its exact
+	// queued task after this restore; never resurrect the snapshot's old intent.
+	restored.Meta.ScheduledRevision = current.Meta.ScheduledRevision
 	restored.Meta.Revision = current.Meta.Revision + 1
 	restored.Meta.BaseRevision = current.Meta.BaseRevision
 	restored.Meta.HeadRevision = restored.Meta.Revision
@@ -194,6 +198,20 @@ func (s *Service) DeleteRecycled(kind, id string, expectedRevision int) error {
 	} {
 		if err := s.repository.RemoveTree(target); err != nil {
 			return err
+		}
+	}
+	for _, ancillaryPath := range []string{
+		filepath.Join("upvotes", strings.ToLower(item.Meta.Kind)+"s", id+".yaml"),
+		filepath.Join("visits", strings.ToLower(item.Meta.Kind)+"s", id+".yaml"),
+	} {
+		exists, err := s.repository.Exists(ancillaryPath)
+		if err != nil {
+			return err
+		}
+		if exists {
+			if err := s.repository.RemoveFile(ancillaryPath); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

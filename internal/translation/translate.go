@@ -18,8 +18,14 @@ import (
 var ErrUnsafeOutput = errors.New("AI translation did not preserve protected Markdown")
 
 // Every article/page translation uses bounded Markdown chunks by default.
-// This is an engine invariant rather than an optional provider setting.
-const translationChunkRunes = 6000
+// The provider-specific limit below may reduce this further so an
+// OpenAI-compatible provider never silently clamps an output budget.
+const (
+	translationChunkRunes          = 6000
+	translationTokensPerRune       = 2
+	translationOutputReserveTokens = 512
+	translationMetadataTokens      = 1536
+)
 
 type translatedMetadata struct {
 	Title          string `json:"title"`
@@ -28,7 +34,30 @@ type translatedMetadata struct {
 	SEODescription string `json:"seoDescription"`
 }
 
-func (s *Service) translate(ctx context.Context, providerID, sourceLocale, targetLocale string, source domain.LocalizedMarkdown) (domain.LocalizedMarkdown, error) {
+type translationProgressUpdate struct {
+	Phase   string
+	Current int
+	Total   int
+	Message string
+}
+
+type translationProgressFunc func(translationProgressUpdate) error
+
+func reportTranslationProgress(callback translationProgressFunc, phase string, current, total int, message string) error {
+	if callback == nil {
+		return nil
+	}
+	return callback(translationProgressUpdate{Phase: phase, Current: current, Total: total, Message: message})
+}
+
+func (s *Service) translate(ctx context.Context, providerID, sourceLocale, targetLocale string, source domain.LocalizedMarkdown, progress translationProgressFunc) (domain.LocalizedMarkdown, error) {
+	provider, err := s.ai.ProviderConfig(providerID)
+	if err != nil {
+		return domain.LocalizedMarkdown{}, err
+	}
+	if err := reportTranslationProgress(progress, "metadata", 0, 2, "translating-metadata"); err != nil {
+		return domain.LocalizedMarkdown{}, err
+	}
 	metadataInput, err := json.Marshal(translatedMetadata{Title: source.Title, Summary: source.Summary, SEOTitle: source.SEOTitle, SEODescription: source.SEODescription})
 	if err != nil {
 		return domain.LocalizedMarkdown{}, err
@@ -36,7 +65,7 @@ func (s *Service) translate(ctx context.Context, providerID, sourceLocale, targe
 	metadataResponse, err := s.chatProviderWithRetry(ctx, providerID, []ai.ChatMessage{
 		{Role: "system", Content: translationSystemPrompt(sourceLocale, targetLocale) + " Return one strict JSON object with exactly the keys title, summary, seoTitle, seoDescription. Do not use a Markdown fence."},
 		{Role: "user", Content: string(metadataInput)},
-	}, 1536)
+	}, translationMetadataTokenBudget(provider.MaxOutputTokens))
 	if err != nil {
 		return domain.LocalizedMarkdown{}, err
 	}
@@ -48,16 +77,24 @@ func (s *Service) translate(ctx context.Context, providerID, sourceLocale, targe
 	if metadata.Title == "" {
 		return domain.LocalizedMarkdown{}, errors.New("AI returned an empty translated title")
 	}
+	if err := reportTranslationProgress(progress, "metadata", 1, 2, "metadata-complete"); err != nil {
+		return domain.LocalizedMarkdown{}, err
+	}
 	markdown := ""
+	workTotal := 2
 	if strings.TrimSpace(source.Markdown) != "" {
 		protected, replacements, err := protectMarkdown(source.Markdown)
 		if err != nil {
 			return domain.LocalizedMarkdown{}, err
 		}
-		chunks := segmentMarkdownParts(protected, translationChunkRunes)
+		chunks := segmentMarkdownParts(protected, translationChunkRuneLimit(provider.MaxOutputTokens))
+		workTotal = len(chunks) + 2
+		if err := reportTranslationProgress(progress, "chunks", 1, workTotal, "translating-markdown-chunks"); err != nil {
+			return domain.LocalizedMarkdown{}, err
+		}
 		translatedChunks := make([]string, 0, len(chunks))
-		for _, chunk := range chunks {
-			maxTokens := utf8.RuneCountInString(chunk.Text)*2 + 512
+		for index, chunk := range chunks {
+			maxTokens := translationChunkTokenBudget(utf8.RuneCountInString(chunk.Text), provider.MaxOutputTokens)
 			response, err := s.chatProviderWithRetry(ctx, providerID, []ai.ChatMessage{
 				{Role: "system", Content: translationSystemPrompt(sourceLocale, targetLocale) + " Translate the Markdown content only. Preserve all Markdown syntax and every MUTIBLOG_PROTECTED token byte-for-byte. Return only translated Markdown."},
 				{Role: "user", Content: chunk.Text},
@@ -68,6 +105,9 @@ func (s *Service) translate(ctx context.Context, providerID, sourceLocale, targe
 			// Remove only provider-added wrapper newlines. Spaces and tabs can be
 			// meaningful Markdown (indentation and hard line breaks).
 			translatedChunks = append(translatedChunks, strings.Trim(response, "\r\n")+chunk.Separator)
+			if err := reportTranslationProgress(progress, "chunks", index+2, workTotal, fmt.Sprintf("translated-chunk-%d-of-%d", index+1, len(chunks))); err != nil {
+				return domain.LocalizedMarkdown{}, err
+			}
 		}
 		markdown, err = restoreMarkdown(strings.Join(translatedChunks, ""), replacements)
 		if err != nil {
@@ -77,10 +117,63 @@ func (s *Service) translate(ctx context.Context, providerID, sourceLocale, targe
 	if strings.TrimSpace(source.Markdown) != "" && strings.TrimSpace(markdown) == "" {
 		return domain.LocalizedMarkdown{}, errors.New("AI returned an empty Markdown translation")
 	}
+	if err := reportTranslationProgress(progress, "save", workTotal-1, workTotal, "translation-ready-to-save"); err != nil {
+		return domain.LocalizedMarkdown{}, err
+	}
 	return domain.LocalizedMarkdown{
 		Title: metadata.Title, Summary: strings.TrimSpace(metadata.Summary), SEOTitle: strings.TrimSpace(metadata.SEOTitle),
 		SEODescription: strings.TrimSpace(metadata.SEODescription), Markdown: markdown,
 	}, nil
+}
+
+func translationMetadataTokenBudget(providerMaxOutputTokens int) int {
+	if providerMaxOutputTokens < 1 {
+		return 1
+	}
+	if providerMaxOutputTokens < translationMetadataTokens {
+		return providerMaxOutputTokens
+	}
+	return translationMetadataTokens
+}
+
+func translationChunkRuneLimit(providerMaxOutputTokens int) int {
+	if providerMaxOutputTokens < 1 {
+		return 1
+	}
+	reserve := translationOutputReserve(providerMaxOutputTokens)
+	limit := (providerMaxOutputTokens - reserve) / translationTokensPerRune
+	if limit < 1 {
+		return 1
+	}
+	if limit > translationChunkRunes {
+		return translationChunkRunes
+	}
+	return limit
+}
+
+func translationChunkTokenBudget(runes, providerMaxOutputTokens int) int {
+	if providerMaxOutputTokens < 1 {
+		return 1
+	}
+	if runes < 0 {
+		runes = 0
+	}
+	budget := runes*translationTokensPerRune + translationOutputReserve(providerMaxOutputTokens)
+	if budget > providerMaxOutputTokens {
+		return providerMaxOutputTokens
+	}
+	if budget < 1 {
+		return 1
+	}
+	return budget
+}
+
+func translationOutputReserve(providerMaxOutputTokens int) int {
+	reserve := translationOutputReserveTokens
+	if fraction := providerMaxOutputTokens / 4; fraction < reserve {
+		reserve = fraction
+	}
+	return reserve
 }
 
 func (s *Service) chatProviderWithRetry(ctx context.Context, providerID string, messages []ai.ChatMessage, maxTokens int) (string, error) {

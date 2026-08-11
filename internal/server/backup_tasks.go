@@ -25,30 +25,83 @@ func (s *Server) queueBackupCreate() (backup.Task, error) {
 	if err != nil {
 		return backup.Task{}, err
 	}
-	go s.runBackupCreate(task.ID)
+	s.launchBackupRunner(func(ctx context.Context) { s.runBackupCreate(ctx, task.ID) })
 	return task, nil
 }
 
-func (s *Server) runBackupCreate(taskID string) {
-	s.mutationGate.Lock()
-	defer s.mutationGate.Unlock()
-	if _, err := s.backups.StartTask(taskID); err != nil {
-		s.logger.Error("start backup create task failed", "task", taskID, "error", err)
+func (s *Server) launchBackupRunner(work func(context.Context)) {
+	if !s.backups.Launch(work) {
+		s.logger.Warn("backup runner persisted for next-start recovery because service is closing")
+	}
+}
+
+func (s *Server) startBackupTask(ctx context.Context, taskID, operation string) bool {
+	starter := s.backupTaskStarter
+	if starter == nil {
+		starter = s.backups
+	}
+	delay := 100 * time.Millisecond
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if _, err := starter.StartTask(taskID); err == nil {
+			return true
+		} else if errors.Is(err, backup.ErrTaskNotFound) {
+			s.logger.Error("start backup task failed permanently", "task", taskID, "operation", operation, "error", err)
+			return false
+		} else {
+			lastErr = err
+			s.logger.Error("start backup task checkpoint failed", "task", taskID, "operation", operation, "attempt", attempt, "error", err)
+		}
+		if attempt == 3 {
+			break
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false
+		case <-timer.C:
+		}
+		delay *= 2
+	}
+	if _, finishErr := s.backups.FinishTask(taskID, "failed", "", "progress-write-failed"); finishErr != nil {
+		s.logger.Error("terminalize backup task after start checkpoint exhaustion failed; background retry queued", "task", taskID, "operation", operation, "error", finishErr)
+	}
+	s.logger.Error("backup task start checkpoint exhausted", "task", taskID, "operation", operation, "error", lastErr)
+	return false
+}
+
+func (s *Server) runBackupCreate(ctx context.Context, taskID string) {
+	if !s.startBackupTask(ctx, taskID, "create") {
 		return
 	}
-	record, err := s.backups.Create()
+	if _, err := s.backups.UpdateTaskProgress(taskID, "backup-snapshot", 1, 4, 20, "capturing-backup-snapshot"); err != nil {
+		s.finishBackupTaskFailed(taskID, "progress-write-failed", err)
+		return
+	}
+	s.mutationGate.Lock()
+	record, err := s.backups.CreateForTask(taskID)
+	s.mutationGate.Unlock()
 	if err != nil {
 		s.finishBackupTaskFailed(taskID, "create-failed", err)
 		return
+	}
+	if _, err := s.backups.UpdateTaskProgress(taskID, "backup-finalize", 3, 4, 90, "finalizing-backup-archive"); err != nil {
+		// The deterministic archive receipt is already durable. Progress is
+		// advisory now; terminal success must still be persisted/retried.
+		s.logger.Error("persist post-create backup progress failed; continuing terminal success", "task", taskID, "backup", record.ID, "error", err)
 	}
 	if _, err := s.backups.FinishTask(taskID, "succeeded", record.ID, ""); err != nil {
 		s.logger.Error("finish backup create task failed", "task", taskID, "error", err)
 	}
 }
 
-func (s *Server) runStagedBackupImport(taskID string) {
-	if _, err := s.backups.StartTask(taskID); err != nil {
-		s.logger.Error("start local backup import task failed", "task", taskID, "error", err)
+func (s *Server) runStagedBackupImport(ctx context.Context, taskID string) {
+	if !s.startBackupTask(ctx, taskID, "import-local") {
+		return
+	}
+	if _, err := s.backups.UpdateTaskProgress(taskID, "import-validate", 1, 4, 20, "validating-backup-archive"); err != nil {
+		s.finishBackupTaskFailed(taskID, "progress-write-failed", err)
 		return
 	}
 	record, err := s.backups.ImportStaged(taskID)
@@ -56,26 +109,39 @@ func (s *Server) runStagedBackupImport(taskID string) {
 		s.finishBackupTaskFailed(taskID, "archive-invalid", err)
 		return
 	}
+	if _, err := s.backups.UpdateTaskProgress(taskID, "import-finalize", 3, 4, 90, "storing-imported-backup"); err != nil {
+		s.logger.Error("persist post-import backup progress failed; continuing terminal success", "task", taskID, "backup", record.ID, "error", err)
+	}
 	if _, err := s.backups.FinishTask(taskID, "succeeded", record.ID, ""); err != nil {
 		s.logger.Error("finish local backup import task failed", "task", taskID, "error", err)
 	}
 }
 
-func (s *Server) runRemoteBackupImport(taskID, rawURL string) {
-	if _, err := s.backups.StartTask(taskID); err != nil {
-		s.logger.Error("start remote backup import task failed", "task", taskID, "error", err)
+func (s *Server) runRemoteBackupImport(ctx context.Context, taskID, rawURL string) {
+	if !s.startBackupTask(ctx, taskID, "import-url") {
 		return
 	}
-	response, err := openPublicHTTPSArchive(context.Background(), rawURL, backup.MaxImportSize, "application/gzip, application/octet-stream;q=0.9", "MutiBlog-Backup-Importer/1", 5*time.Minute)
+	if _, err := s.backups.UpdateTaskProgress(taskID, "import-download", 1, 4, 15, "downloading-backup-archive"); err != nil {
+		s.finishBackupTaskFailed(taskID, "progress-write-failed", err)
+		return
+	}
+	response, err := openPublicHTTPSArchive(ctx, rawURL, backup.MaxImportSize, "application/gzip, application/octet-stream;q=0.9", "MutiBlog-Backup-Importer/1", 5*time.Minute)
 	if err != nil {
 		s.finishBackupTaskFailed(taskID, "remote-download-failed", errors.New("remote archive request failed"))
 		return
 	}
 	defer response.Body.Close()
-	record, err := s.backups.Import(response.Body)
+	if _, err := s.backups.UpdateTaskProgress(taskID, "import-validate", 2, 4, 45, "validating-downloaded-archive"); err != nil {
+		s.finishBackupTaskFailed(taskID, "progress-write-failed", err)
+		return
+	}
+	record, err := s.backups.ImportForTask(taskID, response.Body)
 	if err != nil {
 		s.finishBackupTaskFailed(taskID, "archive-invalid", err)
 		return
+	}
+	if _, err := s.backups.UpdateTaskProgress(taskID, "import-finalize", 3, 4, 90, "storing-imported-backup"); err != nil {
+		s.logger.Error("persist post-remote-import backup progress failed; continuing terminal success", "task", taskID, "backup", record.ID, "error", err)
 	}
 	if _, err := s.backups.FinishTask(taskID, "succeeded", record.ID, ""); err != nil {
 		s.logger.Error("finish remote backup import task failed", "task", taskID, "error", err)
@@ -85,6 +151,9 @@ func (s *Server) runRemoteBackupImport(taskID, rawURL string) {
 func (s *Server) spoolBackupImport(task backup.Task, reader io.Reader) error {
 	path, err := s.backups.StagedImportPath(task.ID)
 	if err != nil {
+		return err
+	}
+	if _, err := s.backups.UpdateTaskProgress(task.ID, "import-upload", 0, 4, 5, "receiving-backup-upload"); err != nil {
 		return err
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -110,6 +179,9 @@ func (s *Server) spoolBackupImport(task backup.Task, reader io.Reader) error {
 		os.Remove(path)
 		return backup.ErrInvalidArchive
 	}
+	if _, err := s.backups.UpdateTaskProgress(task.ID, "import-upload", 1, 4, 20, "backup-upload-received"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -124,9 +196,9 @@ func (s *Server) resumeBackupTasks(tasks []backup.Task) {
 	for _, task := range tasks {
 		switch task.Operation {
 		case "create":
-			go s.runBackupCreate(task.ID)
+			s.launchBackupRunner(func(ctx context.Context) { s.runBackupCreate(ctx, task.ID) })
 		case "import-local":
-			go s.runStagedBackupImport(task.ID)
+			s.launchBackupRunner(func(ctx context.Context) { s.runStagedBackupImport(ctx, task.ID) })
 		}
 	}
 }

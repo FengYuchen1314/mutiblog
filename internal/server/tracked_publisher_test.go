@@ -3,10 +3,19 @@ package server
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/FengYuchen1314/mutiblog/internal/publisher"
 )
+
+type closablePublisher struct{ closed atomic.Bool }
+
+func (*closablePublisher) Build(context.Context) (publisher.BuildReport, error) {
+	return publisher.BuildReport{}, nil
+}
+
+func (publisher *closablePublisher) Close() { publisher.closed.Store(true) }
 
 type publisherFunction func(context.Context) (publisher.BuildReport, error)
 
@@ -43,5 +52,13 @@ func TestTrackedPublisherExposesRealState(t *testing.T) {
 	_, _ = failed.Build(context.Background())
 	if status := failed.Status(); status != "error" {
 		t.Fatalf("failed status = %q", status)
+	}
+}
+
+func TestTrackedPublisherForwardsClose(t *testing.T) {
+	delegate := &closablePublisher{}
+	newTrackedSitePublisher(delegate).Close()
+	if !delegate.closed.Load() {
+		t.Fatal("tracked publisher did not close its delegate")
 	}
 }

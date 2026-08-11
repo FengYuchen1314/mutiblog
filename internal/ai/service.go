@@ -17,6 +17,11 @@ import (
 var (
 	ErrProviderNotFound = errors.New("AI provider not found")
 	ErrKeyMissing       = errors.New("AI provider key is missing")
+	// ErrMaxOutputTokensExceeded prevents a caller from relying on a hidden
+	// provider-side clamp. A clamp can turn a valid-looking 2xx answer into a
+	// truncated translation, so callers must deliberately fit their request
+	// within the configured limit.
+	ErrMaxOutputTokensExceeded = errors.New("requested AI output budget exceeds provider limit")
 )
 
 var providerIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
@@ -221,6 +226,10 @@ func (s *Service) ChatDefault(ctx context.Context, messages []ChatMessage, maxTo
 	if err != nil {
 		return "", domain.AIProviderConfig{}, err
 	}
+	maxTokens, err = boundedOutputTokens(provider, maxTokens)
+	if err != nil {
+		return "", provider, err
+	}
 	response, err := s.client.Chat(ctx, provider, key, messages, maxTokens)
 	return response, provider, err
 }
@@ -230,11 +239,30 @@ func (s *Service) ChatProvider(ctx context.Context, id string, messages []ChatMe
 	if err != nil {
 		return "", domain.AIProviderConfig{}, err
 	}
-	if maxTokens <= 0 || maxTokens > provider.MaxOutputTokens {
-		maxTokens = provider.MaxOutputTokens
+	maxTokens, err = boundedOutputTokens(provider, maxTokens)
+	if err != nil {
+		return "", provider, err
 	}
 	response, err := s.client.Chat(ctx, provider, key, messages, maxTokens)
 	return response, provider, err
+}
+
+// ProviderConfig returns the effective, enabled provider configuration without
+// exposing its secret. Translation uses it to size every request before any
+// content is sent, rather than depending on ChatProvider to silently clamp.
+func (s *Service) ProviderConfig(id string) (domain.AIProviderConfig, error) {
+	provider, _, err := s.credentials(id)
+	return provider, err
+}
+
+func boundedOutputTokens(provider domain.AIProviderConfig, requested int) (int, error) {
+	if requested <= 0 {
+		return provider.MaxOutputTokens, nil
+	}
+	if requested > provider.MaxOutputTokens {
+		return 0, ErrMaxOutputTokensExceeded
+	}
+	return requested, nil
 }
 
 func (s *Service) credentials(id string) (domain.AIProviderConfig, string, error) {
@@ -250,6 +278,12 @@ func (s *Service) credentials(id string) (domain.AIProviderConfig, string, error
 		if provider.ID == id {
 			if !provider.Enabled {
 				return domain.AIProviderConfig{}, "", ErrInvalidProvider
+			}
+			// Providers written before the explicit output-budget field existed are
+			// still valid. Normalize their in-memory effective value so a legacy
+			// configuration gets the same safe request sizing as a newly saved one.
+			if provider.MaxOutputTokens == 0 {
+				provider.MaxOutputTokens = 8192
 			}
 			key := secrets.Providers[id]
 			if key == "" {

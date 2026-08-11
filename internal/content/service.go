@@ -150,7 +150,7 @@ func (s *Service) CreatePost(input CreatePostInput) (domain.Post, error) {
 	meta := domain.PostMeta{
 		SchemaVersion: domain.SchemaVersion, Kind: "Post", ID: id, Status: domain.ContentStatusDraft,
 		SourceLocale: locales.SourceLocale, CreatedAt: now, UpdatedAt: now, Categories: []string{}, Tags: []string{},
-		CommentPolicy: "open", Template: "post", Revision: 1, BaseRevision: 1, HeadRevision: 1,
+		Visibility: domain.ContentVisibilityPublic, CommentPolicy: "open", Template: "post", Revision: 1, BaseRevision: 1, HeadRevision: 1,
 		Locales: map[string]domain.LocaleContentState{locales.SourceLocale: {State: "current", Origin: domain.LocaleOriginSource, Revision: 1, SourceRevision: 1}},
 	}
 	localized := domain.LocalizedMarkdown{
@@ -303,6 +303,7 @@ func (s *Service) PublishPost(id string, expectedRevision int) (domain.Post, err
 	previousMeta := post.Meta
 	now := time.Now().UTC()
 	post.Meta.Status = domain.ContentStatusPublished
+	post.Meta.ScheduledRevision = 0
 	post.Meta.UpdatedAt = now
 	if post.Meta.PublishedAt == nil {
 		post.Meta.PublishedAt = &now
@@ -385,7 +386,7 @@ func validID(id string) bool {
 }
 
 func validStoredContentMeta(meta domain.PostMeta, id, kind string) bool {
-	if meta.SchemaVersion != domain.SchemaVersion || meta.ID != id || meta.Kind != kind || meta.Revision < 1 || meta.Locales == nil {
+	if meta.SchemaVersion != domain.SchemaVersion || meta.ID != id || meta.Kind != kind || meta.Revision < 1 || meta.ScheduledRevision < 0 || meta.ScheduledRevision > meta.Revision || meta.Locales == nil {
 		return false
 	}
 	if _, exists := meta.Locales[meta.SourceLocale]; !exists {

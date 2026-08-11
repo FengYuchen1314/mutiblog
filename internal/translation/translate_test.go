@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/FengYuchen1314/mutiblog/internal/domain"
 )
 
 func TestMarkdownProtectionRoundTrip(t *testing.T) {
@@ -108,5 +110,37 @@ func TestDecodeJSONObjectRejectsTrailingObjects(t *testing.T) {
 	}
 	if err := decodeJSONObject("Here is the result: {\"title\":\"ok\",\"summary\":\"\",\"seoTitle\":\"\",\"seoDescription\":\"\"}", &value); err == nil {
 		t.Fatal("JSON wrapped in provider commentary was accepted")
+	}
+}
+
+func TestTranslationBudgetsNeverRelyOnProviderClamping(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		providerLimit int
+	}{
+		{name: "small", providerLimit: 256},
+		{name: "qwen-default", providerLimit: 8192},
+		{name: "large", providerLimit: 65536},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			chunkRunes := translationChunkRuneLimit(test.providerLimit)
+			if chunkRunes < 1 || chunkRunes > translationChunkRunes {
+				t.Fatalf("chunk rune limit = %d for provider limit %d", chunkRunes, test.providerLimit)
+			}
+			if budget := translationChunkTokenBudget(chunkRunes, test.providerLimit); budget > test.providerLimit {
+				t.Fatalf("chunk budget = %d, provider limit = %d", budget, test.providerLimit)
+			}
+			if budget := translationMetadataTokenBudget(test.providerLimit); budget > test.providerLimit {
+				t.Fatalf("metadata budget = %d, provider limit = %d", budget, test.providerLimit)
+			}
+		})
+	}
+	if got := translationChunkRuneLimit(8192); got >= translationChunkRunes {
+		t.Fatalf("8192-token provider must reduce the default chunk: %d", got)
+	}
+	source := domain.LocalizedMarkdown{Markdown: strings.Repeat("x", 5000)}
+	if got, want := translationWorkUnits(source, 8192), 4; got != want {
+		t.Fatalf("Qwen work units = %d, want %d", got, want)
 	}
 }

@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
 import { api, type AIProvider, type AIProviderInput } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
+import { nextQwenProviderId, preferredProvider, qwenProviderTemplate } from "./providerDefaults";
 
 const session = useSessionStore();
 const { t } = useI18n();
@@ -14,22 +15,19 @@ const testing = ref(false);
 const message = ref("");
 const error = ref("");
 const form = reactive({
-  id: "deepseek",
-  name: "DeepSeek",
-  kind: "openai-compatible" as const,
-  baseUrl: "https://api.deepseek.com/v1",
-  model: "deepseek-chat",
+  id: "qwen-free",
+  ...qwenProviderTemplate,
   apiKey: "",
-  enabled: true,
   default: true,
-  timeoutSeconds: 45,
-  maxOutputTokens: 8192,
   clearKey: false,
 });
 
-async function load() {
+async function load(preferredId = "") {
   try {
     providers.value = (await api.providers()).items;
+    const provider = providers.value.find((item) => item.id === preferredId) ?? preferredProvider(providers.value);
+    if (provider) edit(provider);
+    else resetForm();
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : t("providersPage.loadFailed");
   }
@@ -37,7 +35,7 @@ async function load() {
 
 function resetForm() {
   selected.value = "";
-  Object.assign(form, { id: "deepseek", name: "DeepSeek", kind: "openai-compatible", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat", apiKey: "", enabled: true, default: providers.value.length === 0, timeoutSeconds: 45, maxOutputTokens: 8192, clearKey: false });
+  Object.assign(form, { id: nextQwenProviderId(providers.value), ...qwenProviderTemplate, apiKey: "", default: providers.value.length === 0, clearKey: false });
 }
 
 function edit(provider: AIProvider) {
@@ -68,9 +66,7 @@ async function save() {
     const provider = await api.saveProvider(session.session.csrfToken, form.id, body);
     form.apiKey = "";
     form.clearKey = false;
-    selected.value = provider.id;
-    await load();
-    edit(providers.value.find((item) => item.id === provider.id) ?? provider);
+    await load(provider.id);
     message.value = t("providersPage.saved");
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : t("providersPage.saveFailed");
@@ -124,10 +120,10 @@ onMounted(load);
         <div v-if="message" class="form-success provider-message">{{ message }}</div>
         <div v-if="error" class="form-alert provider-message">{{ error }}</div>
         <div class="provider-form">
-          <label><span>{{ t("providersPage.stableId") }}</span><input v-model="form.id" :disabled="Boolean(selected)" placeholder="deepseek" /></label>
-          <label><span>{{ t("providersPage.displayName") }}</span><input v-model="form.name" placeholder="DeepSeek" /></label>
-          <label class="field--wide"><span>{{ t("providersPage.baseUrl") }}</span><input v-model="form.baseUrl" placeholder="https://api.deepseek.com/v1" /></label>
-          <label><span>{{ t("providersPage.model") }}</span><input v-model="form.model" placeholder="deepseek-chat" /></label>
+          <label><span>{{ t("providersPage.stableId") }}</span><input v-model="form.id" :disabled="Boolean(selected)" placeholder="qwen-free" /></label>
+          <label><span>{{ t("providersPage.displayName") }}</span><input v-model="form.name" placeholder="Qwen Free (OpenRouter)" /></label>
+          <label class="field--wide"><span>{{ t("providersPage.baseUrl") }}</span><input v-model="form.baseUrl" placeholder="https://openrouter.ai/api/v1" /></label>
+          <label><span>{{ t("providersPage.model") }}</span><input v-model="form.model" placeholder="qwen/qwen3-32b:free" /></label>
           <label><span>{{ t("providersPage.apiKey") }}</span><input v-model="form.apiKey" type="password" autocomplete="new-password" :placeholder="selected ? t('providersPage.keyKeep') : t('providersPage.keyEnter')" /></label>
           <label><span>{{ t("providersPage.timeout") }}</span><input v-model.number="form.timeoutSeconds" type="number" min="5" max="300" /></label>
           <label><span>{{ t("providersPage.maxTokens") }}</span><input v-model.number="form.maxOutputTokens" type="number" min="256" max="65536" /></label>

@@ -5,7 +5,8 @@ import { basicSetup } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { renderMarkdown } from "@mutiblog/markdown";
+import { createPreviewMarkdownRenderer } from "./markdownPreview";
+import { typesetPreviewMath } from "./mathJaxPreview";
 
 const props = defineProps<{ modelValue: string; uploading?: boolean; sourceComparison?: { locale: string; title: string; markdown: string } }>();
 const { t } = useI18n();
@@ -16,6 +17,7 @@ const emit = defineEmits<{
 
 const host = ref<HTMLElement>();
 const container = ref<HTMLElement>();
+const previewElement = ref<HTMLElement>();
 const mode = ref<"edit" | "split" | "preview">("split");
 const fullscreen = ref(false);
 const comparisonOpen = ref(false);
@@ -23,7 +25,12 @@ let editor: EditorView | undefined;
 let syncingExternalValue = false;
 let syncingScroll = false;
 
-const preview = computed(() => renderMarkdown(props.modelValue));
+// The shared renderer embeds MathJax's server-side SVG pipeline. The editor
+// instead uses a browser-only self-hosted component after Vue updates its own
+// preview DOM, keeping the console bootstrap free of server-only modules.
+const previewRenderer = createPreviewMarkdownRenderer();
+const preview = computed(() => previewRenderer.render(props.modelValue));
+let previewMathTimer: ReturnType<typeof setTimeout> | undefined;
 
 onMounted(() => {
   editor = new EditorView({
@@ -62,6 +69,7 @@ onMounted(() => {
     }),
   });
   editor.scrollDOM.addEventListener("scroll", handleEditorScroll, { passive: true });
+  schedulePreviewMath();
 });
 
 watch(
@@ -74,10 +82,25 @@ watch(
   },
 );
 
+watch(preview, () => schedulePreviewMath(), { flush: "post" });
+
 onBeforeUnmount(() => {
+  if (previewMathTimer) clearTimeout(previewMathTimer);
   editor?.scrollDOM.removeEventListener("scroll", handleEditorScroll);
   editor?.destroy();
 });
+
+function schedulePreviewMath() {
+  if (previewMathTimer) clearTimeout(previewMathTimer);
+  previewMathTimer = setTimeout(() => {
+    const target = previewElement.value;
+    if (!target) return;
+    void typesetPreviewMath(target).catch(() => {
+      // A formula error is represented by MathJax inside the preview. A failed
+      // lazy asset load must not destabilise the editor itself.
+    });
+  }, 250);
+}
 
 function handleEditorScroll() { if (editor) synchronizeScroll(editor.scrollDOM); }
 function handlePaneScroll(event: Event) { synchronizeScroll(event.currentTarget as HTMLElement); }
@@ -162,7 +185,7 @@ defineExpose({ insertAtCursor, showPreview });
     <div class="editor-panes" :class="[`editor-panes--${mode}`, { 'editor-panes--comparison': comparisonOpen && sourceComparison }]">
       <section v-if="comparisonOpen && sourceComparison" class="source-comparison" @scroll="handlePaneScroll"><header>{{ t("markdownEditor.source", { locale: sourceComparison.locale }) }} · {{ sourceComparison.title }}</header><pre>{{ sourceComparison.markdown }}</pre></section>
       <div v-show="mode !== 'preview'" ref="host" class="markdown-source" />
-      <article v-show="mode !== 'edit'" class="markdown-preview" @scroll="handlePaneScroll" v-html="preview" />
+      <article v-show="mode !== 'edit'" ref="previewElement" class="markdown-preview" @scroll="handlePaneScroll" v-html="preview" />
     </div>
   </div>
 </template>

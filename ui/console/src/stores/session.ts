@@ -20,6 +20,11 @@ export const useSessionStore = defineStore("session", {
       setConsoleLocale(this.session.adminLocale);
       this.loaded = true;
     },
+    establish(session: Session) {
+      this.session = session;
+      setConsoleLocale(session.adminLocale);
+      this.loaded = true;
+    },
     async logout() {
       try {
         if (this.session) await api.logout(this.session.csrfToken);

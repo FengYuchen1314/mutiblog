@@ -16,6 +16,7 @@ type SiteConfig struct {
 	AdminLocale   string                   `yaml:"adminLocale" json:"adminLocale"`
 	Timezone      string                   `yaml:"timezone" json:"timezone"`
 	BaseURL       string                   `yaml:"baseUrl,omitempty" json:"baseUrl,omitempty"`
+	Logo          string                   `yaml:"logo,omitempty" json:"logo,omitempty"`
 	ActiveTheme   string                   `yaml:"activeTheme" json:"activeTheme"`
 	PrimaryMenu   string                   `yaml:"primaryMenu,omitempty" json:"primaryMenu,omitempty"`
 	IDStrategy    string                   `yaml:"idStrategy,omitempty" json:"idStrategy"`

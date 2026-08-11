@@ -3,7 +3,9 @@ import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
 import { useRoute, useRouter } from "vue-router";
-import { api, type ThemeRecord, type ThemeSettings, type ThemeSettingsSchema } from "@/api/client";
+import { ApiError, api, createStaticBuildTaskId, type ThemeRecord, type ThemeSettings, type ThemeSettingsSchema } from "@/api/client";
+import TaskProgress from "@/components/TaskProgress.vue";
+import ThemeSettingsField from "@/components/ThemeSettingsField.vue";
 import { useSessionStore } from "@/stores/session";
 
 const session = useSessionStore();
@@ -18,6 +20,9 @@ const picker = ref<HTMLInputElement>();
 const settingsPicker = ref<HTMLInputElement>();
 const selectedSettings = ref<ThemeSettings>();
 const remoteURL = ref("");
+const installTaskId = ref("");
+const themeTaskId = ref("");
+const settingsTaskId = ref("");
 const activeTheme = computed(() => themes.value.find((theme) => theme.active));
 const installedThemes = computed(() => themes.value.filter((theme) => !theme.active));
 const managingThemes = computed(() => route.name === "themes");
@@ -30,17 +35,29 @@ async function load() {
   }
 }
 
+async function discardTaskIfMissing(taskId: string, clear: () => void) {
+  try {
+    await api.task(taskId);
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.status === 404) clear();
+  }
+}
+
 async function install(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file || !session.session) return;
   busy.value = "install";
   error.value = "";
   notice.value = "";
+  const taskId = createStaticBuildTaskId();
+  installTaskId.value = taskId;
   try {
-    const result = await api.installTheme(session.session.csrfToken, file);
+    const result = await api.installTheme(session.session.csrfToken, file, taskId);
+    if (!result.theme.active && !result.build) installTaskId.value = "";
     notice.value = t(result.theme.active ? "themesPage.upgraded" : "themesPage.installed", { name: result.theme.name });
     await load();
   } catch (caught) {
+    await discardTaskIfMissing(taskId, () => { if (installTaskId.value === taskId) installTaskId.value = ""; });
     error.value = message(caught, t("themesPage.installFailed"));
   } finally {
     busy.value = "";
@@ -51,12 +68,15 @@ async function install(event: Event) {
 async function installFromURL() {
   if (!session.session || !remoteURL.value.trim()) return;
   busy.value = "install-url"; error.value = ""; notice.value = "";
+  const taskId = createStaticBuildTaskId();
+  installTaskId.value = taskId;
   try {
-    const result = await api.installThemeURL(session.session.csrfToken, remoteURL.value.trim());
+    const result = await api.installThemeURL(session.session.csrfToken, remoteURL.value.trim(), taskId);
+    if (!result.theme.active && !result.build) installTaskId.value = "";
     notice.value = t(result.theme.active ? "themesPage.upgraded" : "themesPage.installed", { name: result.theme.name });
     remoteURL.value = "";
     await load();
-  } catch (caught) { error.value = message(caught, t("themesPage.installFailed")); }
+  } catch (caught) { await discardTaskIfMissing(taskId, () => { if (installTaskId.value === taskId) installTaskId.value = ""; }); error.value = message(caught, t("themesPage.installFailed")); }
   finally { busy.value = ""; }
 }
 
@@ -65,11 +85,14 @@ async function activate(theme: ThemeRecord) {
   busy.value = theme.id;
   error.value = "";
   notice.value = "";
+  const taskId = createStaticBuildTaskId();
+  themeTaskId.value = taskId;
   try {
-    await api.activateTheme(session.session.csrfToken, theme.id);
+    await api.activateTheme(session.session.csrfToken, theme.id, taskId);
     notice.value = t("themesPage.activated", { name: theme.name });
     await load();
   } catch (caught) {
+    await discardTaskIfMissing(taskId, () => { if (themeTaskId.value === taskId) themeTaskId.value = ""; });
     error.value = message(caught, t("themesPage.activateFailed"));
   } finally {
     busy.value = "";
@@ -81,11 +104,14 @@ async function reload(theme: ThemeRecord) {
   busy.value = `reload-${theme.id}`;
   error.value = "";
   notice.value = "";
+  const taskId = theme.active ? createStaticBuildTaskId() : undefined;
+  if (taskId) themeTaskId.value = taskId;
   try {
-    await api.reloadTheme(session.session.csrfToken, theme.id);
+    await api.reloadTheme(session.session.csrfToken, theme.id, taskId);
     notice.value = t(theme.active ? "themesPage.reloadedPublished" : "themesPage.reloaded", { name: theme.name });
     await load();
   } catch (caught) {
+    if (taskId) await discardTaskIfMissing(taskId, () => { if (themeTaskId.value === taskId) themeTaskId.value = ""; });
     error.value = message(caught, t("themesPage.reloadFailed"));
   } finally {
     busy.value = "";
@@ -143,11 +169,14 @@ async function saveSettings() {
   busy.value = "settings-save";
   error.value = "";
   notice.value = "";
+  const taskId = selectedSettings.value.active ? createStaticBuildTaskId() : undefined;
+  if (taskId) settingsTaskId.value = taskId;
   try {
-    const result = await api.saveThemeSettings(session.session.csrfToken, selectedSettings.value.themeId, selectedSettings.value.values);
+    const result = await api.saveThemeSettings(session.session.csrfToken, selectedSettings.value.themeId, selectedSettings.value.values, taskId);
     selectedSettings.value = result.settings;
     notice.value = t(result.settings.active ? "themesPage.settingsPublished" : "themesPage.settingsSaved");
   } catch (caught) {
+    if (taskId) await discardTaskIfMissing(taskId, () => { if (settingsTaskId.value === taskId) settingsTaskId.value = ""; });
     error.value = message(caught, t("themesPage.settingsSaveFailed"));
   } finally {
     busy.value = "";
@@ -158,11 +187,14 @@ async function resetSettings() {
   if (!session.session || !selectedSettings.value || !window.confirm(t("themesPage.confirmReset"))) return;
   busy.value = "settings-reset";
   error.value = "";
+  const taskId = selectedSettings.value.active ? createStaticBuildTaskId() : undefined;
+  if (taskId) settingsTaskId.value = taskId;
   try {
-    const result = await api.resetThemeSettings(session.session.csrfToken, selectedSettings.value.themeId);
+    const result = await api.resetThemeSettings(session.session.csrfToken, selectedSettings.value.themeId, taskId);
     selectedSettings.value = result.settings;
     notice.value = t(result.settings.active ? "themesPage.resetPublished" : "themesPage.resetDone");
   } catch (caught) {
+    if (taskId) await discardTaskIfMissing(taskId, () => { if (settingsTaskId.value === taskId) settingsTaskId.value = ""; });
     error.value = message(caught, t("themesPage.settingsResetFailed"));
   } finally {
     busy.value = "";
@@ -202,33 +234,17 @@ function schemaEntries(schema: ThemeSettingsSchema) {
   return Object.entries(schema.properties ?? {});
 }
 
-function fieldEntries(groupKey: string, schema: ThemeSettingsSchema): Array<[string, ThemeSettingsSchema]> {
-  return schema.type === "object" ? Object.entries(schema.properties ?? {}) : [[groupKey, schema]];
-}
-
 function schemaTitle(schema: ThemeSettingsSchema, fallback: string) {
   return schema["x-i18n"]?.[locale.value] || schema.title || fallback;
 }
 
-function enumTitle(schema: ThemeSettingsSchema, value: string) {
-  return schema["x-enum-i18n"]?.[locale.value]?.[value] || value;
+function groupValue(groupKey: string) {
+  return selectedSettings.value?.values[groupKey];
 }
 
-function fieldValue(groupKey: string, group: ThemeSettingsSchema, fieldKey: string) {
-  if (!selectedSettings.value) return undefined;
-  if (group.type !== "object") return selectedSettings.value.values[groupKey];
-  return (selectedSettings.value.values[groupKey] as Record<string, unknown> | undefined)?.[fieldKey];
-}
-
-function setFieldValue(groupKey: string, group: ThemeSettingsSchema, fieldKey: string, value: unknown) {
+function setGroupValue(groupKey: string, value: unknown) {
   if (!selectedSettings.value) return;
-  if (group.type !== "object") {
-    selectedSettings.value.values[groupKey] = value;
-    return;
-  }
-  const object = (selectedSettings.value.values[groupKey] as Record<string, unknown> | undefined) ?? {};
-  object[fieldKey] = value;
-  selectedSettings.value.values[groupKey] = object;
+  selectedSettings.value.values[groupKey] = value;
 }
 
 function message(caught: unknown, fallback: string) {
@@ -251,6 +267,8 @@ onMounted(load);
 	  <div v-if="managingThemes" class="form-success theme-guidance">{{ t("themesPage.guidance") }}</div>
       <div v-if="error" class="form-alert theme-message">{{ error }}</div>
       <div v-if="notice" class="form-success theme-message">{{ notice }}</div>
+	  <TaskProgress v-if="installTaskId" :task-id="installTaskId" />
+	  <TaskProgress v-if="themeTaskId" :task-id="themeTaskId" />
 	  <section v-if="!managingThemes && activeTheme" class="theme-section"><h2>{{t("themesPage.currentTheme")}}</h2><VCard class="theme-card current-theme-card">
           <div class="theme-preview"><img v-if="activeTheme.screenshotUrl" :src="activeTheme.screenshotUrl" :alt="activeTheme.name" /><span v-else>{{ activeTheme.name.slice(0, 1).toUpperCase() }}</span></div>
           <div class="theme-copy"><div class="theme-title"><strong>{{ activeTheme.name }}</strong><VTag>{{ t("themesPage.active") }}</VTag><VTag v-if="activeTheme.builtIn">{{ t("themesPage.builtIn") }}</VTag><VTag>{{ t(`codes.${activeTheme.status}`) }}</VTag></div><span>{{ activeTheme.id }} · v{{ activeTheme.version }} · {{ activeTheme.engine }}</span><p>{{t("themesPage.currentThemeHelp")}}</p></div>
@@ -282,16 +300,12 @@ onMounted(load);
 		  <section v-for="[groupKey, group] in schemaEntries(selectedSettings.schema)" :key="groupKey" class="theme-settings-group">
 			<h3>{{ schemaTitle(group, groupKey) }}</h3>
 			<div class="theme-settings-fields">
-			  <label v-for="[fieldKey, field] in fieldEntries(groupKey, group)" :key="fieldKey" class="field">
-				<span>{{ schemaTitle(field, fieldKey) }}</span>
-				<input v-if="field.type === 'boolean'" type="checkbox" :checked="Boolean(fieldValue(groupKey, group, fieldKey))" @change="setFieldValue(groupKey, group, fieldKey, ($event.target as HTMLInputElement).checked)" />
-				<select v-else-if="field.enum" :value="String(fieldValue(groupKey, group, fieldKey) ?? '')" @change="setFieldValue(groupKey, group, fieldKey, ($event.target as HTMLSelectElement).value)"><option v-for="option in field.enum" :key="option" :value="option">{{ enumTitle(field, option) }}</option></select>
-				<input v-else :type="field.format === 'color' ? 'color' : 'text'" :value="String(fieldValue(groupKey, group, fieldKey) ?? '')" @input="setFieldValue(groupKey, group, fieldKey, ($event.target as HTMLInputElement).value)" />
-			  </label>
+			  <ThemeSettingsField :schema="group" :model-value="groupValue(groupKey)" @update:model-value="setGroupValue(groupKey, $event)" />
 			</div>
 		  </section>
 		</div>
 		<div class="provider-actions"><VButton :loading="busy === 'settings-save'" @click="saveSettings">{{ t("themesPage.saveSettings") }}</VButton><VButton type="secondary" @click="settingsPicker?.click()">{{t("themesPage.importSettings")}}</VButton><VButton type="secondary" @click="exportSettings">{{t("themesPage.exportSettings")}}</VButton><button class="text-danger" :disabled="busy === 'settings-reset'" @click="resetSettings">{{ t("themesPage.reset") }}</button></div>
+		<TaskProgress v-if="settingsTaskId" :task-id="settingsTaskId" />
 	  </VCard>
     </div>
   </div>

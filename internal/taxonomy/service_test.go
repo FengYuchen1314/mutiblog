@@ -18,9 +18,15 @@ func TestCategoryAndTagAreMultilingualFileTruth(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewService(repository)
-	category, err := service.Create("Category", CreateInput{ID: "engineering", Name: "工程"})
+	category, err := service.Create("Category", CreateInput{ID: "engineering", Name: "工程", Cover: "/media/2026/08/engineering.webp", Template: "masonry"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if category.Cover != "/media/2026/08/engineering.webp" || category.Template != "masonry" {
+		t.Fatalf("category presentation settings = %#v", category)
+	}
+	if _, err := service.Create("Category", CreateInput{ID: "remote-cover", Name: "远程封面", Cover: "https://example.com/cover.webp"}); !errors.Is(err, ErrInvalidSettings) {
+		t.Fatalf("remote category cover error = %v, want ErrInvalidSettings", err)
 	}
 	category, err = service.UpdateLocale("Category", category.ID, "en", UpdateLocaleInput{ExpectedRevision: category.Revision, Name: "Engineering"})
 	if err != nil {
@@ -40,7 +46,7 @@ func TestCategoryAndTagAreMultilingualFileTruth(t *testing.T) {
 	if items, err := service.List("Category"); err != nil || len(items) != 2 {
 		t.Fatalf("categories = %#v, err = %v", items, err)
 	}
-	if _, err := service.UpdateStructure("Category", category.ID, UpdateStructureInput{ExpectedRevision: category.Revision, ParentID: child.ID}); !errors.Is(err, ErrInvalidParent) {
+	if _, err := service.UpdateStructure("Category", category.ID, UpdateStructureInput{ExpectedRevision: category.Revision, ParentID: child.ID, Cover: category.Cover, Template: category.Template}); !errors.Is(err, ErrInvalidParent) {
 		t.Fatalf("category cycle error = %v, want ErrInvalidParent", err)
 	}
 	if err := service.Delete("Category", category.ID, category.Revision); !errors.Is(err, ErrInUse) {

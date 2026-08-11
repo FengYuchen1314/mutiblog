@@ -3,14 +3,26 @@ package backup
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/FengYuchen1314/mutiblog/internal/comments"
+	"github.com/FengYuchen1314/mutiblog/internal/content"
+	"github.com/FengYuchen1314/mutiblog/internal/domain"
+	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
+	"github.com/FengYuchen1314/mutiblog/internal/media"
+	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
+	"github.com/FengYuchen1314/mutiblog/internal/upvotes"
+	"github.com/FengYuchen1314/mutiblog/internal/visits"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -23,7 +35,9 @@ var (
 	ErrRestoreCommitRolledBack = errors.New("restore commit marker failed and restore was rolled back")
 )
 
-var restoreRoots = []string{"config", "content", "comments", "media", "themes/installed", "themes/settings", "revisions", "releases"}
+var restoreRoots = []string{"config", "content", "comments", "upvotes", "visits", "media", "themes/installed", "themes/settings", "revisions", "releases"}
+
+var restoredAdminUsernamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{2,31}$`)
 
 type Restoration struct {
 	service               *Service
@@ -78,7 +92,7 @@ func (s *Service) beginRestore(id, previousPublicRelease string, publicReleaseCa
 	}
 	// Backups created before public release pointers existed remain restorable;
 	// their published heads are migrated lazily on first edit or publish.
-	for _, relative := range []string{"releases/posts", "releases/pages"} {
+	for _, relative := range []string{"releases/posts", "releases/pages", "upvotes/posts", "upvotes/pages", "visits/posts", "visits/pages"} {
 		if err := os.MkdirAll(filepath.Join(staging, filepath.FromSlash(relative)), 0o750); err != nil {
 			os.RemoveAll(staging)
 			s.mu.Unlock()
@@ -89,6 +103,37 @@ func (s *Service) beginRestore(id, previousPublicRelease string, publicReleaseCa
 		os.RemoveAll(staging)
 		s.mu.Unlock()
 		return nil, err
+	}
+	stagedRepository, err := fsrepo.Open(staging)
+	if err != nil {
+		os.RemoveAll(staging)
+		s.mu.Unlock()
+		return nil, err
+	}
+	if _, err := localeconfig.MigrateFallback(stagedRepository); err != nil {
+		os.RemoveAll(staging)
+		s.mu.Unlock()
+		return nil, fmt.Errorf("migrate restored locale fallback: %w", err)
+	}
+	if _, err := comments.NewService(stagedRepository).ListAll(); err != nil {
+		os.RemoveAll(staging)
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: invalid restored comments: %v", ErrInvalidArchive, err)
+	}
+	if err := upvotes.NewService(stagedRepository, content.NewService(stagedRepository)).ValidateAll(); err != nil {
+		os.RemoveAll(staging)
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: invalid restored upvotes: %v", ErrInvalidArchive, err)
+	}
+	if err := visits.NewService(stagedRepository, content.NewService(stagedRepository)).ValidateAll(); err != nil {
+		os.RemoveAll(staging)
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: invalid restored visits: %v", ErrInvalidArchive, err)
+	}
+	if _, err := media.NewService(stagedRepository).List(); err != nil {
+		os.RemoveAll(staging)
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: invalid restored media: %v", ErrInvalidArchive, err)
 	}
 	rollback, err := os.MkdirTemp(s.repository.Root(), ".restore-rollback-")
 	if err != nil {
@@ -178,14 +223,27 @@ func (r *Restoration) swapIn() error {
 			return err
 		}
 	}
-	for _, name := range []string{"secrets.yaml", "initialized"} {
-		source := filepath.Join(r.rollback, "config", name)
-		target := filepath.Join(dataRoot, "config", name)
-		if info, err := os.Stat(source); err == nil && info.Mode().IsRegular() {
-			if err := copyRegularFile(source, target, info.Mode().Perm()); err != nil {
-				return err
-			}
+	initializedSource := filepath.Join(r.rollback, "config", "initialized")
+	initializedTarget := filepath.Join(dataRoot, "config", "initialized")
+	if info, err := os.Stat(initializedSource); err == nil && info.Mode().IsRegular() {
+		if err := copyRegularFile(initializedSource, initializedTarget, info.Mode().Perm()); err != nil {
+			return err
 		}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	} else if err == nil {
+		return errors.New("local initialized marker is not a regular file")
+	}
+	secretsSource := filepath.Join(r.rollback, "config", "secrets.yaml")
+	secretsTarget := filepath.Join(dataRoot, "config", "secrets.yaml")
+	if info, err := os.Stat(secretsSource); err == nil && info.Mode().IsRegular() {
+		if err := copySecretsWithoutProviderKeys(secretsSource, secretsTarget); err != nil {
+			return err
+		}
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	} else if err == nil {
+		return errors.New("local secrets configuration is not a regular file")
 	}
 	return nil
 }
@@ -412,12 +470,81 @@ func safeRestorePath(raw string) (string, bool) {
 }
 
 func validateRestoredTree(root string) error {
-	for _, required := range []string{"config", "config/site.yaml", "config/locales.yaml", "content", "comments", "media", "themes/installed", "themes/settings", "revisions", "releases/posts", "releases/pages"} {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(required))); err != nil {
+	for _, required := range []string{"config", "content", "comments", "upvotes/posts", "upvotes/pages", "visits/posts", "visits/pages", "media", "themes/installed", "themes/settings", "revisions", "releases/posts", "releases/pages"} {
+		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(required))); err != nil || !info.IsDir() {
 			return fmt.Errorf("%w: missing %s", ErrInvalidArchive, required)
 		}
 	}
+	for _, required := range []string{"config/site.yaml", "config/locales.yaml", "config/admin.yaml"} {
+		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(required))); err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("%w: missing %s", ErrInvalidArchive, required)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(root, "config", "admin.yaml"))
+	if err != nil {
+		return fmt.Errorf("%w: read config/admin.yaml", ErrInvalidArchive)
+	}
+	var admin domain.AdminConfig
+	if err := yaml.Unmarshal(data, &admin); err != nil {
+		return fmt.Errorf("%w: decode config/admin.yaml", ErrInvalidArchive)
+	}
+	if err := ValidateAdminConfig(admin); err != nil {
+		return fmt.Errorf("%w: invalid config/admin.yaml: %v", ErrInvalidArchive, err)
+	}
 	return nil
+}
+
+// ValidateAdminConfig checks the archived login material without evaluating
+// attacker-controlled Argon2 parameters. MutiBlog emits one fixed, bounded
+// Argon2id format, so a restore can reject malformed or resource-amplifying
+// hashes before the initialized marker is copied into place.
+func ValidateAdminConfig(admin domain.AdminConfig) error {
+	if admin.SchemaVersion != domain.SchemaVersion {
+		return errors.New("unsupported administrator schema")
+	}
+	if !restoredAdminUsernamePattern.MatchString(admin.Username) {
+		return errors.New("invalid administrator username")
+	}
+	if admin.CreatedAt.IsZero() || admin.UpdatedAt.IsZero() || admin.UpdatedAt.Before(admin.CreatedAt) {
+		return errors.New("invalid administrator timestamps")
+	}
+	parts := strings.Split(admin.PasswordHash, "$")
+	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" || parts[2] != "v=19" || parts[3] != "m=65536,t=3,p=2" {
+		return errors.New("invalid administrator password hash")
+	}
+	salt, saltErr := base64.RawStdEncoding.DecodeString(parts[4])
+	hash, hashErr := base64.RawStdEncoding.DecodeString(parts[5])
+	if saltErr != nil || hashErr != nil || len(salt) != 16 || len(hash) != 32 {
+		return errors.New("invalid administrator password hash payload")
+	}
+	return nil
+}
+
+func copySecretsWithoutProviderKeys(source, target string) error {
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	var secrets domain.SecretsConfig
+	if err := yaml.Unmarshal(data, &secrets); err != nil {
+		return fmt.Errorf("decode local secrets before restore: %w", err)
+	}
+	if secrets.SchemaVersion != domain.SchemaVersion {
+		return errors.New("local secrets schema is invalid")
+	}
+	var preserved map[string]any
+	if err := yaml.Unmarshal(data, &preserved); err != nil || preserved == nil {
+		return errors.New("local secrets structure is invalid")
+	}
+	// Preserve every non-provider local secret, including fields introduced by
+	// a newer compatible binary, while deliberately severing all restored
+	// provider IDs/endpoints from the keys held by this machine.
+	preserved["providers"] = map[string]string{}
+	data, err = yaml.Marshal(preserved)
+	if err != nil {
+		return err
+	}
+	return writeRegularFile(target, data, 0o600)
 }
 
 func copyRegularFile(source, target string, mode os.FileMode) error {
@@ -426,6 +553,14 @@ func copyRegularFile(source, target string, mode os.FileMode) error {
 		return err
 	}
 	defer input.Close()
+	data, err := io.ReadAll(input)
+	if err != nil {
+		return err
+	}
+	return writeRegularFile(target, data, mode)
+}
+
+func writeRegularFile(target string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return err
 	}
@@ -435,7 +570,7 @@ func copyRegularFile(source, target string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	_, copyErr := io.Copy(output, input)
+	_, copyErr := output.Write(data)
 	syncErr := output.Sync()
 	closeErr := output.Close()
 	if copyErr != nil || syncErr != nil || closeErr != nil {

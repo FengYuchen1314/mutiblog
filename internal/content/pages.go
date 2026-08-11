@@ -90,7 +90,7 @@ func (s *Service) CreatePage(input CreatePageInput) (domain.Post, error) {
 	meta := domain.PostMeta{
 		SchemaVersion: domain.SchemaVersion, Kind: "Page", ID: id, Status: domain.ContentStatusDraft,
 		SourceLocale: locales.SourceLocale, CreatedAt: now, UpdatedAt: now, Categories: []string{}, Tags: []string{},
-		CommentPolicy: "open", Template: "page", Revision: 1, BaseRevision: 1, HeadRevision: 1,
+		Visibility: domain.ContentVisibilityPublic, CommentPolicy: "open", Template: "page", Revision: 1, BaseRevision: 1, HeadRevision: 1,
 		Locales: map[string]domain.LocaleContentState{locales.SourceLocale: {State: "current", Origin: domain.LocaleOriginSource, Revision: 1, SourceRevision: 1}},
 	}
 	localized := domain.LocalizedMarkdown{
@@ -243,6 +243,7 @@ func (s *Service) PublishPage(id string, expectedRevision int) (domain.Post, err
 	previousMeta := page.Meta
 	now := time.Now().UTC()
 	page.Meta.Status = domain.ContentStatusPublished
+	page.Meta.ScheduledRevision = 0
 	page.Meta.UpdatedAt = now
 	if page.Meta.PublishedAt == nil {
 		page.Meta.PublishedAt = &now

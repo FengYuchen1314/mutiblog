@@ -10,10 +10,11 @@ import (
 )
 
 type trackedSitePublisher struct {
-	delegate SitePublisher
-	gate     sync.Mutex
-	active   atomic.Int64
-	state    atomic.Value
+	delegate    SitePublisher
+	gate        sync.Mutex
+	beforeBuild func()
+	active      atomic.Int64
+	state       atomic.Value
 }
 
 func (p *trackedSitePublisher) Preview(ctx context.Context, themeID, baseURL string) (publisher.PreviewRecord, error) {
@@ -56,13 +57,46 @@ func newTrackedSitePublisher(delegate SitePublisher) *trackedSitePublisher {
 	return tracked
 }
 
+// setBeforeBuild installs a derived-state refresh that runs inside the same
+// serialization gate as every normal, scheduled, translation, startup, and
+// theme-transaction build. It is configured before the server starts serving
+// requests.
+func (p *trackedSitePublisher) setBeforeBuild(callback func()) {
+	p.gate.Lock()
+	p.beforeBuild = callback
+	p.gate.Unlock()
+}
+
 func (p *trackedSitePublisher) Build(ctx context.Context) (publisher.BuildReport, error) {
+	prepared, _, err := p.prepareBuild(ctx)
+	if err != nil {
+		return publisher.BuildReport{}, err
+	}
+	ctx = prepared
 	p.gate.Lock()
 	defer p.gate.Unlock()
 	return p.buildWhileLocked(ctx)
 }
 
+// prepareBuild exposes the publisher's queued receipt step to server handlers
+// that need to return before a long initial build begins. It intentionally
+// stays package-private: SitePublisher remains the small synchronous contract
+// used by tests and extension points.
+func (p *trackedSitePublisher) prepareBuild(ctx context.Context) (context.Context, bool, error) {
+	preparer, ok := p.delegate.(interface {
+		PrepareBuild(context.Context) (context.Context, error)
+	})
+	if !ok {
+		return ctx, false, nil
+	}
+	prepared, err := preparer.PrepareBuild(ctx)
+	return prepared, true, err
+}
+
 func (p *trackedSitePublisher) buildWhileLocked(ctx context.Context) (publisher.BuildReport, error) {
+	if p.beforeBuild != nil {
+		p.beforeBuild()
+	}
 	p.active.Add(1)
 	p.state.Store("building")
 	report, err := p.delegate.Build(ctx)
@@ -105,4 +139,31 @@ func publisherStatus(sitePublisher SitePublisher) string {
 		return tracked.Status()
 	}
 	return "idle"
+}
+
+func (p *trackedSitePublisher) ListTasks() ([]publisher.Task, error) {
+	delegate, ok := p.delegate.(interface {
+		ListTasks() ([]publisher.Task, error)
+	})
+	if !ok {
+		return []publisher.Task{}, nil
+	}
+	return delegate.ListTasks()
+}
+
+func (p *trackedSitePublisher) GetTask(id string) (publisher.Task, error) {
+	delegate, ok := p.delegate.(interface {
+		GetTask(string) (publisher.Task, error)
+	})
+	if !ok {
+		return publisher.Task{}, publisher.ErrBuildTaskNotFound
+	}
+	return delegate.GetTask(id)
+}
+
+func (p *trackedSitePublisher) Close() {
+	delegate, ok := p.delegate.(interface{ Close() })
+	if ok {
+		delegate.Close()
+	}
 }

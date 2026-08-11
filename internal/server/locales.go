@@ -9,6 +9,7 @@ import (
 	"github.com/FengYuchen1314/mutiblog/internal/content"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	linkservice "github.com/FengYuchen1314/mutiblog/internal/links"
+	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
 	menuservice "github.com/FengYuchen1314/mutiblog/internal/menus"
 	"github.com/FengYuchen1314/mutiblog/internal/taxonomy"
 	"golang.org/x/text/language"
@@ -84,6 +85,11 @@ func (s *Server) handleUpdateLocales(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusUnprocessableEntity, "source_locale_required", "The selected source locale must be present and enabled.", nil)
 		return
 	}
+	next := current
+	next.SourceLocale = requestedSource
+	next.Enabled = definitions
+	localeconfig.Normalize(&next)
+	definitions = next.Enabled
 	referencedSources, err := s.permanentSourceLocales()
 	if err != nil {
 		s.logger.Error("read permanent source locales failed", "error", err)
@@ -91,7 +97,7 @@ func (s *Server) handleUpdateLocales(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for locale := range referencedSources {
-		if !seen[locale] || !definitionsEnabled(definitions, locale) {
+		if !definitionsEnabled(definitions, locale) {
 			s.writeError(w, http.StatusUnprocessableEntity, "locale_in_use", "A locale used as the original source of existing content cannot be disabled.", map[string]string{"enabled": locale})
 			return
 		}
@@ -101,10 +107,23 @@ func (s *Server) handleUpdateLocales(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "site_unavailable", "Cannot read site settings.", nil)
 		return
 	}
+	if _, exists := site.Locales[requestedSource]; !exists {
+		previousCopy, available := site.Locales[current.SourceLocale]
+		if !available || strings.TrimSpace(previousCopy.Title) == "" {
+			s.writeError(w, http.StatusInternalServerError, "site_source_copy_missing", "The current source-language site copy is unavailable.", nil)
+			return
+		}
+		if site.Locales == nil {
+			site.Locales = make(map[string]domain.LocalizedSite)
+		}
+		// Source-language switching is a configuration action, not an implicit
+		// machine translation. Seed the new source from the previous immutable
+		// site copy so every renderer fallback remains buildable; the owner can
+		// then maintain the localized title/description explicitly.
+		site.Locales[requestedSource] = previousCopy
+	}
 	previous := current
-	current.SourceLocale = requestedSource
-	current.Enabled = definitions
-	current.Fallback = []string{"en", "zh-CN"}
+	current = next
 	if err := s.repository.WriteYAML("config/locales.yaml", current, false); err != nil {
 		s.writeError(w, http.StatusInternalServerError, "locales_write_failed", "Cannot save locale settings.", nil)
 		return
@@ -118,7 +137,22 @@ func (s *Server) handleUpdateLocales(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "site_write_failed", "Cannot save the new source locale.", nil)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, current)
+	s.clearPublicStatsCache()
+	report, err := s.publisher.Build(r.Context())
+	if err != nil {
+		s.logger.Error("static build after locale settings update failed", "error", err)
+		w.Header().Set("X-MutiBlog-Static-Build", "failed")
+		s.writeJSON(w, http.StatusAccepted, map[string]any{
+			"locales": current,
+			"build":   map[string]any{"status": "failed"},
+		})
+		return
+	}
+	w.Header().Set("X-MutiBlog-Static-Build", "succeeded")
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"locales": current,
+		"build":   map[string]any{"status": "succeeded", "report": report},
+	})
 }
 
 func (s *Server) permanentSourceLocales() (map[string]bool, error) {

@@ -2,7 +2,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { VButton, VCard, VPageHeader, VTag } from "@halo-dev/components";
-import { api, type FrameworkDictionary, type LocalesConfig } from "@/api/client";
+import { ApiError, api, createStaticBuildTaskId, type FrameworkDictionary, type LocalesConfig } from "@/api/client";
+import TaskProgress from "@/components/TaskProgress.vue";
 import { useSessionStore } from "@/stores/session";
 
 const session = useSessionStore();
@@ -20,9 +21,11 @@ const dictionaries = ref<FrameworkDictionary[]>([]);
 const selectedDictionary = ref<FrameworkDictionary>();
 const dictionaryValues = ref<Record<string, string>>({});
 const dictionarySaving = ref(false);
+const localesBuildTaskId = ref("");
+const dictionaryTaskId = ref("");
 const fallbackChain = computed(() => {
-  const enabled = new Set(entries.value.filter((entry) => entry.enabled).map((entry) => entry.code));
-  return ["en", "zh-CN", sourceLocale.value].filter((locale, index, values) => enabled.has(locale) && values.indexOf(locale) === index);
+  const configured = config.value?.fallback?.length ? config.value.fallback : ["zh-CN"];
+  return configured.filter((locale, index, values) => values.indexOf(locale) === index);
 });
 
 const presets: Record<string, string> = {
@@ -55,17 +58,28 @@ function editDictionary(locale: string) {
   dictionaryValues.value = { ...(selectedDictionary.value?.values ?? {}) };
 }
 
+async function discardTaskIfMissing(taskId: string, clear: () => void) {
+  try {
+    await api.task(taskId);
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.status === 404) clear();
+  }
+}
+
 async function saveDictionary() {
   if (!session.session || !selectedDictionary.value) return;
   dictionarySaving.value = true;
   error.value = "";
+  const taskId = createStaticBuildTaskId();
+  dictionaryTaskId.value = taskId;
   try {
-    const updated = await api.updateDictionary(session.session.csrfToken, selectedDictionary.value.locale, dictionaryValues.value);
+    const updated = await api.updateDictionary(session.session.csrfToken, selectedDictionary.value.locale, dictionaryValues.value, taskId);
     dictionaries.value = dictionaries.value.map((item) => item.locale === updated.locale ? updated : item);
     selectedDictionary.value = updated;
     dictionaryValues.value = { ...updated.values };
     message.value = t("localesPage.dictionarySaved", { locale: updated.locale });
   } catch (caught) {
+    await discardTaskIfMissing(taskId, () => { if (dictionaryTaskId.value === taskId) dictionaryTaskId.value = ""; });
     error.value = caught instanceof Error ? caught.message : t("localesPage.dictionarySaveFailed");
   } finally {
     dictionarySaving.value = false;
@@ -90,8 +104,12 @@ function addLocale() {
 }
 
 function removeLocale(locale: string) {
-  if (locale === sourceLocale.value) return;
+  if (locale === sourceLocale.value || isRequiredFallback(locale)) return;
   entries.value = entries.value.filter((entry) => entry.code !== locale);
+}
+
+function isRequiredFallback(locale: string) {
+  return locale === "zh-CN";
 }
 
 async function save() {
@@ -100,21 +118,19 @@ async function save() {
   saving.value = true;
   message.value = "";
   error.value = "";
+  const taskId = createStaticBuildTaskId();
+  localesBuildTaskId.value = taskId;
   try {
-    config.value = await api.updateLocales(session.session.csrfToken, entries.value, sourceLocale.value);
+    const result = await api.updateLocales(session.session.csrfToken, entries.value, sourceLocale.value, taskId);
+    config.value = result.locales;
     entries.value = config.value.enabled.map((entry) => ({ ...entry }));
     sourceLocale.value = config.value.sourceLocale;
     loadedSourceLocale.value = config.value.sourceLocale;
-    let buildFailed = false;
-    try {
-      await api.rebuildSite(session.session.csrfToken);
-    } catch {
-      buildFailed = true;
-    }
     dictionaries.value = (await api.dictionaries()).items;
     if (selectedDictionary.value) editDictionary(selectedDictionary.value.locale);
-    message.value = t(buildFailed ? "localesPage.savedBuildFailed" : "localesPage.saved");
+    message.value = t(result.build.status === "failed" ? "localesPage.savedBuildFailed" : "localesPage.saved");
   } catch (caught) {
+    await discardTaskIfMissing(taskId, () => { if (localesBuildTaskId.value === taskId) localesBuildTaskId.value = ""; });
     error.value = caught instanceof Error ? caught.message : t("localesPage.saveFailed");
   } finally {
     saving.value = false;
@@ -139,35 +155,37 @@ onMounted(load);
           <article v-for="entry in entries" :key="entry.code" class="locale-setting-row">
             <div><strong>{{ entry.label }}</strong><span>{{ entry.code }}</span></div>
             <VTag v-if="entry.code === sourceLocale">{{ t("localesPage.source") }}</VTag>
-            <VTag v-else-if="entry.code === 'en' || entry.code === 'zh-CN'">{{ t("localesPage.builtIn") }}</VTag>
-            <VTag v-else>{{ t("localesPage.frameworkFallback") }}</VTag>
+            <VTag v-else-if="entry.code === 'zh-CN'">{{ t("localesPage.builtIn") }}</VTag>
+            <VTag v-else>{{ t("localesPage.target") }}</VTag>
             <VTag v-if="dictionaryFor(entry.code)">{{ t("localesPage.dictionaryProgress", { translated: dictionaryFor(entry.code)?.translated, total: dictionaryFor(entry.code)?.total }) }}</VTag>
-            <label class="locale-toggle"><input v-model="entry.enabled" type="checkbox" :disabled="entry.code === sourceLocale" />{{ t("localesPage.enabled") }}</label>
+            <label class="locale-toggle"><input v-model="entry.enabled" type="checkbox" :disabled="entry.code === sourceLocale || isRequiredFallback(entry.code)" />{{ t("localesPage.enabled") }}</label>
             <button v-if="dictionaryFor(entry.code)" type="button" @click="editDictionary(entry.code)">{{ t("localesPage.manageDictionary") }}</button>
-            <button v-if="entry.code !== sourceLocale" class="text-danger" type="button" @click="removeLocale(entry.code)">{{ t("localesPage.remove") }}</button>
+            <button v-if="entry.code !== sourceLocale && !isRequiredFallback(entry.code)" class="text-danger" type="button" @click="removeLocale(entry.code)">{{ t("localesPage.remove") }}</button>
           </article>
         </div>
+        <TaskProgress v-if="localesBuildTaskId" :task-id="localesBuildTaskId" />
       </VCard>
       <VCard v-if="selectedDictionary">
-        <div class="settings-section-title"><div><strong>{{ t("localesPage.dictionaryEditor", { locale: selectedDictionary.locale }) }}</strong><span>{{ t("localesPage.dictionaryHelp", { source: sourceLocale }) }}</span></div></div>
+        <div class="settings-section-title"><div><strong>{{ t("localesPage.dictionaryEditor", { locale: selectedDictionary.locale }) }}</strong><span>{{ t("dictionaryFallbackHelp", { source: sourceLocale }) }}</span></div></div>
         <div v-if="selectedDictionary.missing.length" class="form-alert">{{ t("localesPage.dictionaryMissing", { count: selectedDictionary.missing.length }) }}</div>
         <div class="provider-form dictionary-grid">
           <label v-for="(_, key) in selectedDictionary.values" :key="key"><span><code>{{ key }}</code></span><textarea v-model="dictionaryValues[key]" rows="2" maxlength="500" /></label>
           <VButton type="secondary" :loading="dictionarySaving" @click="saveDictionary">{{ t("common.saveAndBuild") }}</VButton>
+          <TaskProgress v-if="dictionaryTaskId" :task-id="dictionaryTaskId" />
         </div>
       </VCard>
       <VCard>
         <div class="settings-section-title"><div><strong>{{ t("localesPage.addTarget") }}</strong><span>{{ t("localesPage.addTargetHelp") }}</span></div></div>
         <div class="locale-add-form">
-          <label><span>{{ t("localesPage.localeCode") }}</span><input v-model="code" list="locale-presets" placeholder="en" @input="suggestLabel" /></label>
+          <label><span>{{ t("localesPage.localeCode") }}</span><input v-model="code" list="locale-presets" placeholder="ja" @input="suggestLabel" /></label>
           <datalist id="locale-presets"><option v-for="(presetLabel, presetCode) in presets" :key="presetCode" :value="presetCode">{{ presetLabel }}</option></datalist>
-          <label><span>{{ t("localesPage.displayName") }}</span><input v-model="label" placeholder="English" /></label>
+          <label><span>{{ t("localesPage.displayName") }}</span><input v-model="label" placeholder="Japanese" /></label>
           <VButton @click="addLocale">{{ t("localesPage.add") }}</VButton>
         </div>
       </VCard>
       <VCard>
-        <div class="settings-section-title"><div><strong>{{ t("localesPage.fallback") }}</strong><span>{{ t("localesPage.fallbackHelp") }}</span></div></div>
-        <div class="fallback-chain"><code>{{ t("localesPage.requested") }}</code><template v-for="locale in fallbackChain" :key="locale"><span>→</span><code>{{ locale }}</code></template><span>→</span><code>404</code></div>
+        <div class="settings-section-title"><div><strong>{{ t("localesPage.fallback") }}</strong><span>{{ t("localesPage.fallbackHelp", { source: sourceLocale }) }}</span></div></div>
+        <div class="fallback-chain"><code>{{ t("localesPage.requested") }}</code><template v-for="locale in fallbackChain" :key="locale"><span>→</span><code>{{ locale }}</code></template><span>→</span><code>{{ t("localesPage.entitySource") }}</code><span>→</span><code>404</code></div>
       </VCard>
     </div>
   </div>
