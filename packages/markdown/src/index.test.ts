@@ -30,6 +30,14 @@ test("keeps currency and code literal while retaining numeric inline mathematics
   expect(renderMarkdown("End math is $2 + 2$")).toContain('class="MathJax"');
 });
 
+test("does not pair a currency amount with dollars inside a later code span", () => {
+  const output = renderMarkdown("Price: $20. Use `$x$`.");
+
+  expect(output).toContain("Price: $20.");
+  expect(output).toContain("<code>$x$</code>");
+  expect(output).not.toContain('class="MathJax"');
+});
+
 test("removes active attributes from generated math markup", () => {
   const output = renderMarkdown("$\\href{javascript:alert(1)}{unsafe}$");
 

@@ -94,7 +94,7 @@ function markPreviewError(preview: HTMLElement, marker: HTMLElement) {
   marker.setAttribute("data-math-preview-error", "true");
 }
 
-function loadMathJax(): Promise<BrowserMathJax> {
+export function loadMathJax(): Promise<BrowserMathJax> {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return Promise.reject(new Error("MathJax preview is only available in a browser."));
   }
@@ -132,7 +132,7 @@ function loadMathJax(): Promise<BrowserMathJax> {
   }).catch((error) => {
     loader = undefined;
     document.getElementById(scriptId)?.remove();
-    if (window.MathJax && !window.MathJax.tex2svgPromise) window.MathJax = undefined;
+    window.MathJax = undefined;
     throw error;
   });
   return loader;

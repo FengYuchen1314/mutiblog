@@ -27,6 +27,14 @@ describe("editor Markdown mathematics", () => {
     expect(output).toContain('data-math-preview="inline">2 + 2</span>');
   });
 
+  test("does not pair a currency amount with dollars inside a later code span", () => {
+    const output = createPreviewMarkdownRenderer().render("Price: $20. Use `$x$`.");
+
+    expect(output).toContain("Price: $20.");
+    expect(output).toContain("<code>$x$</code>");
+    expect(output).not.toContain("data-math-preview");
+  });
+
   test("explicitly rejects dynamic or URL-capable TeX before creating a marker", () => {
     const output = createPreviewMarkdownRenderer().render(
       "$\\href{javascript:alert(1)}{unsafe}$\n\n$$\\require{html} x$$",

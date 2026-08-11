@@ -41,19 +41,43 @@ function canUseDelimiter(state: StateInline, position: number) {
   };
 }
 
-function findUnescapedDollar(source: string, start: number) {
-  let match = start;
-  while ((match = source.indexOf("$", match)) !== -1) {
-    let previous = match - 1;
-    while (source[previous] === "\\") previous -= 1;
-    if ((match - previous) % 2 === 1) return match;
+function findUnescapedDollar(source: string, start: number, maximum = source.length) {
+  for (let match = start; match < maximum;) {
+    if (source[match] === "`") {
+      const codeEnd = findCodeSpanEnd(source, match, maximum);
+      if (codeEnd !== -1) {
+        match = codeEnd;
+        continue;
+      }
+    }
+    if (source[match] === "$") {
+      let previous = match - 1;
+      while (source[previous] === "\\") previous -= 1;
+      if ((match - previous) % 2 === 1) return match;
+    }
     match += 1;
   }
   return -1;
 }
 
+function findCodeSpanEnd(source: string, start: number, maximum: number) {
+  let openingLength = 1;
+  while (start + openingLength < maximum && source[start + openingLength] === "`") openingLength += 1;
+  for (let position = start + openingLength; position < maximum;) {
+    if (source[position] !== "`") {
+      position += 1;
+      continue;
+    }
+    let closingLength = 1;
+    while (position + closingLength < maximum && source[position + closingLength] === "`") closingLength += 1;
+    if (closingLength === openingLength) return position + closingLength;
+    position += closingLength;
+  }
+  return -1;
+}
+
 function hasClosingMathDelimiter(state: StateInline, position: number) {
-  const match = findUnescapedDollar(state.src, position + 1);
+  const match = findUnescapedDollar(state.src, position + 1, state.posMax);
   return match > position + 1 && match < state.posMax && canUseDelimiter(state, match).canClose;
 }
 

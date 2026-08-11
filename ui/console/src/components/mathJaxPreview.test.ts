@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import {
   convertPreviewMathMarkers,
   editorMathJaxConfiguration,
+  loadMathJax,
   sanitizeMathJaxOutput,
 } from "./mathJaxPreview";
 
@@ -48,5 +49,27 @@ describe("editor MathJax safety", () => {
     expect(preview.querySelector('[data-math-preview-error="true"]')?.textContent).toBe("$bad$");
     expect(preview.querySelector("[data-math-preview]")).toBeNull();
     expect(preview.querySelector("mjx-container")?.textContent).toBe("2+2");
+  });
+
+  test("discards a failed MathJax startup before retrying with a fresh script", async () => {
+    const firstLoad = loadMathJax();
+    const firstScript = document.getElementById("mutiblog-editor-mathjax") as HTMLScriptElement;
+    window.MathJax = {
+      startup: { promise: Promise.reject(new Error("startup failed")) },
+      async tex2svgPromise() {
+        return document.createElement("mjx-container");
+      },
+    };
+    firstScript.dispatchEvent(new Event("load"));
+
+    await expect(firstLoad).rejects.toThrow("startup failed");
+    expect(window.MathJax).toBeUndefined();
+    expect(firstScript.isConnected).toBe(false);
+
+    const retry = loadMathJax();
+    const retryScript = document.getElementById("mutiblog-editor-mathjax") as HTMLScriptElement;
+    expect(retryScript).not.toBe(firstScript);
+    retryScript.dispatchEvent(new Event("error"));
+    await expect(retry).rejects.toThrow("could not be loaded");
   });
 });
