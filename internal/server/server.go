@@ -162,6 +162,9 @@ func New(options Options) (*Server, error) {
 	if err := server.backups.RecoverInterruptedRestores(); err != nil {
 		return nil, fmt.Errorf("recover interrupted backup restore: %w", err)
 	}
+	if _, err := server.ai.MigrateLegacyDefault(); err != nil {
+		return nil, fmt.Errorf("migrate default translation provider: %w", err)
+	}
 	if _, err := localeconfig.MigrateFallback(options.Repository); err != nil {
 		return nil, fmt.Errorf("migrate locale fallback: %w", err)
 	}

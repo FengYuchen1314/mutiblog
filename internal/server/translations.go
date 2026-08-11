@@ -62,7 +62,7 @@ func (s *Server) writeTranslationError(w http.ResponseWriter, err error) {
 	case errors.Is(err, translation.ErrNoTargets):
 		s.writeError(w, http.StatusUnprocessableEntity, "translation_targets_empty", "No enabled target locales require translation.", nil)
 	case errors.Is(err, ai.ErrProviderNotFound), errors.Is(err, ai.ErrKeyMissing), errors.Is(err, ai.ErrInvalidProvider):
-		s.writeError(w, http.StatusPreconditionFailed, "provider_required", "Configure an enabled default AI provider and API key first.", nil)
+		s.writeError(w, http.StatusPreconditionFailed, "provider_required", "Configure an enabled default translation provider first.", nil)
 	default:
 		s.logger.Error("start translation failed", "error", err)
 		s.writeError(w, http.StatusInternalServerError, "translation_start_failed", "Cannot start the translation task.", nil)

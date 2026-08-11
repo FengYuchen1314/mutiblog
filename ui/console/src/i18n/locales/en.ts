@@ -7,7 +7,7 @@ export default {
     translationFailed:
       "The content was published, but automatic translation could not start or finish. See the translation task for details.",
     translationNotConfigured:
-      "The content was published, but automatic translation did not start because no usable AI provider and API key are configured.",
+      "The content was published, but automatic translation did not start because no usable translation provider is configured.",
   },
   editorPublishedTranslationFailed: "Published, but automatic translation could not be started",
   taskProgressExtraMessages: {
@@ -134,7 +134,7 @@ export default {
     content_status_invalid: "This action is not available in the current content state.",
     provider_connection_failed: "The AI provider connection test failed.",
     provider_invalid: "The AI provider configuration is invalid.",
-    provider_key_missing: "The AI Provider API Key is missing.",
+    provider_key_missing: "The selected OpenAI-compatible provider is missing an API key.",
     providers_unavailable: "AI Provider settings are unavailable.",
     static_build_failed: "The static build failed; the previous public release remains online.",
     theme_invalid: "The theme package or settings are invalid.",
@@ -355,7 +355,7 @@ export default {
       "target-changed":
         "This target language changed after translation was confirmed; the newer content was preserved.",
       "manual-protected": "A manually maintained translation is protected.",
-      "provider-key-missing": "The Provider API key is missing.",
+      "provider-key-missing": "The OpenAI-compatible provider API key is missing.",
       "provider-request-failed": "The Provider request failed.",
       "provider-unavailable": "The Provider configuration is unavailable.",
       "unsafe-output": "The Provider did not preserve protected Markdown.",
@@ -411,14 +411,22 @@ export default {
     title: "AI providers",
     provider: "Provider",
     new: "New provider",
-    guidance: "Supports the OpenAI-compatible Chat Completions API.",
+    guidance:
+      "Google's free public translator is the no-key default, but it is best-effort and may be rate-limited or unavailable. OpenAI-compatible services remain available as an alternative.",
     default: "Default",
     defaultLocked: "This is the current default. Set another provider as default to replace it.",
     defaultSet: "{name} is now the default provider.",
     empty: "No AI providers yet",
     edit: "Edit provider",
-    keyHelp: "The complete API key is never returned by the server.",
+    googleFreeHelp:
+      "No API key is needed, but availability is not guaranteed and requests may be rate-limited or temporarily unavailable. The translator identifier is fixed; keep the public endpoint or enter a compatible proxy endpoint.",
+    keyHelp: "OpenAI-compatible services require an API key. The complete key is never returned by the server.",
     stableId: "Stable ID",
+    kind: "Provider type",
+    kinds: {
+      "google-free": "Google free public translator (no API key)",
+      "openai-compatible": "OpenAI-compatible (API key required)",
+    },
     displayName: "Display name",
     baseUrl: "Base URL",
     model: "Model",
@@ -436,9 +444,9 @@ export default {
     loadFailed: "Cannot load providers",
     saveFailed: "Cannot save provider",
     testFailed: "Connection test failed",
-    saved: "Provider saved; the API key exists only in the server secret file.",
+    saved: "Provider saved. When present, its API key exists only in the server secret file.",
     testSuccess: "Connected: {model}, {latency} ms, response {response}",
-    confirmDelete: "Delete provider {id} and its local API key?",
+    confirmDelete: "Delete provider {id}? Its local API key, if any, will also be deleted.",
     deleted: "Provider deleted.",
   },
   overviewPage: {
@@ -595,7 +603,7 @@ export default {
   setupPage: {
     title: "Create your site",
     subtitle:
-      "Confirm the initial source locale; you can switch it later without rewriting existing content. Simplified Chinese is enabled automatically as the required content fallback.",
+      "Setup enables Google's no-key public translator by default. It is best-effort and may be rate-limited or unavailable; you can configure an OpenAI-compatible service later.",
     siteName: "Site name",
     publicBaseUrl: "Public site URL",
     publicBaseUrlHelp: "Used for canonical URLs, RSS, and the sitemap. Enter the full address that visitors use.",

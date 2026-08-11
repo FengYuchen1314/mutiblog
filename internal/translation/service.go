@@ -104,6 +104,7 @@ type Service struct {
 	mutationAcquire func() func()
 	runGate         sync.RWMutex
 	writeTaskHook   func(Task) error
+	retryWait       func(context.Context, time.Duration) error
 	root            context.Context
 	cancel          context.CancelFunc
 	lifecycleMu     sync.Mutex

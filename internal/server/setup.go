@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FengYuchen1314/mutiblog/internal/ai"
 	"github.com/FengYuchen1314/mutiblog/internal/auth"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
@@ -119,13 +120,13 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	secrets := domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}, CommentHMACKey: hex.EncodeToString(commentKey)}
 	providers := domain.AIProvidersConfig{
 		SchemaVersion:   domain.SchemaVersion,
-		DefaultProvider: "qwen-free",
+		DefaultProvider: "google-free",
 		Providers: []domain.AIProviderConfig{{
-			ID:              "qwen-free",
-			Name:            "Qwen Free (OpenRouter)",
-			Kind:            "openai-compatible",
-			BaseURL:         "https://openrouter.ai/api/v1",
-			Model:           "qwen/qwen3-32b:free",
+			ID:              "google-free",
+			Name:            "Google Free Translate",
+			Kind:            ai.ProviderKindGoogleFree,
+			BaseURL:         ai.GoogleFreeDefaultEndpoint,
+			Model:           ai.GoogleFreeDefaultModel,
 			Enabled:         true,
 			TimeoutSeconds:  45,
 			MaxOutputTokens: 8192,

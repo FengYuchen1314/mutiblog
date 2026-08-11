@@ -2,9 +2,17 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
-import { api, type AIProvider, type AIProviderInput } from "@/api/client";
+import { api, type AIProvider, type AIProviderInput, type AIProviderKind } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
-import { nextQwenProviderId, preferredProvider, providerMutationInput, qwenProviderTemplate } from "./providerDefaults";
+import {
+  googleFreeProviderTemplate,
+  nextGoogleFreeProviderId,
+  nextOpenAICompatibleProviderId,
+  preferredProvider,
+  providerMutationInput,
+  providerTemplate,
+  type ProviderMutationValues,
+} from "./providerDefaults";
 
 const session = useSessionStore();
 const { t } = useI18n();
@@ -15,13 +23,19 @@ const promoting = ref("");
 const testing = ref(false);
 const message = ref("");
 const error = ref("");
-const form = reactive({
-  id: "qwen-free",
-  ...qwenProviderTemplate,
+interface ProviderForm extends ProviderMutationValues {
+  id: string;
+  apiKey: string;
+  clearKey: boolean;
+}
+const form = reactive<ProviderForm>({
+  id: "google-free",
+  ...googleFreeProviderTemplate,
   apiKey: "",
   clearKey: false,
 });
 const selectedProvider = computed(() => providers.value.find((provider) => provider.id === selected.value));
+const usesAPIKey = computed(() => form.kind === "openai-compatible");
 
 async function load(preferredId = "") {
   try {
@@ -37,11 +51,22 @@ async function load(preferredId = "") {
 function resetForm() {
   selected.value = "";
   Object.assign(form, {
-    id: nextQwenProviderId(providers.value),
-    ...qwenProviderTemplate,
+    id: nextGoogleFreeProviderId(providers.value),
+    ...googleFreeProviderTemplate,
     apiKey: "",
     clearKey: false,
   });
+}
+
+function changeKind(event: Event) {
+  const kind = (event.currentTarget as HTMLSelectElement).value as AIProviderKind;
+  let id = form.id;
+  if (!selected.value) {
+    if (kind === "google-free") id = nextGoogleFreeProviderId(providers.value);
+    else id = nextOpenAICompatibleProviderId(providers.value);
+  }
+  const enabled = form.enabled;
+  Object.assign(form, providerTemplate(kind), { id, enabled, apiKey: "", clearKey: false });
 }
 
 function edit(provider: AIProvider) {
@@ -158,10 +183,10 @@ onMounted(load);
           >
             <div>
               <strong>{{ provider.name }}</strong
-              ><span>{{ provider.model }}</span>
+              ><span>{{ t(`providersPage.kinds.${provider.kind}`) }} · {{ provider.model }}</span>
             </div>
             <VTag v-if="provider.default">{{ t("providersPage.default") }}</VTag
-            ><VTag v-if="provider.hasKey">{{ provider.maskedKey }}</VTag>
+            ><VTag v-if="provider.kind === 'openai-compatible' && provider.hasKey">{{ provider.maskedKey }}</VTag>
           </button>
         </div>
         <div v-else class="provider-empty"><VEmpty :title="t('providersPage.empty')" /></div>
@@ -170,7 +195,7 @@ onMounted(load);
         <div class="settings-section-title">
           <div>
             <strong>{{ selected ? t("providersPage.edit") : t("providersPage.new") }}</strong
-            ><span>{{ t("providersPage.keyHelp") }}</span>
+            ><span>{{ t(usesAPIKey ? "providersPage.keyHelp" : "providersPage.googleFreeHelp") }}</span>
           </div>
         </div>
         <div v-if="message" class="form-success provider-message">{{ message }}</div>
@@ -178,21 +203,39 @@ onMounted(load);
         <div class="provider-form">
           <label
             ><span>{{ t("providersPage.stableId") }}</span
-            ><input v-model="form.id" :disabled="Boolean(selected)" placeholder="qwen-free"
+            ><input v-model="form.id" :disabled="Boolean(selected)" placeholder="google-free"
           /></label>
+          <label>
+            <span>{{ t("providersPage.kind") }}</span>
+            <select :value="form.kind" @change="changeKind">
+              <option value="google-free">{{ t("providersPage.kinds.google-free") }}</option>
+              <option value="openai-compatible">{{ t("providersPage.kinds.openai-compatible") }}</option>
+            </select>
+          </label>
           <label
             ><span>{{ t("providersPage.displayName") }}</span
-            ><input v-model="form.name" placeholder="Qwen Free (OpenRouter)"
+            ><input
+              v-model="form.name"
+              :placeholder="usesAPIKey ? 'OpenAI-compatible' : 'Google Free Translate'"
           /></label>
           <label class="field--wide"
             ><span>{{ t("providersPage.baseUrl") }}</span
-            ><input v-model="form.baseUrl" placeholder="https://openrouter.ai/api/v1"
+            ><input
+              v-model="form.baseUrl"
+              :placeholder="
+                usesAPIKey
+                  ? 'https://api.example.com/v1'
+                  : 'https://translate.googleapis.com/translate_a/single'
+              "
           /></label>
           <label
             ><span>{{ t("providersPage.model") }}</span
-            ><input v-model="form.model" placeholder="qwen/qwen3-32b:free"
+            ><input
+              v-model="form.model"
+              :disabled="!usesAPIKey"
+              :placeholder="usesAPIKey ? 'model-name' : 'google-translate'"
           /></label>
-          <label
+          <label v-if="usesAPIKey"
             ><span>{{ t("providersPage.apiKey") }}</span
             ><input
               v-model="form.apiKey"
@@ -215,7 +258,7 @@ onMounted(load);
             <VTag>{{ t("providersPage.default") }}</VTag
             ><span>{{ t("providersPage.defaultLocked") }}</span>
           </div>
-          <label v-if="selected" class="provider-check text-danger"
+          <label v-if="selected && usesAPIKey" class="provider-check text-danger"
             ><input v-model="form.clearKey" type="checkbox" />{{ t("providersPage.clearKey") }}</label
           >
         </div>

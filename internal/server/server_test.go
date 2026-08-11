@@ -400,12 +400,22 @@ func TestSetupLoginSessionAndLogout(t *testing.T) {
 	if err := repository.ReadYAML("config/providers.yaml", &initialProviders); err != nil {
 		t.Fatal(err)
 	}
-	if initialProviders.DefaultProvider != "qwen-free" || len(initialProviders.Providers) != 1 {
+	if initialProviders.DefaultProvider != "google-free" || len(initialProviders.Providers) != 1 {
 		t.Fatalf("initial providers = %#v", initialProviders)
 	}
-	qwen := initialProviders.Providers[0]
-	if qwen.ID != "qwen-free" || qwen.BaseURL != "https://openrouter.ai/api/v1" || qwen.Model != "qwen/qwen3-32b:free" || !qwen.Enabled {
-		t.Fatalf("initial Qwen provider = %#v", qwen)
+	google := initialProviders.Providers[0]
+	expectedGoogle := domain.AIProviderConfig{
+		ID:              "google-free",
+		Name:            "Google Free Translate",
+		Kind:            "google-free",
+		BaseURL:         "https://translate.googleapis.com/translate_a/single",
+		Model:           "google-translate",
+		Enabled:         true,
+		TimeoutSeconds:  45,
+		MaxOutputTokens: 8192,
+	}
+	if google != expectedGoogle {
+		t.Fatalf("initial Google provider = %#v", google)
 	}
 	var initialSecrets domain.SecretsConfig
 	if err := repository.ReadYAML("config/secrets.yaml", &initialSecrets); err != nil {

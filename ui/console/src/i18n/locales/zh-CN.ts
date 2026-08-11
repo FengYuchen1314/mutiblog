@@ -5,7 +5,7 @@ export default {
   taskProgressWarnings: {
     buildFailed: "内容已发布，但静态构建失败；上一版公开站点仍在运行。",
     translationFailed: "内容已发布，但自动翻译未能启动或完成；请查看翻译任务详情。",
-    translationNotConfigured: "内容已发布，但尚未配置可用的 AI Provider 和 API Key，因此自动翻译未启动。",
+    translationNotConfigured: "内容已发布，但尚未配置可用的翻译 Provider，因此自动翻译未启动。",
   },
   editorPublishedTranslationFailed: "已发布，但自动翻译启动失败",
   taskProgressExtraMessages: {
@@ -131,7 +131,7 @@ export default {
     content_status_invalid: "当前内容状态不允许执行此操作。",
     provider_connection_failed: "AI Provider 连接测试失败。",
     provider_invalid: "AI Provider 配置不合法。",
-    provider_key_missing: "尚未配置 AI Provider API Key。",
+    provider_key_missing: "所选 OpenAI-compatible Provider 尚未配置 API Key。",
     providers_unavailable: "无法读取 AI Provider 设置。",
     static_build_failed: "静态构建失败，上一版公开站点仍保持在线。",
     theme_invalid: "主题包或主题设置不合法。",
@@ -343,7 +343,7 @@ export default {
       "source-changed": "翻译期间源文发生变化，需要人工检查。",
       "target-changed": "该目标译文在确认后发生变化；系统已保留较新的内容。",
       "manual-protected": "人工维护的译文受到保护。",
-      "provider-key-missing": "Provider API Key 尚未配置。",
+      "provider-key-missing": "OpenAI-compatible Provider API Key 尚未配置。",
       "provider-request-failed": "Provider 请求失败。",
       "provider-unavailable": "Provider 配置不可用。",
       "unsafe-output": "Provider 没有完整保留受保护的 Markdown。",
@@ -398,14 +398,22 @@ export default {
     title: "AI Provider",
     provider: "Provider",
     new: "新建 Provider",
-    guidance: "支持 OpenAI-compatible Chat Completions API。",
+    guidance:
+      "默认使用无需 API Key 的 Google 免费公开翻译（best-effort，可能限流或不可用）；OpenAI-compatible 服务可作为备选。",
     default: "默认",
     defaultLocked: "这是当前默认 Provider；将其他 Provider 设为默认后才能替换它。",
     defaultSet: "{name} 已设为默认 Provider。",
     empty: "还没有 AI Provider",
     edit: "编辑 Provider",
-    keyHelp: "完整 API Key 不会从服务器返回。",
+    googleFreeHelp:
+      "无需 API Key，但不提供可用性保证，可能限流或临时不可用；翻译器标识固定，可保留公共端点或填写兼容的代理端点。",
+    keyHelp: "OpenAI-compatible 服务需要 API Key；完整 Key 不会从服务器返回。",
     stableId: "稳定 ID",
+    kind: "Provider 类型",
+    kinds: {
+      "google-free": "Google 免费公开翻译（无需 API Key）",
+      "openai-compatible": "OpenAI-compatible（需要 API Key）",
+    },
     displayName: "显示名称",
     baseUrl: "基础 URL",
     model: "模型",
@@ -423,9 +431,9 @@ export default {
     loadFailed: "无法加载 Provider",
     saveFailed: "无法保存 Provider",
     testFailed: "连接测试失败",
-    saved: "Provider 已保存；API Key 仅保存在服务器秘密文件中。",
+    saved: "Provider 已保存；如有 API Key，它只会保存在服务器秘密文件中。",
     testSuccess: "连接成功：{model}，{latency} ms，响应 {response}",
-    confirmDelete: "删除 Provider {id} 及其本地 API Key？",
+    confirmDelete: "删除 Provider {id}？关联的本地 API Key（若有）也会删除。",
     deleted: "Provider 已删除。",
   },
   overviewPage: {
@@ -580,7 +588,8 @@ export default {
   },
   setupPage: {
     title: "创建你的站点",
-    subtitle: "首次确认源语言，之后仍可切换且不会改写既有内容；简体中文会自动启用为固定内容回退。",
+    subtitle:
+      "初始化会默认启用无需 API Key 的 Google 免费公开翻译（best-effort，可能限流或不可用）；之后也可配置 OpenAI-compatible 服务。",
     siteName: "站点名称",
     publicBaseUrl: "公开站点地址",
     publicBaseUrlHelp: "用于 canonical URL、RSS 和 sitemap；请填写访客实际访问的完整地址。",

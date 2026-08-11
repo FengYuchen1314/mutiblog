@@ -1,14 +1,28 @@
-import type { AIProviderInput } from "@/api/client";
+import type { AIProviderInput, AIProviderKind } from "@/api/client";
 
-export const qwenProviderTemplate = {
-  name: "Qwen Free (OpenRouter)",
-  kind: "openai-compatible" as const,
-  baseUrl: "https://openrouter.ai/api/v1",
-  model: "qwen/qwen3-32b:free",
+export const googleFreeProviderTemplate = {
+  name: "Google Free Translate",
+  kind: "google-free" as const,
+  baseUrl: "https://translate.googleapis.com/translate_a/single",
+  model: "google-translate",
   enabled: true,
   timeoutSeconds: 45,
   maxOutputTokens: 8192,
 };
+
+export const openAICompatibleProviderTemplate = {
+  name: "OpenAI-compatible",
+  kind: "openai-compatible" as const,
+  baseUrl: "",
+  model: "",
+  enabled: true,
+  timeoutSeconds: 45,
+  maxOutputTokens: 8192,
+};
+
+export function providerTemplate(kind: AIProviderKind) {
+  return kind === "google-free" ? googleFreeProviderTemplate : openAICompatibleProviderTemplate;
+}
 
 export interface ProviderMutationValues {
   name: string;
@@ -36,6 +50,12 @@ export function providerMutationInput(
     timeoutSeconds: Number(values.timeoutSeconds),
     maxOutputTokens: Number(values.maxOutputTokens),
   };
+  if (values.kind === "google-free") {
+    // google-free never needs a credential. Sending an explicit empty value
+    // also removes a stale secret when an existing provider changes kind.
+    input.apiKey = "";
+    return input;
+  }
   const apiKey = values.apiKey?.trim();
   if (values.clearKey) input.apiKey = "";
   else if (apiKey) input.apiKey = apiKey;
@@ -44,17 +64,25 @@ export function providerMutationInput(
 
 export function preferredProvider<T extends { id: string; default: boolean }>(providers: readonly T[]): T | undefined {
   return (
-    providers.find((provider) => provider.id === "qwen-free") ??
+    providers.find((provider) => provider.id === "google-free") ??
     providers.find((provider) => provider.default) ??
     providers[0]
   );
 }
 
-export function nextQwenProviderId(providers: readonly { id: string }[]): string {
+export function nextGoogleFreeProviderId(providers: readonly { id: string }[]): string {
+  return nextProviderId("google-free", providers);
+}
+
+export function nextOpenAICompatibleProviderId(providers: readonly { id: string }[]): string {
+  return nextProviderId("openai-compatible", providers);
+}
+
+function nextProviderId(base: string, providers: readonly { id: string }[]): string {
   const ids = new Set(providers.map((provider) => provider.id));
-  if (!ids.has("qwen-free")) return "qwen-free";
+  if (!ids.has(base)) return base;
   for (let suffix = 2; ; suffix += 1) {
-    const candidate = `qwen-free-${suffix}`;
+    const candidate = `${base}-${suffix}`;
     if (!ids.has(candidate)) return candidate;
   }
 }

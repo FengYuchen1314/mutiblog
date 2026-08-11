@@ -223,6 +223,12 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		rollback()
 		return
 	}
+	if _, err := s.ai.MigrateLegacyDefault(); err != nil {
+		s.logger.Error("backup restore provider migration failed", "backup", r.PathValue("id"), "error", err)
+		rollback()
+		s.writeError(w, http.StatusUnprocessableEntity, "backup_restore_provider_migration_failed", "The backup could not migrate its default translation provider; current data was restored.", nil)
+		return
+	}
 	if _, err := s.content.InitializePublishedReleases(); err != nil {
 		s.logger.Error("backup restore release migration failed", "backup", r.PathValue("id"), "error", err)
 		rollback()

@@ -403,10 +403,12 @@ function trackedMutationHeaders(csrfToken: string, taskId?: string): Record<stri
   return taskId ? { "X-CSRF-Token": csrfToken, "X-MutiBlog-Task-ID": taskId } : { "X-CSRF-Token": csrfToken };
 }
 
+export type AIProviderKind = "google-free" | "openai-compatible";
+
 export interface AIProvider {
   id: string;
   name: string;
-  kind: "openai-compatible";
+  kind: AIProviderKind;
   baseUrl: string;
   model: string;
   enabled: boolean;

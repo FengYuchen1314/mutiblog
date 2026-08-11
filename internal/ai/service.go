@@ -61,6 +61,67 @@ func NewService(repository *fsrepo.Repository, client Client) *Service {
 	return &Service{repository: repository, client: client}
 }
 
+// MigrateLegacyDefault replaces only the exact keyless Qwen provider that was
+// seeded by older setup versions. Any user customization, additional provider,
+// or stored Qwen key makes the configuration ineligible for migration.
+func (s *Service) MigrateLegacyDefault() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	config, err := s.config()
+	if err != nil {
+		return false, err
+	}
+	if config.DefaultProvider != "qwen-free" || len(config.Providers) != 1 {
+		return false, nil
+	}
+	candidate, normalizeErr := normalizeProvider(config.Providers[0])
+	if normalizeErr != nil || candidate != legacyQwenSeedProvider() {
+		return false, nil
+	}
+	secrets, err := s.secrets()
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(secrets.Providers["qwen-free"]) != "" {
+		return false, nil
+	}
+	previousSecrets := cloneSecrets(secrets)
+	_, hadEmptySecret := secrets.Providers["qwen-free"]
+	if hadEmptySecret {
+		delete(secrets.Providers, "qwen-free")
+		if err := s.repository.WriteYAML("config/secrets.yaml", secrets, true); err != nil {
+			return false, err
+		}
+	}
+	config.DefaultProvider = "google-free"
+	config.Providers = []domain.AIProviderConfig{defaultGoogleFreeProvider()}
+	if err := s.repository.WriteYAML("config/providers.yaml", config, false); err != nil {
+		if hadEmptySecret {
+			if rollbackErr := s.repository.WriteYAML("config/secrets.yaml", previousSecrets, true); rollbackErr != nil {
+				return false, errors.Join(err, rollbackErr)
+			}
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+func legacyQwenSeedProvider() domain.AIProviderConfig {
+	return domain.AIProviderConfig{
+		ID: "qwen-free", Name: "Qwen Free (OpenRouter)", Kind: ProviderKindOpenAICompatible,
+		BaseURL: "https://openrouter.ai/api/v1", Model: "qwen/qwen3-32b:free", Enabled: true,
+		TimeoutSeconds: 45, MaxOutputTokens: 8192,
+	}
+}
+
+func defaultGoogleFreeProvider() domain.AIProviderConfig {
+	return domain.AIProviderConfig{
+		ID: "google-free", Name: "Google Free Translate", Kind: ProviderKindGoogleFree,
+		BaseURL: GoogleFreeDefaultEndpoint, Model: GoogleFreeDefaultModel, Enabled: true,
+		TimeoutSeconds: 45, MaxOutputTokens: 8192,
+	}
+}
+
 func (s *Service) List() ([]ProviderView, error) {
 	config, err := s.config()
 	if err != nil {
@@ -72,7 +133,14 @@ func (s *Service) List() ([]ProviderView, error) {
 	}
 	views := make([]ProviderView, 0, len(config.Providers))
 	for _, provider := range config.Providers {
-		key := strings.TrimSpace(secrets.Providers[provider.ID])
+		provider, err = normalizeProvider(provider)
+		if err != nil {
+			return nil, err
+		}
+		key := ""
+		if provider.Kind == ProviderKindOpenAICompatible {
+			key = strings.TrimSpace(secrets.Providers[provider.ID])
+		}
 		views = append(views, ProviderView{AIProviderConfig: provider, Default: provider.ID == config.DefaultProvider, HasKey: key != "", MaskedKey: maskKey(key)})
 	}
 	return views, nil
@@ -84,22 +152,11 @@ func (s *Service) Upsert(id string, input UpsertProviderInput) (ProviderView, er
 	id = strings.TrimSpace(id)
 	provider := domain.AIProviderConfig{
 		ID: id, Name: strings.TrimSpace(input.Name), Kind: strings.TrimSpace(input.Kind),
-		BaseURL: strings.TrimRight(strings.TrimSpace(input.BaseURL), "/"), Model: strings.TrimSpace(input.Model), Enabled: input.Enabled,
+		BaseURL: strings.TrimSpace(input.BaseURL), Model: strings.TrimSpace(input.Model), Enabled: input.Enabled,
 		TimeoutSeconds: input.TimeoutSeconds, MaxOutputTokens: input.MaxOutputTokens,
 	}
-	if provider.Kind == "" {
-		provider.Kind = "openai-compatible"
-	}
-	if provider.TimeoutSeconds == 0 {
-		provider.TimeoutSeconds = 45
-	}
-	if provider.MaxOutputTokens == 0 {
-		provider.MaxOutputTokens = 8192
-	}
-	if !providerIDPattern.MatchString(provider.ID) || provider.Name == "" || len([]rune(provider.Name)) > 80 || provider.Kind != "openai-compatible" || provider.TimeoutSeconds < 5 || provider.TimeoutSeconds > 300 || provider.MaxOutputTokens < 256 || provider.MaxOutputTokens > 65536 {
-		return ProviderView{}, ErrInvalidProvider
-	}
-	if _, err := chatEndpoint(provider); err != nil {
+	provider, err := normalizeProvider(provider)
+	if err != nil || !providerIDPattern.MatchString(provider.ID) || provider.Name == "" || len([]rune(provider.Name)) > 80 {
 		return ProviderView{}, ErrInvalidProvider
 	}
 	config, err := s.config()
@@ -125,13 +182,13 @@ func (s *Service) Upsert(id string, input UpsertProviderInput) (ProviderView, er
 	if input.Default || config.DefaultProvider == "" {
 		config.DefaultProvider = id
 	}
-	secretsChanged := input.APIKey != nil
+	_, hadStoredSecret := secrets.Providers[id]
+	secretsChanged := input.APIKey != nil || provider.Kind == ProviderKindGoogleFree && hadStoredSecret
 	if secretsChanged {
-		key := strings.TrimSpace(*input.APIKey)
-		if key == "" {
+		if provider.Kind == ProviderKindGoogleFree || input.APIKey == nil || strings.TrimSpace(*input.APIKey) == "" {
 			delete(secrets.Providers, id)
 		} else {
-			secrets.Providers[id] = key
+			secrets.Providers[id] = strings.TrimSpace(*input.APIKey)
 		}
 		if err := s.repository.WriteYAML("config/secrets.yaml", secrets, true); err != nil {
 			return ProviderView{}, err
@@ -145,7 +202,10 @@ func (s *Service) Upsert(id string, input UpsertProviderInput) (ProviderView, er
 		}
 		return ProviderView{}, err
 	}
-	key := strings.TrimSpace(secrets.Providers[id])
+	key := ""
+	if provider.Kind == ProviderKindOpenAICompatible {
+		key = strings.TrimSpace(secrets.Providers[id])
+	}
 	return ProviderView{AIProviderConfig: provider, Default: config.DefaultProvider == id, HasKey: key != "", MaskedKey: maskKey(key)}, nil
 }
 
@@ -199,10 +259,18 @@ func (s *Service) Test(ctx context.Context, id string) (TestResult, error) {
 		return TestResult{}, err
 	}
 	started := time.Now()
-	response, err := s.client.Chat(ctx, provider, key, []ChatMessage{
-		{Role: "system", Content: "You are a connectivity check. Reply with only OK."},
-		{Role: "user", Content: "OK"},
-	}, 8)
+	var response string
+	switch provider.Kind {
+	case ProviderKindGoogleFree:
+		response, err = s.client.GoogleTranslate(ctx, provider, "zh-CN", "en", "连接测试")
+	case ProviderKindOpenAICompatible:
+		response, err = s.client.Chat(ctx, provider, key, []ChatMessage{
+			{Role: "system", Content: "You are a connectivity check. Reply with only OK."},
+			{Role: "user", Content: "OK"},
+		}, 8)
+	default:
+		err = ErrInvalidProvider
+	}
 	if err != nil {
 		return TestResult{}, err
 	}
@@ -225,6 +293,9 @@ func (s *Service) ChatDefault(ctx context.Context, messages []ChatMessage, maxTo
 	if err != nil {
 		return "", domain.AIProviderConfig{}, err
 	}
+	if provider.Kind != ProviderKindOpenAICompatible {
+		return "", provider, ErrInvalidProvider
+	}
 	maxTokens, err = boundedOutputTokens(provider, maxTokens)
 	if err != nil {
 		return "", provider, err
@@ -238,11 +309,29 @@ func (s *Service) ChatProvider(ctx context.Context, id string, messages []ChatMe
 	if err != nil {
 		return "", domain.AIProviderConfig{}, err
 	}
+	if provider.Kind != ProviderKindOpenAICompatible {
+		return "", provider, ErrInvalidProvider
+	}
 	maxTokens, err = boundedOutputTokens(provider, maxTokens)
 	if err != nil {
 		return "", provider, err
 	}
 	response, err := s.client.Chat(ctx, provider, key, messages, maxTokens)
+	return response, provider, err
+}
+
+// TranslateProvider invokes a provider-native text translation API. Chat-based
+// providers intentionally stay on ChatProvider so their structured prompting,
+// output budgets, and Markdown validation remain controlled by translation.
+func (s *Service) TranslateProvider(ctx context.Context, id, sourceLocale, targetLocale, input string) (string, domain.AIProviderConfig, error) {
+	provider, _, err := s.credentials(id)
+	if err != nil {
+		return "", domain.AIProviderConfig{}, err
+	}
+	if provider.Kind != ProviderKindGoogleFree {
+		return "", provider, ErrInvalidProvider
+	}
+	response, err := s.client.GoogleTranslate(ctx, provider, sourceLocale, targetLocale, input)
 	return response, provider, err
 }
 
@@ -278,20 +367,65 @@ func (s *Service) credentials(id string) (domain.AIProviderConfig, string, error
 			if !provider.Enabled {
 				return domain.AIProviderConfig{}, "", ErrInvalidProvider
 			}
-			// Providers written before the explicit output-budget field existed are
-			// still valid. Normalize their in-memory effective value so a legacy
-			// configuration gets the same safe request sizing as a newly saved one.
-			if provider.MaxOutputTokens == 0 {
-				provider.MaxOutputTokens = 8192
+			provider, err = normalizeProvider(provider)
+			if err != nil {
+				return domain.AIProviderConfig{}, "", err
 			}
 			key := strings.TrimSpace(secrets.Providers[id])
-			if key == "" {
+			if provider.Kind == ProviderKindOpenAICompatible && key == "" {
 				return domain.AIProviderConfig{}, "", ErrKeyMissing
+			}
+			if provider.Kind == ProviderKindGoogleFree {
+				key = ""
 			}
 			return provider, key, nil
 		}
 	}
 	return domain.AIProviderConfig{}, "", ErrProviderNotFound
+}
+
+func normalizeProvider(provider domain.AIProviderConfig) (domain.AIProviderConfig, error) {
+	provider.ID = strings.TrimSpace(provider.ID)
+	provider.Name = strings.TrimSpace(provider.Name)
+	provider.Kind = strings.TrimSpace(provider.Kind)
+	provider.BaseURL = strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
+	provider.Model = strings.TrimSpace(provider.Model)
+	if provider.Kind == "" {
+		provider.Kind = ProviderKindOpenAICompatible
+	}
+	if provider.TimeoutSeconds == 0 {
+		provider.TimeoutSeconds = 45
+	}
+	if provider.MaxOutputTokens == 0 {
+		provider.MaxOutputTokens = 8192
+	}
+	if provider.Kind == ProviderKindGoogleFree {
+		if provider.BaseURL == "" {
+			provider.BaseURL = GoogleFreeDefaultEndpoint
+		}
+		if provider.Model == "" {
+			provider.Model = GoogleFreeDefaultModel
+		}
+	}
+	if provider.TimeoutSeconds < 5 || provider.TimeoutSeconds > 300 || provider.MaxOutputTokens < 256 || provider.MaxOutputTokens > 65536 {
+		return domain.AIProviderConfig{}, ErrInvalidProvider
+	}
+	switch provider.Kind {
+	case ProviderKindOpenAICompatible:
+		if _, err := chatEndpoint(provider); err != nil {
+			return domain.AIProviderConfig{}, ErrInvalidProvider
+		}
+	case ProviderKindGoogleFree:
+		if provider.Model != GoogleFreeDefaultModel {
+			return domain.AIProviderConfig{}, ErrInvalidProvider
+		}
+		if _, err := googleTranslateEndpoint(provider); err != nil {
+			return domain.AIProviderConfig{}, ErrInvalidProvider
+		}
+	default:
+		return domain.AIProviderConfig{}, ErrInvalidProvider
+	}
+	return provider, nil
 }
 
 func (s *Service) config() (domain.AIProvidersConfig, error) {
