@@ -214,18 +214,14 @@ onMounted(load);
           </label>
           <label
             ><span>{{ t("providersPage.displayName") }}</span
-            ><input
-              v-model="form.name"
-              :placeholder="usesAPIKey ? 'OpenAI-compatible' : 'Google Free Translate'"
+            ><input v-model="form.name" :placeholder="usesAPIKey ? 'OpenAI-compatible' : 'Google Free Translate'"
           /></label>
           <label class="field--wide"
             ><span>{{ t("providersPage.baseUrl") }}</span
             ><input
               v-model="form.baseUrl"
               :placeholder="
-                usesAPIKey
-                  ? 'https://api.example.com/v1'
-                  : 'https://translate.googleapis.com/translate_a/single'
+                usesAPIKey ? 'https://api.example.com/v1' : 'https://translate.googleapis.com/translate_a/single'
               "
           /></label>
           <label
