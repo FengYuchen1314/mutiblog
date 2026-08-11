@@ -194,7 +194,10 @@ async function save() {
         return post.value;
       }
       for (const locale of dirty) {
-        const body = { ...(drafts[locale] ?? post.value.content[locale] ?? { title: "", markdown: "" }), revision: post.value.meta.revision };
+        const body: LocalizedMarkdown & { revision: number } = {
+          ...(drafts[locale] ?? post.value.content[locale] ?? { title: "", markdown: "" }),
+          revision: post.value.meta.revision,
+        };
         post.value = isPage
           ? await api.updatePageLocale(csrfToken, post.value.meta.id, locale, body)
           : await api.updatePostLocale(csrfToken, post.value.meta.id, locale, body);
