@@ -64,6 +64,20 @@ test("requires exact content and framework strings for ready locales", async () 
             markdown: "日本語の本文",
           },
         },
+        localeStates: {
+          "zh-CN": { state: "current", origin: "source", revision: 2, sourceRevision: 2 },
+          ja: { state: "current", origin: "ai", revision: 1, sourceRevision: 2 },
+        },
+      },
+      {
+        id: "saved-draft",
+        status: "draft",
+        locales: {
+          "zh-CN": { title: "未发布草稿", markdown: "只保存中文，不触发翻译" },
+        },
+        localeStates: {
+          "zh-CN": { state: "current", origin: "source", revision: 3, sourceRevision: 3 },
+        },
       },
     ],
   };
@@ -80,6 +94,20 @@ test("requires exact content and framework strings for ready locales", async () 
     "non-ready locale cannot be rendered: ja",
   );
   input.locales[1].status = "ready";
+  input.posts[0].localeStates!.ja.state = "stale";
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale is stale: exact-post.ja",
+  );
+  input.posts[0].localeStates!.ja.state = "current";
+  input.posts[0].localeStates!.ja.origin = "manual";
+  await buildSite(input, output);
+  input.posts[0].localeStates!.ja.state = "stale";
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale is stale: exact-post.ja",
+  );
+  input.posts[0].localeStates!.ja.state = "current";
+  input.posts[0].localeStates!.ja.origin = "ai";
+  await buildSite(input, output);
   delete input.posts[0].locales.ja.summary;
   await expect(buildSite(input, output)).rejects.toThrow(
     "post locale field is missing: exact-post.ja.summary",
@@ -93,6 +121,31 @@ test("requires exact content and framework strings for ready locales", async () 
   delete input.posts[0].locales.ja;
   await expect(buildSite(input, output)).rejects.toThrow(
     "post locale is missing: exact-post.ja",
+  );
+});
+
+test("rejects a published legacy-source item missing the fixed site-source locale", async () => {
+  const output = join("/tmp", `mutiblog-pending-fixed-source-${crypto.randomUUID()}`);
+  outputs.push(output);
+  const input: BuildInput = {
+    schemaVersion: 1,
+    sourceLocale: "zh-CN",
+    locales: [{ code: "zh-CN", label: "简体中文", status: "ready" }],
+    site: { locales: { "zh-CN": { title: "固定中文源站点" } } },
+    dictionaries: { "zh-CN": { notFound: "页面不存在" } },
+    posts: [{
+      id: "legacy-source-pending-translation",
+      sourceLocale: "en",
+      status: "published",
+      locales: { en: { title: "Legacy source", markdown: "Pending translation" } },
+      localeStates: {
+        en: { state: "current", origin: "source", revision: 3, sourceRevision: 3 },
+      },
+    }],
+  };
+
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale is missing: legacy-source-pending-translation.zh-CN",
   );
 });
 

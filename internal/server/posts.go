@@ -183,7 +183,6 @@ func (s *Server) handlePublishPost(w http.ResponseWriter, r *http.Request) {
 		s.writeContentError(w, err)
 		return
 	}
-	firstPublish := before.Meta.ReleaseRevision == 0
 	if before.Meta.PublishedAt != nil && before.Meta.PublishedAt.After(time.Now().UTC()) {
 		task, scheduleErr := s.scheduler.Start(scheduled.StartInput{EntityKind: "Post", EntityID: before.Meta.ID, Revision: request.Revision, DueAt: *before.Meta.PublishedAt})
 		if scheduleErr != nil {
@@ -217,10 +216,20 @@ func (s *Server) handlePublishPost(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("cancel superseded scheduled post publish failed after successful publish", "post", before.Meta.ID, "error", cancelErr)
 		}
 	}
-	translationPlan := s.prepareFirstPublishTranslation(firstPublish, "Post", post.Meta.ID)
-	report, buildErr := s.publisher.Build(r.Context())
-	s.launchFirstPublishTranslation(translationPlan)
+	translationPlan := s.preparePublishTranslation("Post", post.Meta.ID)
+	s.launchPublishTranslation(translationPlan)
 	translationState := translationPlan.response
+	if translationPlan.deferBuild {
+		w.Header().Set("X-MutiBlog-Static-Build", "deferred")
+		s.writeJSON(w, http.StatusAccepted, map[string]any{"post": post, "build": map[string]any{"status": "deferred"}, "translation": translationState})
+		return
+	}
+	if translationPlan.blockBuild {
+		w.Header().Set("X-MutiBlog-Static-Build", "blocked")
+		s.writeJSON(w, http.StatusAccepted, map[string]any{"post": post, "build": map[string]any{"status": "blocked"}, "translation": translationState})
+		return
+	}
+	report, buildErr := s.publisher.Build(r.Context())
 	if buildErr != nil {
 		s.logger.Error("static build after publish failed", "post", post.Meta.ID, "error", buildErr)
 		w.Header().Set("X-MutiBlog-Static-Build", "failed")

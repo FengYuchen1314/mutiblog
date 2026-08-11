@@ -9,7 +9,8 @@ export default {
     translationNotConfigured:
       "The content was published, but automatic translation did not start because no usable translation provider is configured.",
   },
-  editorPublishedTranslationFailed: "Published, but automatic translation could not be started",
+  editorPublishedTranslationFailed:
+    "Publication was recorded, but automatic translation could not start; the previous public release remains online.",
   taskProgressExtraMessages: {
     "storing-imported-backup": "Storing the imported backup",
     "creating-pre-restore-safety-backup": "Creating a pre-restore safety backup",
@@ -725,24 +726,22 @@ export default {
     revisionRestoreFailed: "Cannot restore revision",
     settingsSaved: "Settings saved",
     settingsSaveFailed: "Cannot save content settings",
-    queued: "Translation task queued",
-    publishedQueued: "Published; translation task queued",
-    publishedNoAi: "Published (AI not configured)",
+    publishedQueued:
+      "Publication was recorded; all target languages are being translated in the background and the public site will update when they finish. You can leave this page.",
+    publishedNoAi:
+      "Publication was recorded, but automatic translation and the public update are blocked because no provider is configured; the previous public release remains online.",
     publishedBuildFailed: "Published, but the static build failed",
     publishFailed: "Publish failed",
     publicBuildFailed:
       "The {entity} was saved, but the static site build failed; the previous public release remains online.",
-    manualOverwrite:
-      "Manual translations are included: {locales}\n\nOK: explicitly overwrite them.\nCancel: exclude them and continue with the remaining languages.",
-    translationStartFailed: "Cannot start translation task",
     imageUploadFailed: "Image upload failed",
     revisions: "Revisions",
     preview: "Preview",
-    save: "Save",
-    translateAll: "Translate all",
-    translateLocale: "Translate this locale",
+    save: "Save only",
     settings: "Settings",
-    publish: "Publish",
+    publish: "Publish & translate",
+    translationPolicy:
+      "Save only stores the source content and never starts translation. Publish & translate processes every target language in the background, and continues after you leave this page.",
     titlePlaceholder: "Enter a title",
     summaryPlaceholder: "Optional summary",
     customId: "Custom ID (optional; lowercase letters and hyphens only)",

@@ -34,11 +34,15 @@ type countingTranslator struct {
 	err          error
 	mu           sync.RWMutex
 	task         translation.Task
+	input        translation.StartInput
 }
 
-func (translator *countingTranslator) Prepare(translation.StartInput) (translation.Task, bool, error) {
+func (translator *countingTranslator) Prepare(input translation.StartInput) (translation.Task, bool, error) {
 	translator.prepareCalls.Add(1)
 	task := translation.Task{ID: "translation-scheduled-test", Status: "queued"}
+	translator.mu.Lock()
+	translator.input = input
+	translator.mu.Unlock()
 	if translator.err == nil {
 		translator.mu.Lock()
 		translator.task = task
@@ -174,7 +178,7 @@ func TestCheckpointFailureAfterPublicationStillRunsChildrenAndPersistsTerminalSt
 	var committedCheckpointFailures atomic.Int32
 	var terminalAttempts atomic.Int32
 	service.writeTaskHook = func(candidate Task) error {
-		if candidate.Status == "running" && candidate.Progress.Phase == "scheduled-build" && candidate.BuildTaskID != "" && candidate.BuildStatus == "" {
+		if candidate.Status == "running" && candidate.Progress.Phase == "scheduled-translation" && candidate.TranslationTaskID != "" && candidate.BuildStatus == "deferred" {
 			if committedCheckpointFailures.Add(1) <= taskCheckpointWriteAttempts {
 				return errors.New("injected post-publication checkpoint failure")
 			}
@@ -192,7 +196,7 @@ func TestCheckpointFailureAfterPublicationStillRunsChildrenAndPersistsTerminalSt
 	}
 
 	task = waitForTerminal(t, service, task.ID)
-	if task.Status != "succeeded" || task.Progress.Percent != 100 || task.BuildStatus != "succeeded" || task.TranslationStatus != "queued" || task.TranslationTaskID == "" || rebuilder.calls.Load() != 1 || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 1 || committedCheckpointFailures.Load() != taskCheckpointWriteAttempts || terminalAttempts.Load() != taskCheckpointWriteAttempts+1 {
+	if task.Status != "succeeded" || task.Progress.Percent != 100 || task.BuildStatus != "deferred" || task.BuildTaskID != "" || task.TranslationStatus != "queued" || task.TranslationTaskID == "" || rebuilder.calls.Load() != 0 || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 1 || committedCheckpointFailures.Load() != taskCheckpointWriteAttempts || terminalAttempts.Load() != taskCheckpointWriteAttempts+1 {
 		t.Fatalf("task = %#v, rebuilds = %d, translation prepares = %d, launches = %d, committed checkpoint failures = %d, terminal attempts = %d", task, rebuilder.calls.Load(), translator.prepareCalls.Load(), translator.launchCalls.Load(), committedCheckpointFailures.Load(), terminalAttempts.Load())
 	}
 	published, err := contentService.GetPost(post.Meta.ID)
@@ -350,12 +354,11 @@ func TestRunReleasesMutationGateBeforeBlockedBuildAndNeverReacquires(t *testing.
 	}
 }
 
-func TestRunKeepsMutationGateThroughDurableChildReceiptsAndDefersTranslationLaunch(t *testing.T) {
+func TestRunKeepsMutationGateThroughReceiptThenDefersBuildToTranslation(t *testing.T) {
 	repository, contentService, post := scheduledFixture(t, "Post")
 	dueAt := time.Now().UTC().Add(time.Hour)
 	post = configureSchedule(t, contentService, "Post", post, dueAt)
-	rebuilder := newBlockingRebuilder()
-	defer rebuilder.unblock()
+	rebuilder := &countingRebuilder{}
 	translator := &countingTranslator{}
 	var mutationGate sync.RWMutex
 	service := NewService(repository, contentService, rebuilder, translator, func() func() {
@@ -372,7 +375,7 @@ func TestRunKeepsMutationGateThroughDurableChildReceiptsAndDefersTranslationLaun
 	}
 	defer releaseChildReceiptCheckpoint()
 	service.writeTaskHook = func(candidate Task) error {
-		if candidate.Status == "running" && candidate.Progress.Phase == "scheduled-build" && candidate.BuildTaskID != "" && candidate.TranslationTaskID != "" && candidate.BuildStatus == "" {
+		if candidate.Status == "running" && candidate.Progress.Phase == "scheduled-translation" && candidate.TranslationTaskID != "" && candidate.BuildStatus == "deferred" && candidate.BuildTaskID == "" {
 			checkpointOnce.Do(func() {
 				close(checkpointEntered)
 				<-releaseCheckpoint
@@ -392,7 +395,6 @@ func TestRunKeepsMutationGateThroughDurableChildReceiptsAndDefersTranslationLaun
 	}()
 	defer func() {
 		releaseChildReceiptCheckpoint()
-		rebuilder.unblock()
 		select {
 		case <-runDone:
 		case <-time.After(3 * time.Second):
@@ -413,21 +415,23 @@ func TestRunKeepsMutationGateThroughDurableChildReceiptsAndDefersTranslationLaun
 	}
 	releaseChildReceiptCheckpoint()
 	select {
-	case <-rebuilder.started:
+	case <-runDone:
 	case <-time.After(3 * time.Second):
-		t.Fatal("scheduled build did not start after child receipt checkpoint")
+		t.Fatal("scheduled runner did not finish after child receipt checkpoint")
 	}
 	if !mutationGate.TryRLock() {
-		t.Fatal("mutation gate remained exclusive during scheduled build")
+		t.Fatal("mutation gate remained exclusive after translation receipt checkpoint")
 	}
 	mutationGate.RUnlock()
-	if translator.launchCalls.Load() != 0 {
-		t.Fatal("translation launched before the source-only scheduled build completed")
+	task, err = service.Get(task.ID)
+	if err != nil || task.Status != "succeeded" || task.BuildStatus != "deferred" || task.BuildTaskID != "" || rebuilder.calls.Load() != 0 || translator.launchCalls.Load() != 1 {
+		t.Fatalf("task = %#v, err = %v, builds = %d, translation launches = %d", task, err, rebuilder.calls.Load(), translator.launchCalls.Load())
 	}
-	rebuilder.unblock()
-	task = waitForTerminal(t, service, task.ID)
-	if task.Status != "succeeded" || translator.launchCalls.Load() != 1 {
-		t.Fatalf("task = %#v, translation launches = %d", task, translator.launchCalls.Load())
+	translator.mu.RLock()
+	translationInput := translator.input
+	translator.mu.RUnlock()
+	if !translationInput.PublishedRelease || !translationInput.SkipCurrentAI || !translationInput.OverwriteManual || !translationInput.RecordPreflightFailure {
+		t.Fatalf("automatic scheduled translation input = %#v", translationInput)
 	}
 }
 
@@ -814,7 +818,7 @@ func TestRecoverFinalizesPersistedBuildAndTranslationCheckpointsWithoutRepeating
 		t.Fatalf("Recover() = %d, %v", recovered, err)
 	}
 	task = waitForTerminal(t, recoveredService, task.ID)
-	if task.Status != "succeeded" || task.Progress.Percent != 100 || task.BuildStatus != "succeeded" || task.BuildTaskID == "" || task.TranslationTaskID == "" || rebuilder.calls.Load() != 0 || translator.prepareCalls.Load() != 0 || translator.launchCalls.Load() != 0 {
+	if task.Status != "succeeded" || task.Progress.Percent != 100 || task.BuildStatus != "deferred" || task.BuildTaskID != "" || task.TranslationTaskID == "" || rebuilder.calls.Load() != 0 || translator.prepareCalls.Load() != 0 || translator.launchCalls.Load() != 0 {
 		t.Fatalf("checkpoint task = %#v, rebuilds = %d, translation prepares = %d, launches = %d", task, rebuilder.calls.Load(), translator.prepareCalls.Load(), translator.launchCalls.Load())
 	}
 }
@@ -839,7 +843,7 @@ func TestPublishedContentIsRecoveryCheckpointWithoutTaskFileProgress(t *testing.
 	}
 }
 
-func TestBuildFailureStillStartsFirstTranslationAndCompletesPublishedParentWithWarning(t *testing.T) {
+func TestScheduledTranslationOwnsBuildAndCompletesParentWithoutSourceBuild(t *testing.T) {
 	repository, contentService, post := scheduledFixture(t, "Post")
 	dueAt := time.Now().UTC().Add(150 * time.Millisecond)
 	post = configureSchedule(t, contentService, "Post", post, dueAt)
@@ -852,8 +856,8 @@ func TestBuildFailureStillStartsFirstTranslationAndCompletesPublishedParentWithW
 		t.Fatal(err)
 	}
 	task = waitForTerminal(t, service, task.ID)
-	if task.Status != "succeeded" || task.Error != "" || task.BuildStatus != "failed" || task.Outcome != "published-with-warning" || task.Progress.Percent != 100 || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 1 || task.TranslationTaskID == "" {
-		t.Fatalf("published task with build warning = %#v, translation prepares = %d, launches = %d", task, translator.prepareCalls.Load(), translator.launchCalls.Load())
+	if task.Status != "succeeded" || task.Error != "" || task.BuildStatus != "deferred" || task.BuildTaskID != "" || task.Outcome != "published" || task.Progress.Percent != 100 || rebuilder.calls.Load() != 0 || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 1 || task.TranslationTaskID == "" {
+		t.Fatalf("published task = %#v, builds = %d, translation prepares = %d, launches = %d", task, rebuilder.calls.Load(), translator.prepareCalls.Load(), translator.launchCalls.Load())
 	}
 }
 
@@ -871,7 +875,8 @@ func TestTranslationPreparationWarningsCompletePublishedParentWithExplicitOutcom
 			dueAt := time.Now().UTC().Add(time.Hour)
 			post = configureSchedule(t, contentService, "Post", post, dueAt)
 			translator := &countingTranslator{err: test.err}
-			service := NewService(repository, contentService, &countingRebuilder{}, translator, nil)
+			rebuilder := &countingRebuilder{}
+			service := NewService(repository, contentService, rebuilder, translator, nil)
 			defer service.Close()
 			task, err := service.Start(StartInput{EntityKind: "Post", EntityID: post.Meta.ID, Revision: post.Meta.Revision, DueAt: dueAt})
 			if err != nil {
@@ -880,8 +885,8 @@ func TestTranslationPreparationWarningsCompletePublishedParentWithExplicitOutcom
 			service.cancelTimer(task.ID)
 			service.run(context.Background(), task.ID)
 			task, err = service.Get(task.ID)
-			if err != nil || task.Status != "succeeded" || task.Error != "" || task.Progress.Percent != 100 || task.BuildStatus != "succeeded" || task.TranslationStatus != test.status || task.Outcome != "published-with-warning" || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 0 {
-				t.Fatalf("published task with translation warning = %#v, %v, translation prepares = %d, launches = %d", task, err, translator.prepareCalls.Load(), translator.launchCalls.Load())
+			if err != nil || task.Status != "succeeded" || task.Error != "" || task.Progress.Percent != 100 || task.BuildStatus != "blocked" || task.BuildTaskID != "" || task.TranslationStatus != test.status || task.Outcome != "published-with-warning" || rebuilder.calls.Load() != 0 || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 0 {
+				t.Fatalf("published task with translation warning = %#v, %v, builds = %d, translation prepares = %d, launches = %d", task, err, rebuilder.calls.Load(), translator.prepareCalls.Load(), translator.launchCalls.Load())
 			}
 			var stored Task
 			if err := repository.ReadYAML(filepath.Join("state", "tasks", task.ID+".yaml"), &stored); err != nil || stored.TranslationStatus != test.status || stored.Outcome != "published-with-warning" {

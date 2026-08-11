@@ -330,8 +330,16 @@ export interface StaticBuildReport {
 
 export interface PublishResult {
   post: Post;
-  build: { status: "succeeded" | "failed" | "scheduled"; report?: StaticBuildReport; taskId?: string; dueAt?: string };
-  translation: { status: "queued" | "not-needed" | "not-configured" | "failed" | "deferred"; taskId?: string };
+  build: {
+    status: "succeeded" | "failed" | "scheduled" | "deferred" | "blocked";
+    report?: StaticBuildReport;
+    taskId?: string;
+    dueAt?: string;
+  };
+  translation: {
+    status: "queued" | "running" | "not-needed" | "not-configured" | "failed" | "deferred";
+    taskId?: string;
+  };
 }
 
 export interface TranslationTask {
@@ -771,18 +779,6 @@ export const api = {
         headers: { "X-CSRF-Token": csrfToken },
       },
     ),
-  startTranslation: (csrfToken: string, id: string, locales: string[], overwriteManual = false) =>
-    request<TranslationTask>(`/api/v1/admin/posts/${encodeURIComponent(id)}/translate`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken },
-      body: JSON.stringify({ locales, overwriteManual }),
-    }),
-  startPageTranslation: (csrfToken: string, id: string, locales: string[], overwriteManual = false) =>
-    request<TranslationTask>(`/api/v1/admin/pages/${encodeURIComponent(id)}/translate`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken },
-      body: JSON.stringify({ locales, overwriteManual }),
-    }),
   tasks: (query: { kind?: UnifiedTask["kind"]; status?: TaskStatus; limit?: number } = {}) => {
     const parameters = new URLSearchParams();
     if (query.kind) parameters.set("kind", query.kind);

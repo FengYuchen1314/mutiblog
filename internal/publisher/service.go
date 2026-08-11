@@ -36,17 +36,18 @@ type LocalizedPost struct {
 }
 
 type PostInput struct {
-	ID            string                   `json:"id"`
-	SourceLocale  string                   `json:"sourceLocale"`
-	Status        domain.ContentStatus     `json:"status"`
-	Template      string                   `json:"template"`
-	Cover         string                   `json:"cover,omitempty"`
-	Pinned        bool                     `json:"pinned,omitempty"`
-	PublishedAt   *time.Time               `json:"publishedAt,omitempty"`
-	Categories    []string                 `json:"categories"`
-	Tags          []string                 `json:"tags"`
-	CommentPolicy string                   `json:"commentPolicy"`
-	Locales       map[string]LocalizedPost `json:"locales"`
+	ID            string                               `json:"id"`
+	SourceLocale  string                               `json:"sourceLocale"`
+	Status        domain.ContentStatus                 `json:"status"`
+	Template      string                               `json:"template"`
+	Cover         string                               `json:"cover,omitempty"`
+	Pinned        bool                                 `json:"pinned,omitempty"`
+	PublishedAt   *time.Time                           `json:"publishedAt,omitempty"`
+	Categories    []string                             `json:"categories"`
+	Tags          []string                             `json:"tags"`
+	CommentPolicy string                               `json:"commentPolicy"`
+	Locales       map[string]LocalizedPost             `json:"locales"`
+	LocaleStates  map[string]domain.LocaleContentState `json:"localeStates"`
 }
 
 type LocalizedTaxonomyInput struct {
@@ -845,7 +846,10 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 		// is a private two-phase state: the renderer validates it as ready while
 		// public APIs continue to reject it until the atomic build succeeds.
 		if locale.Enabled && (locale.Status == "" || locale.Status == domain.LocaleStatusReady || locale.Status == domain.LocaleStatusBuilding) {
-			if locale.Status == domain.LocaleStatusBuilding {
+			// Statusless locales are the legacy-public representation. Normalize
+			// them to ready in every renderer snapshot so exact-content and locale
+			// freshness checks cannot be bypassed during startup recovery.
+			if locale.Status == "" || locale.Status == domain.LocaleStatusBuilding {
 				locale.Status = domain.LocaleStatusReady
 			}
 			input.Locales = append(input.Locales, locale)
@@ -858,14 +862,14 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 		for locale, value := range post.Content {
 			localized[locale] = LocalizedPost{Title: value.Title, Summary: value.Summary, SEOTitle: value.SEOTitle, SEODescription: value.SEODescription, Markdown: value.Markdown}
 		}
-		input.Posts = append(input.Posts, PostInput{ID: post.Meta.ID, SourceLocale: post.Meta.SourceLocale, Status: post.Meta.Status, Template: post.Meta.Template, Cover: post.Meta.Cover, Pinned: post.Meta.Pinned, PublishedAt: post.Meta.PublishedAt, Categories: append([]string(nil), post.Meta.Categories...), Tags: append([]string(nil), post.Meta.Tags...), CommentPolicy: post.Meta.CommentPolicy, Locales: localized})
+		input.Posts = append(input.Posts, PostInput{ID: post.Meta.ID, SourceLocale: post.Meta.SourceLocale, Status: post.Meta.Status, Template: post.Meta.Template, Cover: post.Meta.Cover, Pinned: post.Meta.Pinned, PublishedAt: post.Meta.PublishedAt, Categories: append([]string(nil), post.Meta.Categories...), Tags: append([]string(nil), post.Meta.Tags...), CommentPolicy: post.Meta.CommentPolicy, Locales: localized, LocaleStates: cloneLocaleContentStates(post.Meta.Locales)})
 	}
 	for _, page := range pages {
 		localized := make(map[string]LocalizedPost, len(page.Content))
 		for locale, value := range page.Content {
 			localized[locale] = LocalizedPost{Title: value.Title, Summary: value.Summary, SEOTitle: value.SEOTitle, SEODescription: value.SEODescription, Markdown: value.Markdown}
 		}
-		input.Pages = append(input.Pages, PostInput{ID: page.Meta.ID, SourceLocale: page.Meta.SourceLocale, Status: page.Meta.Status, Template: page.Meta.Template, Cover: page.Meta.Cover, PublishedAt: page.Meta.PublishedAt, Categories: []string{}, Tags: []string{}, CommentPolicy: page.Meta.CommentPolicy, Locales: localized})
+		input.Pages = append(input.Pages, PostInput{ID: page.Meta.ID, SourceLocale: page.Meta.SourceLocale, Status: page.Meta.Status, Template: page.Meta.Template, Cover: page.Meta.Cover, PublishedAt: page.Meta.PublishedAt, Categories: []string{}, Tags: []string{}, CommentPolicy: page.Meta.CommentPolicy, Locales: localized, LocaleStates: cloneLocaleContentStates(page.Meta.Locales)})
 	}
 	input.Categories = toTaxonomyInputs(categories)
 	input.Tags = toTaxonomyInputs(tags)
@@ -886,6 +890,14 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 	sort.Slice(input.Categories, func(i, j int) bool { return input.Categories[i].ID < input.Categories[j].ID })
 	sort.Slice(input.Tags, func(i, j int) bool { return input.Tags[i].ID < input.Tags[j].ID })
 	return input, nil
+}
+
+func cloneLocaleContentStates(states map[string]domain.LocaleContentState) map[string]domain.LocaleContentState {
+	cloned := make(map[string]domain.LocaleContentState, len(states))
+	for locale, state := range states {
+		cloned[locale] = state
+	}
+	return cloned
 }
 
 func toTaxonomyInputs(items []domain.Taxonomy) []TaxonomyInput {

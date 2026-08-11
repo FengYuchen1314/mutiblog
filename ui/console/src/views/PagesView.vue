@@ -241,7 +241,13 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
       } else if (action === "publish") {
         const result = await api.publishPage(csrfToken, pageItem.meta.id, pageItem.meta.revision, taskId);
         await reconcileBuildTask(taskId, result.build.taskId, result.translation.taskId);
-        if (result.build.status === "failed" || result.translation.status === "failed") failed += 1;
+        if (
+          result.build.status === "failed" ||
+          result.build.status === "blocked" ||
+          result.translation.status === "failed" ||
+          result.translation.status === "not-configured"
+        )
+          failed += 1;
       } else {
         const result = await api.changePageStatus(csrfToken, pageItem.meta.id, action, pageItem.meta.revision, taskId);
         await reconcileBuildTask(taskId);

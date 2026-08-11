@@ -276,18 +276,36 @@ func (s *Service) publishContentLocked(descriptor contentDescriptor, id string, 
 	}
 	advanceHead(&item.Meta)
 	item.Meta.ReleaseRevision = item.Meta.Revision
+	released := publicationReleaseWithAutomaticTranslationPending(item)
 	if err := commitPublication(
 		previousMeta,
 		item.Meta,
 		func(meta domain.PostMeta) error {
 			return s.repository.WriteYAML(descriptor.path(id, "meta.yaml"), meta, false)
 		},
-		func() error { return s.writeRelease(descriptor.kind, item) },
+		func() error { return s.writeRelease(descriptor.kind, released) },
 	); err != nil {
 		return domain.Post{}, err
 	}
 	item.Meta.HasUnpublishedChanges = false
 	return item, nil
+}
+
+// publicationReleaseWithAutomaticTranslationPending keeps the editable head's
+// current manual value available for the automatic overwrite CAS, while the
+// newly committed public release records that this publish is not complete
+// until AI has replaced it. Historical releases are untouched; only an
+// explicit Post/Page publish creates this pending (stale) state.
+func publicationReleaseWithAutomaticTranslationPending(item domain.Post) domain.Post {
+	released := item
+	released.Meta.Locales = make(map[string]domain.LocaleContentState, len(item.Meta.Locales))
+	for locale, state := range item.Meta.Locales {
+		if locale != item.Meta.SourceLocale && state.Origin == domain.LocaleOriginManual && state.State == "current" {
+			state.State = "stale"
+		}
+		released.Meta.Locales[locale] = state
+	}
+	return released
 }
 
 func (s *Service) writeContentLocale(descriptor contentDescriptor, id, locale string, value domain.LocalizedMarkdown) error {

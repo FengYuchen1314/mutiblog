@@ -221,14 +221,8 @@ func New(options Options) (*Server, error) {
 		})
 	}
 	server.projection.StartWatcher(server.lifecycle, server.reconcileExternalSourceChange)
-	server.scheduler = scheduled.NewService(options.Repository, server.content, server.publisher, server.translator, func() func() {
-		server.mutationGate.Lock()
-		return server.mutationGate.Unlock
-	})
-	server.translator.SetContentMutationAcquire(func() func() {
-		server.mutationGate.Lock()
-		return server.mutationGate.Unlock
-	})
+	server.scheduler = scheduled.NewService(options.Repository, server.content, server.publisher, server.translator, server.acquireBackgroundContentMutation)
+	server.translator.SetContentMutationAcquire(server.acquireBackgroundContentMutation)
 	server.translator.SetContentChangedCallback(func(entityKind, entityID string, revision int) {
 		if _, err := server.scheduler.InvalidateForEntity(entityKind, entityID, revision); err != nil {
 			server.logger.Error("invalidate scheduled publication after AI translation failed", "kind", entityKind, "id", entityID, "revision", revision, "error", err)
@@ -270,6 +264,22 @@ func New(options Options) (*Server, error) {
 	keepBackupService = true
 	keepPublisherService = true
 	return server, nil
+}
+
+func (s *Server) acquireBackgroundContentMutation() func() {
+	s.mutationGate.Lock()
+	return func() {
+		// Claim scheduled-publication and AI content writes in the derived
+		// projection before the watcher can observe them as external edits and
+		// publish an incomplete translation batch. The owning durable task performs
+		// the single intentional public build.
+		if s.projection != nil {
+			if _, err := s.projection.RebuildManagedChange(); err != nil {
+				s.logger.Error("refresh projection after background content mutation failed", "error", err)
+			}
+		}
+		s.mutationGate.Unlock()
+	}
 }
 
 func (s *Server) reconcileExternalSourceChange(ctx context.Context) (bool, error) {
@@ -488,8 +498,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/v1/admin/ai/providers/{id}", s.requireAdmin(s.handleUpsertProvider))
 	s.mux.HandleFunc("DELETE /api/v1/admin/ai/providers/{id}", s.requireAdmin(s.handleDeleteProvider))
 	s.mux.HandleFunc("POST /api/v1/admin/ai/providers/{id}/test", s.requireAdmin(s.handleTestProvider))
-	s.mux.HandleFunc("POST /api/v1/admin/posts/{id}/translate", s.requireAdmin(s.handleStartTranslation))
-	s.mux.HandleFunc("POST /api/v1/admin/pages/{id}/translate", s.requireAdmin(s.handleStartPageTranslation))
 	s.mux.HandleFunc("GET /api/v1/admin/ai/tasks", s.requireAdmin(s.handleListTranslationTasks))
 	s.mux.HandleFunc("GET /api/v1/admin/attachments", s.requireAdmin(s.handleListMedia))
 	s.mux.HandleFunc("POST /api/v1/admin/attachments", s.requireAdmin(s.handleCreateMedia))

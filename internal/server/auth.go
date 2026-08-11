@@ -251,7 +251,7 @@ func (s *Server) syncProjectionAfterManagedMutation() {
 	if s.projection == nil {
 		return
 	}
-	if _, err := s.projection.RebuildIfChanged(); err != nil {
+	if _, err := s.projection.RebuildManagedChange(); err != nil {
 		// The projection is derived state and the watcher will retry it. The
 		// already-durable domain mutation remains the authoritative result.
 		s.logger.Error("refresh projection after managed mutation failed", "error", err)

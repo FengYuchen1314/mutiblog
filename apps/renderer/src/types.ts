@@ -18,6 +18,13 @@ export interface LocalizedPostInput {
   markdown: string;
 }
 
+export interface LocaleContentStateInput {
+  state: string;
+  origin: "source" | "ai" | "manual" | string;
+  revision: number;
+  sourceRevision: number;
+}
+
 export interface PostInput {
   id: string;
   sourceLocale?: string;
@@ -30,6 +37,7 @@ export interface PostInput {
   tags?: string[];
   commentPolicy?: "open" | "closed";
   locales: Record<string, LocalizedPostInput>;
+  localeStates?: Record<string, LocaleContentStateInput>;
 }
 
 export interface LocalizedTaxonomyInput {

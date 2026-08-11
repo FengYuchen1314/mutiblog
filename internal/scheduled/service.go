@@ -507,7 +507,7 @@ func setPublishedOutcome(task *Task) {
 	if task.Status != "succeeded" || task.Outcome == "superseded" {
 		return
 	}
-	warning := task.BuildStatus == "failed" || task.BuildStatus == "unavailable"
+	warning := task.BuildStatus == "failed" || task.BuildStatus == "unavailable" || task.BuildStatus == "blocked"
 	switch task.TranslationStatus {
 	case "not-configured", "failed", "needs-review":
 		warning = true
@@ -628,9 +628,22 @@ func (s *Service) run(ctx context.Context, id string) {
 		}
 		publicationCommitted = true
 	}
-	launchTranslationTaskID := s.prepareFirstPublishTranslation(&task)
-	task.Progress = taskstore.Advance(task.Progress, "scheduled-build", 1, 4, 35, "rebuilding-static-site")
-	if task.BuildTaskID == "" {
+	launchTranslationTaskID := s.preparePublishTranslation(&task)
+	translationOwnsBuild := task.TranslationStatus == "queued" || task.TranslationStatus == "running" || task.TranslationStatus == "succeeded"
+	translationBlocksBuild := task.TranslationStatus == "not-configured" || task.TranslationStatus == "failed" || task.TranslationStatus == "needs-review"
+	switch {
+	case translationOwnsBuild:
+		task.BuildStatus = "deferred"
+		task.BuildTaskID = ""
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 1, 4, 35, "waiting-for-publish-translation")
+	case translationBlocksBuild:
+		task.BuildStatus = "blocked"
+		task.BuildTaskID = ""
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 1, 4, 35, "translation-unavailable")
+	default:
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-build", 1, 4, 35, "rebuilding-static-site")
+	}
+	if !translationOwnsBuild && !translationBlocksBuild && task.BuildTaskID == "" {
 		buildTaskID, buildIDErr := newStaticBuildTaskID()
 		if buildIDErr != nil {
 			task.BuildStatus = "unavailable"
@@ -646,6 +659,25 @@ func (s *Service) run(ctx context.Context, id string) {
 	// mutate the scheduled content transaction and must not block the admin API.
 	releaseMutationGate()
 	buildFailure := ""
+	if launchTranslationTaskID != "" && !s.translator.LaunchPrepared(launchTranslationTaskID) {
+		slog.Warn("prepared translation task persisted for next-start recovery because service is closing", "task", launchTranslationTaskID, "parent", task.ID)
+	}
+	if translationOwnsBuild || translationBlocksBuild {
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 2, 4, 75, "publish-translation-deferred")
+		if !s.checkpointTask(&task, publicationCommitted, "translation-start") {
+			return
+		}
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-finalize", 3, 4, 95, "finalizing-scheduled-publish")
+		if !s.checkpointTask(&task, publicationCommitted, "finalize") {
+			return
+		}
+		message := ""
+		if translationBlocksBuild {
+			message = "translation-unavailable"
+		}
+		s.finishBestEffort(&task, "succeeded", message)
+		return
+	}
 	if task.BuildStatus == "" {
 		if reader, ok := s.rebuilder.(buildTaskReader); ok {
 			if buildTask, readErr := reader.GetTask(task.BuildTaskID); readErr == nil {
@@ -703,10 +735,7 @@ func (s *Service) run(ctx context.Context, id string) {
 	} else if task.BuildStatus != "succeeded" {
 		buildFailure = "rebuild-failed"
 	}
-	if launchTranslationTaskID != "" && !s.translator.LaunchPrepared(launchTranslationTaskID) {
-		slog.Warn("prepared translation task persisted for next-start recovery because service is closing", "task", launchTranslationTaskID, "parent", task.ID)
-	}
-	task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 2, 4, 75, "starting-first-publish-translation")
+	task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 2, 4, 75, "publish-translation-not-needed")
 	if !s.checkpointTask(&task, publicationCommitted, "translation-start") {
 		return
 	}
@@ -725,16 +754,16 @@ func (s *Service) run(ctx context.Context, id string) {
 	s.finishBestEffort(&task, "succeeded", "")
 }
 
-// prepareFirstPublishTranslation persists the translation identity while the
-// scheduled publication still owns the mutation gate, but deliberately leaves
-// a newly created child dormant until the source-only static build completes.
-// The returned ID is non-empty only when this runner owns that later launch.
-func (s *Service) prepareFirstPublishTranslation(task *Task) string {
+// preparePublishTranslation persists the automatic translation identity while
+// the scheduled publication still owns the mutation gate. A newly created
+// child is launched after the parent receipt checkpoint and owns the only
+// public build for this release.
+func (s *Service) preparePublishTranslation(task *Task) string {
 	if task.TranslationStatus != "" {
 		return ""
 	}
 	task.TranslationStatus = "not-needed"
-	if !task.FirstPublish || s.translator == nil {
+	if s.translator == nil {
 		return ""
 	}
 	if task.TranslationTaskID != "" {
@@ -751,7 +780,10 @@ func (s *Service) prepareFirstPublishTranslation(task *Task) string {
 		}
 		return ""
 	}
-	translationTask, created, err := s.translator.Prepare(translation.StartInput{EntityKind: task.EntityKind, PostID: task.EntityID, SkipManual: true})
+	translationTask, created, err := s.translator.Prepare(translation.StartInput{
+		EntityKind: task.EntityKind, PostID: task.EntityID, OverwriteManual: true,
+		PublishedRelease: true, SkipCurrentAI: true, RecordPreflightFailure: true,
+	})
 	switch {
 	case err == nil:
 		task.TranslationStatus = "queued"
@@ -763,6 +795,7 @@ func (s *Service) prepareFirstPublishTranslation(task *Task) string {
 		task.TranslationStatus = "not-needed"
 	case errors.Is(err, ai.ErrProviderNotFound), errors.Is(err, ai.ErrKeyMissing), errors.Is(err, ai.ErrInvalidProvider):
 		task.TranslationStatus = "not-configured"
+		task.TranslationTaskID = translationTask.ID
 	default:
 		task.TranslationStatus = "failed"
 	}
@@ -981,7 +1014,7 @@ func validStoredTask(task Task, expectedID string) bool {
 		return false
 	}
 	switch task.BuildStatus {
-	case "", "succeeded", "failed", "unavailable":
+	case "", "succeeded", "failed", "unavailable", "deferred", "blocked":
 	default:
 		return false
 	}

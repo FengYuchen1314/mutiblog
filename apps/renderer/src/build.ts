@@ -552,16 +552,21 @@ function validateInput(input: BuildInput) {
       item: {
         id: string;
         sourceLocale?: string;
+        status?: string;
         locales: Record<string, object>;
+        localeStates?: Record<string, { state: string; origin: string; revision: number; sourceRevision: number }>;
       },
       kind: string,
       fields: string[],
       sourceLocale = item.sourceLocale ?? input.sourceLocale,
     ) => {
+      if ((kind === "post" || kind === "page") && item.status !== "published")
+        return;
       const target = item.locales[locale] as
         Record<string, unknown> | undefined;
       if (!target) {
         if (
+          !item.localeStates &&
           locale === input.sourceLocale &&
           sourceLocale !== locale &&
           item.locales[sourceLocale]
@@ -575,6 +580,28 @@ function validateInput(input: BuildInput) {
         throw new Error(
           `${kind} source locale is missing: ${item.id}.${sourceLocale}`,
         );
+      if (item.localeStates) {
+        const sourceState = item.localeStates[sourceLocale];
+        if (
+          !sourceState ||
+          sourceState.origin !== "source" ||
+          sourceState.state !== "current" ||
+          sourceState.sourceRevision !== sourceState.revision
+        ) {
+          throw new Error(`${kind} locale is stale: ${item.id}.${sourceLocale}`);
+        }
+        const targetState = item.localeStates[locale];
+        if (
+          locale !== sourceLocale &&
+          (
+            !targetState ||
+            targetState.state !== "current" ||
+            targetState.sourceRevision !== sourceState.revision
+          )
+        ) {
+          throw new Error(`${kind} locale is stale: ${item.id}.${locale}`);
+        }
+      }
       for (const field of fields) {
         const sourceValue = source[field];
         const targetValue = target[field];

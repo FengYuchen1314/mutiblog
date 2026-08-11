@@ -36,7 +36,6 @@ const saving = ref(false);
 const settingsSaving = ref(false);
 const publishing = ref(false);
 const uploading = ref(false);
-const translating = ref(false);
 const {
   taskIds: publicationTaskIds,
   createTask: createPublicationTask,
@@ -435,15 +434,25 @@ async function publish() {
         ? await api.publishPage(session.session.csrfToken, current.meta.id, current.meta.revision, buildTaskId)
         : await api.publishPost(session.session.csrfToken, current.meta.id, current.meta.revision, buildTaskId);
       post.value = result.post;
-      const translationQueued = result.translation.status === "queued" && Boolean(result.translation.taskId);
+      const translationActive =
+        (result.translation.status === "queued" || result.translation.status === "running") &&
+        Boolean(result.translation.taskId);
       trackTranslationTask(result.translation.taskId);
       await reconcilePublication(buildTaskId, result.build.taskId);
       if (result.translation.status === "failed")
         publicationWarning.value = String(t("editorPublishedTranslationFailed"));
       if (result.build.status === "scheduled") {
         saveState.value = t("taskProgress.scheduled");
+      } else if (result.build.status === "deferred") {
+        saveState.value = t(translationActive ? "editorPage.publishedQueued" : "editorPublishedTranslationFailed");
+      } else if (result.build.status === "blocked") {
+        saveState.value = t(
+          result.translation.status === "not-configured"
+            ? "editorPage.publishedNoAi"
+            : "editorPublishedTranslationFailed",
+        );
       } else if (result.build.status === "succeeded") {
-        if (translationQueued) {
+        if (translationActive) {
           saveState.value = t("editorPage.publishedQueued");
         } else if (result.translation.status === "not-configured") saveState.value = t("editorPage.publishedNoAi");
         else if (result.translation.status === "failed") saveState.value = t("editorPublishedTranslationFailed");
@@ -458,49 +467,6 @@ async function publish() {
     }
   }
   publishing.value = false;
-}
-
-async function translate(overwriteManual = false, requestedTargets?: string[]) {
-  if (!session.session || !post.value || !locales.value) return;
-  const csrfToken = session.session.csrfToken;
-  const current = await save();
-  if (!current) return;
-  const sourceLocale = current.meta.sourceLocale;
-  const targets =
-    requestedTargets ??
-    (activeLocale.value === sourceLocale
-      ? locales.value.enabled.filter((item) => item.enabled && item.code !== sourceLocale).map((item) => item.code)
-      : [activeLocale.value]);
-  if (targets.length === 0) return;
-  translating.value = true;
-  error.value = "";
-  await beginTranslationOperation();
-  try {
-    const task = isPage
-      ? await api.startPageTranslation(csrfToken, current.meta.id, targets, overwriteManual)
-      : await api.startTranslation(csrfToken, current.meta.id, targets, overwriteManual);
-    trackTranslationTask(task.id);
-    saveState.value = t("editorPage.queued");
-  } catch (caught) {
-    if (caught instanceof ApiError && caught.code === "manual_translation_confirmation_required" && !overwriteManual) {
-      const manualLocales = Array.isArray(caught.details?.locales)
-        ? caught.details.locales.filter((locale): locale is string => typeof locale === "string")
-        : targets;
-      const localesToOverwrite = manualLocales.join("、");
-      if (window.confirm(t("editorPage.manualOverwrite", { locales: localesToOverwrite }))) {
-        await translate(true, targets);
-      } else {
-        await translate(
-          false,
-          targets.filter((locale) => !manualLocales.includes(locale)),
-        );
-      }
-    } else {
-      error.value = caught instanceof Error ? caught.message : t("editorPage.translationStartFailed");
-    }
-  } finally {
-    translating.value = false;
-  }
 }
 
 async function handleImages(files: File[]) {
@@ -538,13 +504,11 @@ async function handleImages(files: File[]) {
         <VButton :disabled="!post" @click="toggleRevisions">{{ t("editorPage.revisions") }}</VButton
         ><VButton @click="preview">{{ t("editorPage.preview") }}</VButton
         ><VButton :loading="saving" @click="save">{{ t("editorPage.save") }}</VButton
-        ><VButton v-if="post" :loading="translating" @click="translate()">{{
-          t(activeLocale === post.meta.sourceLocale ? "editorPage.translateAll" : "editorPage.translateLocale")
-        }}</VButton
         ><VButton @click="toggleSettings">{{ t("editorPage.settings") }}</VButton>
         <VButton type="secondary" :loading="publishing" @click="publish">{{ t("editorPage.publish") }}</VButton>
       </template>
     </VPageHeader>
+    <p class="editor-translation-policy">{{ t("editorPage.translationPolicy") }}</p>
     <div class="editor-header">
       <div class="editor-fields">
         <input
@@ -771,6 +735,15 @@ async function handleImages(files: File[]) {
 </template>
 
 <style scoped>
+.editor-translation-policy {
+  margin: 0;
+  border-bottom: 1px solid #e7e9ed;
+  background: #f8fafc;
+  padding: 0.55rem 1rem;
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
 .editor-publication-warning {
   margin: 0.6rem 1rem 0;
   border: 1px solid #f1c56c;

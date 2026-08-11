@@ -199,11 +199,16 @@ func (s *Server) listAdminTasks() ([]adminTask, error) {
 }
 
 func adminTaskFromTranslation(task translation.Task) adminTask {
+	operation := "translate"
+	if task.PublicationRevision > 0 {
+		operation = "publish-translate"
+	}
 	return adminTask{
-		SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind, Operation: "translate",
+		SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind, Operation: operation,
 		Subject: &adminTaskSubject{Kind: task.EntityKind, ID: task.EntityID}, Status: task.Status,
 		Progress: task.Progress, CreatedAt: task.CreatedAt, StartedAt: task.StartedAt, CompletedAt: task.CompletedAt,
 		Error: task.Error, ProviderID: task.ProviderID, Model: task.Model, Targets: task.Targets,
+		BuildStatus: task.BuildStatus, BuildTaskID: task.BuildTaskID,
 	}
 }
 

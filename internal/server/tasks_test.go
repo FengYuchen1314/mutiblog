@@ -28,7 +28,8 @@ func TestAdminTaskAggregationIncludesEverySupportedKindAndRejectsUnknownHeaders(
 	records := map[string]any{
 		"translation-example": translation.Task{
 			SchemaVersion: domain.SchemaVersion, ID: "translation-example", Kind: "Translation", EntityKind: "Post", EntityID: "post-one",
-			Status: "running", Progress: taskstore.Progress{Phase: "chunks", Current: 2, Total: 5, Percent: 36}, CreatedAt: now.Add(-time.Minute),
+			PublicationRevision: 2, Status: "running", Progress: taskstore.Progress{Phase: "chunks", Current: 2, Total: 5, Percent: 36},
+			BuildStatus: "running", BuildTaskID: buildID, CreatedAt: now.Add(-time.Minute),
 		},
 		buildID: publisher.Task{
 			SchemaVersion: domain.SchemaVersion, ID: buildID, Kind: "StaticBuild", Operation: "publish", SubjectKind: "Post", SubjectID: "post-one",
@@ -75,6 +76,9 @@ func TestAdminTaskAggregationIncludesEverySupportedKindAndRejectsUnknownHeaders(
 	seen := map[string]bool{}
 	for _, item := range items {
 		seen[item.Kind] = true
+		if item.Kind == "Translation" && (item.Operation != "publish-translate" || item.BuildStatus != "running" || item.BuildTaskID != buildID) {
+			t.Fatalf("translation child build metadata was not preserved: %#v", item)
+		}
 		if item.Kind == "ScheduledPublish" && (item.BuildStatus != "failed" || item.BuildTaskID != buildID || item.TranslationStatus != "failed" || item.TranslationTaskID != "translation-example" || item.Outcome != "published-with-warning") {
 			t.Fatalf("scheduled child warning metadata was not preserved: %#v", item)
 		}

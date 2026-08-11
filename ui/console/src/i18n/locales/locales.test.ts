@@ -59,11 +59,46 @@ describe("console dictionaries", () => {
     expect(source).not.toContain("api.dictionaries");
     expect(source).not.toContain("api.updateDictionary");
   });
+
+  test("only starts content translation through publish", async () => {
+    const editor = await viewSource("PostEditorView.vue");
+    const posts = await viewSource("PostsView.vue");
+    const pages = await viewSource("PagesView.vue");
+    const client = await sourceFile("api/client.ts");
+
+    expect(editor).toContain('t("editorPage.translationPolicy")');
+    expect(editor).toContain("trackTranslationTask(result.translation.taskId)");
+    expect(editor).toContain("reconcilePublication(buildTaskId, result.build.taskId)");
+    expect(editor).toContain('result.translation.status === "running"');
+    expect(editor).toContain('result.build.status === "deferred"');
+    expect(editor).toContain('result.build.status === "blocked"');
+    expect(editor).not.toContain("async function translate(");
+    expect(editor).not.toContain('@click="translate');
+    expect(editor).not.toContain("editorPage.translateAll");
+    expect(editor).not.toContain("editorPage.translateLocale");
+    expect(posts).toContain('result.build.status === "blocked"');
+    expect(posts).toContain('result.translation.status === "not-configured"');
+    expect(posts).toContain("reconcileBuildTask(taskId, result.build.taskId, result.translation.taskId)");
+    expect(pages).toContain('result.build.status === "blocked"');
+    expect(pages).toContain('result.translation.status === "not-configured"');
+    expect(pages).toContain("reconcileBuildTask(taskId, result.build.taskId, result.translation.taskId)");
+    expect(client).toContain('"deferred" | "blocked"');
+    expect(client).not.toContain("startTranslation:");
+    expect(client).not.toContain("startPageTranslation:");
+    expect(zhCN.editorPage.translationPolicy).toContain("不会触发翻译");
+    expect(zhCN.editorPage.translationPolicy).toContain("离开此页面后任务仍会继续");
+    expect(en.editorPage.translationPolicy).toContain("never starts translation");
+    expect(en.editorPage.translationPolicy).toContain("continues after you leave this page");
+  });
 });
 
 async function viewSource(name: string) {
+  return sourceFile(join("views", name));
+}
+
+async function sourceFile(name: string) {
   const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
-  return readFile(join(sourceRoot, "views", name), "utf8");
+  return readFile(join(sourceRoot, name), "utf8");
 }
 
 async function sourceFiles(root: string): Promise<string[]> {
