@@ -34,25 +34,31 @@ type LocaleContentState struct {
 }
 
 type PostMeta struct {
-	SchemaVersion         int                           `yaml:"schemaVersion" json:"schemaVersion"`
-	Kind                  string                        `yaml:"kind" json:"kind"`
-	ID                    string                        `yaml:"id" json:"id"`
-	Status                ContentStatus                 `yaml:"status" json:"status"`
-	SourceLocale          string                        `yaml:"sourceLocale" json:"sourceLocale"`
-	CreatedAt             time.Time                     `yaml:"createdAt" json:"createdAt"`
-	UpdatedAt             time.Time                     `yaml:"updatedAt" json:"updatedAt"`
-	PublishedAt           *time.Time                    `yaml:"publishedAt,omitempty" json:"publishedAt,omitempty"`
-	Categories            []string                      `yaml:"categories" json:"categories"`
-	Tags                  []string                      `yaml:"tags" json:"tags"`
-	Cover                 string                        `yaml:"cover,omitempty" json:"cover,omitempty"`
-	Pinned                bool                          `yaml:"pinned,omitempty" json:"pinned"`
-	Visibility            ContentVisibility             `yaml:"visibility,omitempty" json:"visibility"`
-	CommentPolicy         string                        `yaml:"commentPolicy" json:"commentPolicy"`
-	Template              string                        `yaml:"template" json:"template"`
-	Revision              int                           `yaml:"revision" json:"revision"`
-	BaseRevision          int                           `yaml:"baseRevision" json:"baseRevision"`
-	HeadRevision          int                           `yaml:"headRevision" json:"headRevision"`
-	ReleaseRevision       int                           `yaml:"releaseRevision,omitempty" json:"releaseRevision,omitempty"`
+	SchemaVersion   int               `yaml:"schemaVersion" json:"schemaVersion"`
+	Kind            string            `yaml:"kind" json:"kind"`
+	ID              string            `yaml:"id" json:"id"`
+	Status          ContentStatus     `yaml:"status" json:"status"`
+	SourceLocale    string            `yaml:"sourceLocale" json:"sourceLocale"`
+	CreatedAt       time.Time         `yaml:"createdAt" json:"createdAt"`
+	UpdatedAt       time.Time         `yaml:"updatedAt" json:"updatedAt"`
+	PublishedAt     *time.Time        `yaml:"publishedAt,omitempty" json:"publishedAt,omitempty"`
+	Categories      []string          `yaml:"categories" json:"categories"`
+	Tags            []string          `yaml:"tags" json:"tags"`
+	Cover           string            `yaml:"cover,omitempty" json:"cover,omitempty"`
+	Pinned          bool              `yaml:"pinned,omitempty" json:"pinned"`
+	Visibility      ContentVisibility `yaml:"visibility,omitempty" json:"visibility"`
+	CommentPolicy   string            `yaml:"commentPolicy" json:"commentPolicy"`
+	Template        string            `yaml:"template" json:"template"`
+	Revision        int               `yaml:"revision" json:"revision"`
+	BaseRevision    int               `yaml:"baseRevision" json:"baseRevision"`
+	HeadRevision    int               `yaml:"headRevision" json:"headRevision"`
+	ReleaseRevision int               `yaml:"releaseRevision,omitempty" json:"releaseRevision,omitempty"`
+	// PublicationGeneration identifies one explicit Post/Page publication.
+	// Unlike ReleaseRevision it remains stable while AI targets incrementally
+	// advance the immutable public snapshot. Translation tasks bind this value
+	// so an older task cannot write into a later explicit publication whose
+	// source happens to be identical.
+	PublicationGeneration int                           `yaml:"publicationGeneration,omitempty" json:"publicationGeneration,omitempty"`
 	ScheduledRevision     int                           `yaml:"scheduledRevision,omitempty" json:"scheduledRevision,omitempty"`
 	HasUnpublishedChanges bool                          `yaml:"-" json:"hasUnpublishedChanges"`
 	Locales               map[string]LocaleContentState `yaml:"locales" json:"locales"`

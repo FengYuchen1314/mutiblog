@@ -82,6 +82,9 @@ func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdatePostLocale(w http.ResponseWriter, r *http.Request) {
+	if !s.requireEditableContentLocale(w, r) {
+		return
+	}
 	var request updatePostLocaleRequest
 	if !decodeJSON(w, r, &request) {
 		s.writeError(w, http.StatusBadRequest, "invalid_json", "The request body is invalid.", nil)
@@ -277,6 +280,10 @@ func (s *Server) writeContentError(w http.ResponseWriter, err error) {
 		s.writeError(w, http.StatusUnprocessableEntity, "invalid_post_id", "The custom ID must contain lowercase letters and hyphens only.", map[string]string{"id": "Use lowercase letters separated by single hyphens."})
 	case errors.Is(err, content.ErrLocaleDisabled):
 		s.writeError(w, http.StatusUnprocessableEntity, "locale_disabled", "The locale is not enabled for this site.", nil)
+	case errors.Is(err, content.ErrLocaleAIManaged):
+		s.writeError(w, http.StatusForbidden, "content_locale_ai_managed", "Only Simplified Chinese source content can be edited manually. Other locales are managed by AI translation.", nil)
+	case errors.Is(err, content.ErrSourceRevision):
+		s.writeError(w, http.StatusUnprocessableEntity, "source_revision_unavailable", "The selected revision does not contain editable Simplified Chinese source content.", nil)
 	case errors.Is(err, content.ErrInvalidStatus):
 		s.writeError(w, http.StatusConflict, "content_status_invalid", "The content cannot perform this action in its current status.", nil)
 	default:

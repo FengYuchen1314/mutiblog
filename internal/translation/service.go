@@ -26,9 +26,10 @@ import (
 )
 
 var (
-	ErrNoTargets          = errors.New("no translation targets")
-	ErrManualConfirmation = errors.New("manual translations require confirmation")
-	ErrTaskNotFound       = errors.New("translation task not found")
+	ErrNoTargets                        = errors.New("no translation targets")
+	ErrManualConfirmation               = errors.New("manual translations require confirmation")
+	ErrTaskNotFound                     = errors.New("translation task not found")
+	ErrPublicationGenerationUnavailable = errors.New("publication generation is unavailable")
 )
 
 const (
@@ -75,22 +76,28 @@ type Task struct {
 	// translation. The task remains bound to the immutable published source
 	// identity, not to the mutable editing head; later releases may reuse the
 	// same work only while that exact source identity is still public.
-	PublicationRevision int                `yaml:"publicationRevision,omitempty" json:"publicationRevision,omitempty"`
-	SourceLocale        string             `yaml:"sourceLocale" json:"sourceLocale"`
-	SourceRevision      int                `yaml:"sourceRevision" json:"sourceRevision"`
-	ProviderID          string             `yaml:"providerId" json:"providerId"`
-	Model               string             `yaml:"model" json:"model"`
-	OverwriteManual     bool               `yaml:"overwriteManual" json:"overwriteManual"`
-	SourceContent       string             `yaml:"sourceContent,omitempty" json:"sourceContent,omitempty"`
-	Status              string             `yaml:"status" json:"status"`
-	Progress            taskstore.Progress `yaml:"progress" json:"progress"`
-	Targets             []TargetTask       `yaml:"targets" json:"targets"`
-	BuildStatus         string             `yaml:"buildStatus,omitempty" json:"buildStatus,omitempty"`
-	BuildTaskID         string             `yaml:"buildTaskId,omitempty" json:"buildTaskId,omitempty"`
-	CreatedAt           time.Time          `yaml:"createdAt" json:"createdAt"`
-	StartedAt           *time.Time         `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
-	CompletedAt         *time.Time         `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
-	Error               string             `yaml:"error,omitempty" json:"error,omitempty"`
+	PublicationRevision int `yaml:"publicationRevision,omitempty" json:"publicationRevision,omitempty"`
+	// PublicationGeneration is the stable explicit-publish identity. Release
+	// revisions advance for each promoted target, so this value distinguishes a
+	// task's own incremental release writes from a newer same-source publish.
+	// Zero is reserved for legacy task records, which retain the older
+	// source-identity-only recovery behavior.
+	PublicationGeneration int                `yaml:"publicationGeneration,omitempty" json:"publicationGeneration,omitempty"`
+	SourceLocale          string             `yaml:"sourceLocale" json:"sourceLocale"`
+	SourceRevision        int                `yaml:"sourceRevision" json:"sourceRevision"`
+	ProviderID            string             `yaml:"providerId" json:"providerId"`
+	Model                 string             `yaml:"model" json:"model"`
+	OverwriteManual       bool               `yaml:"overwriteManual" json:"overwriteManual"`
+	SourceContent         string             `yaml:"sourceContent,omitempty" json:"sourceContent,omitempty"`
+	Status                string             `yaml:"status" json:"status"`
+	Progress              taskstore.Progress `yaml:"progress" json:"progress"`
+	Targets               []TargetTask       `yaml:"targets" json:"targets"`
+	BuildStatus           string             `yaml:"buildStatus,omitempty" json:"buildStatus,omitempty"`
+	BuildTaskID           string             `yaml:"buildTaskId,omitempty" json:"buildTaskId,omitempty"`
+	CreatedAt             time.Time          `yaml:"createdAt" json:"createdAt"`
+	StartedAt             *time.Time         `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
+	CompletedAt           *time.Time         `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
+	Error                 string             `yaml:"error,omitempty" json:"error,omitempty"`
 }
 
 type StartInput struct {
@@ -103,6 +110,10 @@ type StartInput struct {
 	// Automatic publish flows use this so a later draft save cannot invalidate
 	// translation of the version visitors are waiting to receive.
 	PublishedRelease bool
+	// PublicationGeneration optionally requires one exact public release. A
+	// scheduled parent supplies its pre-reserved value so a persisted child
+	// receipt cannot attach to a later same-source publication.
+	PublicationGeneration int
 	// SkipCurrentAI omits targets already generated from this exact source
 	// revision. It also enables compatible in-flight task reuse for idempotent
 	// repeated publications.
@@ -270,6 +281,13 @@ func (s *Service) Recover() (int, error) {
 		if task.Status != "queued" && task.Status != "running" {
 			continue
 		}
+		if s.publicationGenerationUnavailable(task) {
+			if err := s.finishTask(&task, "needs-review", "publication-generation-unavailable"); err != nil {
+				slog.Error("persist legacy publication task terminal failed; background retry queued", "task", task.ID, "error", err)
+			}
+			recovered++
+			continue
+		}
 		if !taskHasContentIdentity(task) {
 			// Tasks written before content identities were introduced cannot be
 			// proven to belong to the current repository after a backup restore.
@@ -333,6 +351,7 @@ func (s *Service) Prepare(input StartInput) (Task, bool, error) {
 		return Task{}, false, err
 	}
 	publicationRevision := 0
+	publicationGeneration := 0
 	if input.PublishedRelease {
 		post, err = s.content.GetPublishedRelease(entityKind, input.PostID)
 		if err != nil {
@@ -341,6 +360,16 @@ func (s *Service) Prepare(input StartInput) (Task, bool, error) {
 		publicationRevision = post.Meta.ReleaseRevision
 		if publicationRevision < 1 {
 			publicationRevision = post.Meta.Revision
+		}
+		publicationGeneration = post.Meta.PublicationGeneration
+		if publicationGeneration <= 0 {
+			// Automatic publication must have a stable release identity. Startup
+			// migration supplies it for legacy repositories; accepting a zero here
+			// would let an old same-source task cross an explicit publish boundary.
+			return Task{}, false, ErrPublicationGenerationUnavailable
+		}
+		if input.PublicationGeneration > 0 && publicationGeneration != input.PublicationGeneration {
+			return Task{}, false, content.ErrSourceChanged
 		}
 	}
 	targets, manual, err := s.targets(post, input.Locales, input.PublishedRelease)
@@ -370,7 +399,7 @@ func (s *Service) Prepare(input StartInput) (Task, bool, error) {
 	if input.SkipCurrentAI {
 		requestedTargets := append([]string(nil), targets...)
 		targets = staleAITargets(post, targets)
-		if existing, ok, activeErr := s.compatibleActiveTask(post, publicationRevision > 0, input.OverwriteManual, requestedTargets, targets); activeErr != nil {
+		if existing, ok, activeErr := s.compatibleActiveTask(post, publicationRevision > 0, publicationGeneration, input.OverwriteManual, requestedTargets, targets); activeErr != nil {
 			return Task{}, false, activeErr
 		} else if ok {
 			return existing, false, nil
@@ -382,12 +411,12 @@ func (s *Service) Prepare(input StartInput) (Task, bool, error) {
 	provider, _, err := s.ai.DefaultCredentials()
 	if err != nil {
 		if input.RecordPreflightFailure && recordableProviderPreflightError(err) {
-			if existing, ok, listErr := s.matchingPreflightFailure(post, publicationRevision > 0, input.OverwriteManual, targets, safeTaskError(err)); listErr != nil {
+			if existing, ok, listErr := s.matchingPreflightFailure(post, publicationRevision > 0, publicationGeneration, input.OverwriteManual, targets, safeTaskError(err)); listErr != nil {
 				return Task{}, false, errors.Join(err, fmt.Errorf("find translation preflight failure: %w", listErr))
 			} else if ok {
 				return existing, false, err
 			}
-			task, recordErr := s.recordPreflightFailure(post, entityKind, publicationRevision, targets, input.OverwriteManual, err)
+			task, recordErr := s.recordPreflightFailure(post, entityKind, publicationRevision, publicationGeneration, targets, input.OverwriteManual, err)
 			if recordErr != nil {
 				return Task{}, false, errors.Join(err, fmt.Errorf("persist translation preflight failure: %w", recordErr))
 			}
@@ -395,7 +424,7 @@ func (s *Service) Prepare(input StartInput) (Task, bool, error) {
 		}
 		return Task{}, false, err
 	}
-	if existing, ok, err := s.activeTask(post, publicationRevision > 0, provider.ID, input.OverwriteManual, targets); err != nil {
+	if existing, ok, err := s.activeTask(post, publicationRevision > 0, publicationGeneration, provider.ID, input.OverwriteManual, targets); err != nil {
 		return Task{}, false, err
 	} else if ok {
 		return existing, false, nil
@@ -406,8 +435,9 @@ func (s *Service) Prepare(input StartInput) (Task, bool, error) {
 	}
 	task := Task{
 		SchemaVersion: domain.SchemaVersion, ID: taskID, Kind: "Translation", EntityKind: entityKind, EntityID: post.Meta.ID,
-		PublicationRevision: publicationRevision,
-		SourceLocale:        post.Meta.SourceLocale, SourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		PublicationRevision:   publicationRevision,
+		PublicationGeneration: publicationGeneration,
+		SourceLocale:          post.Meta.SourceLocale, SourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
 		ProviderID: provider.ID, Model: provider.Model, OverwriteManual: input.OverwriteManual,
 		Status: "queued", Targets: toTargetTasks(targets, post.Meta.Locales), CreatedAt: time.Now().UTC(),
 	}
@@ -423,7 +453,7 @@ func recordableProviderPreflightError(err error) bool {
 	return errors.Is(err, ai.ErrProviderNotFound) || errors.Is(err, ai.ErrKeyMissing) || errors.Is(err, ai.ErrInvalidProvider)
 }
 
-func (s *Service) recordPreflightFailure(post domain.Post, entityKind string, publicationRevision int, targets []string, overwriteManual bool, cause error) (Task, error) {
+func (s *Service) recordPreflightFailure(post domain.Post, entityKind string, publicationRevision, publicationGeneration int, targets []string, overwriteManual bool, cause error) (Task, error) {
 	taskID, err := newTaskID()
 	if err != nil {
 		return Task{}, err
@@ -432,8 +462,9 @@ func (s *Service) recordPreflightFailure(post domain.Post, entityKind string, pu
 	safeError := safeTaskError(cause)
 	task := Task{
 		SchemaVersion: domain.SchemaVersion, ID: taskID, Kind: "Translation", EntityKind: entityKind, EntityID: post.Meta.ID,
-		PublicationRevision: publicationRevision,
-		SourceLocale:        post.Meta.SourceLocale, SourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		PublicationRevision:   publicationRevision,
+		PublicationGeneration: publicationGeneration,
+		SourceLocale:          post.Meta.SourceLocale, SourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
 		OverwriteManual: overwriteManual, Status: "failed", Targets: toTargetTasks(targets, post.Meta.Locales),
 		CreatedAt: now, CompletedAt: &now, Error: safeError,
 	}
@@ -466,7 +497,7 @@ func (s *Service) LaunchPrepared(taskID string) bool {
 // retries from spending provider quota on identical in-flight work. Completed
 // tasks are deliberately excluded so an administrator can explicitly run the
 // same translation again after reviewing the result.
-func (s *Service) activeTask(post domain.Post, publication bool, providerID string, overwriteManual bool, targets []string) (Task, bool, error) {
+func (s *Service) activeTask(post domain.Post, publication bool, publicationGeneration int, providerID string, overwriteManual bool, targets []string) (Task, bool, error) {
 	tasks, err := s.List()
 	if err != nil {
 		return Task{}, false, err
@@ -475,7 +506,7 @@ func (s *Service) activeTask(post domain.Post, publication bool, providerID stri
 		if task.Status != "queued" && task.Status != "running" {
 			continue
 		}
-		if task.EntityKind != post.Meta.Kind || task.EntityID != post.Meta.ID || (task.PublicationRevision > 0) != publication || task.SourceLocale != post.Meta.SourceLocale || task.SourceRevision != post.Meta.Locales[post.Meta.SourceLocale].Revision || task.ProviderID != providerID || task.OverwriteManual != overwriteManual {
+		if task.EntityKind != post.Meta.Kind || task.EntityID != post.Meta.ID || !taskMatchesPublicationGeneration(task, publication, publicationGeneration) || task.SourceLocale != post.Meta.SourceLocale || task.SourceRevision != post.Meta.Locales[post.Meta.SourceLocale].Revision || task.ProviderID != providerID || task.OverwriteManual != overwriteManual {
 			continue
 		}
 		if sameTargets(task.Targets, targets) && taskMatchesSource(task, post) && taskMatchesCurrentTargets(task, post) {
@@ -490,7 +521,7 @@ func (s *Service) activeTask(post domain.Post, publication bool, providerID stri
 // prepared; that completed target is now filtered as current, but the original
 // in-flight task still owns all remaining stale targets. Reusing that superset
 // avoids a second provider call and a second final rebuild.
-func (s *Service) compatibleActiveTask(post domain.Post, publication, overwriteManual bool, requested, stale []string) (Task, bool, error) {
+func (s *Service) compatibleActiveTask(post domain.Post, publication bool, publicationGeneration int, overwriteManual bool, requested, stale []string) (Task, bool, error) {
 	tasks, err := s.List()
 	if err != nil {
 		return Task{}, false, err
@@ -501,7 +532,7 @@ func (s *Service) compatibleActiveTask(post domain.Post, publication, overwriteM
 		if task.Status != "queued" && task.Status != "running" {
 			continue
 		}
-		if task.EntityKind != post.Meta.Kind || task.EntityID != post.Meta.ID || (task.PublicationRevision > 0) != publication || task.SourceLocale != post.Meta.SourceLocale || task.SourceRevision != post.Meta.Locales[post.Meta.SourceLocale].Revision || task.OverwriteManual != overwriteManual || !taskMatchesSource(task, post) {
+		if task.EntityKind != post.Meta.Kind || task.EntityID != post.Meta.ID || !taskMatchesPublicationGeneration(task, publication, publicationGeneration) || task.SourceLocale != post.Meta.SourceLocale || task.SourceRevision != post.Meta.Locales[post.Meta.SourceLocale].Revision || task.OverwriteManual != overwriteManual || !taskMatchesSource(task, post) {
 			continue
 		}
 		covered := make(map[string]bool, len(task.Targets))
@@ -529,7 +560,7 @@ func (s *Service) compatibleActiveTask(post domain.Post, publication, overwriteM
 	return Task{}, false, nil
 }
 
-func (s *Service) matchingPreflightFailure(post domain.Post, publication, overwriteManual bool, targets []string, errorCode string) (Task, bool, error) {
+func (s *Service) matchingPreflightFailure(post domain.Post, publication bool, publicationGeneration int, overwriteManual bool, targets []string, errorCode string) (Task, bool, error) {
 	tasks, err := s.List()
 	if err != nil {
 		return Task{}, false, err
@@ -538,7 +569,7 @@ func (s *Service) matchingPreflightFailure(post domain.Post, publication, overwr
 		if task.Status != "failed" || task.Error != errorCode {
 			continue
 		}
-		if task.EntityKind != post.Meta.Kind || task.EntityID != post.Meta.ID || (task.PublicationRevision > 0) != publication || task.SourceLocale != post.Meta.SourceLocale || task.SourceRevision != post.Meta.Locales[post.Meta.SourceLocale].Revision || task.OverwriteManual != overwriteManual {
+		if task.EntityKind != post.Meta.Kind || task.EntityID != post.Meta.ID || !taskMatchesPublicationGeneration(task, publication, publicationGeneration) || task.SourceLocale != post.Meta.SourceLocale || task.SourceRevision != post.Meta.Locales[post.Meta.SourceLocale].Revision || task.OverwriteManual != overwriteManual {
 			continue
 		}
 		if sameTargets(task.Targets, targets) && taskMatchesSource(task, post) && taskMatchesCurrentTargets(task, post) {
@@ -546,6 +577,16 @@ func (s *Service) matchingPreflightFailure(post domain.Post, publication, overwr
 		}
 	}
 	return Task{}, false, nil
+}
+
+func taskMatchesPublicationGeneration(task Task, publication bool, generation int) bool {
+	if !publication {
+		return task.PublicationRevision == 0 && task.PublicationGeneration == 0
+	}
+	// A missing generation is an old persisted task record. Do not allow it to
+	// acquire a new explicit publication merely because its source revision and
+	// content happen to collide after a restart or restore.
+	return task.PublicationRevision > 0 && generation > 0 && task.PublicationGeneration == generation
 }
 
 func taskMatchesCurrentTargets(task Task, post domain.Post) bool {
@@ -713,6 +754,26 @@ func allTargetsSucceeded(task Task) bool {
 	return true
 }
 
+// publicationTargetsCurrent proves that the immutable release about to be
+// rendered contains every result owned by this task. A task checkpoint alone
+// is insufficient: a later explicit publish deliberately marks all targets
+// stale while retaining their files, and that release must never be built by
+// the older task.
+func publicationTargetsCurrent(task Task, published domain.Post) bool {
+	if !taskMatchesPublication(task, published) {
+		return false
+	}
+	source := published.Content[published.Meta.SourceLocale]
+	for _, target := range task.Targets {
+		state, exists := published.Meta.Locales[target.Locale]
+		localized, contentExists := published.Content[target.Locale]
+		if !exists || !contentExists || state.Origin != domain.LocaleOriginAI || state.State != "current" || state.SourceRevision != task.SourceRevision || !completeLocalizedMarkdown(source, localized) || !targetMatchesResult(target, localized, contentExists) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Service) run(taskID string) {
 	// Do not hold the pause gate across provider network calls. A backup restore
 	// already owns the server mutation lock before it calls Pause; holding this
@@ -730,6 +791,10 @@ func (s *Service) run(taskID string) {
 	defer func() { <-s.semaphore }()
 	task, err := s.Get(taskID)
 	if err != nil || (task.Status != "queued" && task.Status != "running") {
+		return
+	}
+	if s.publicationGenerationUnavailable(task) {
+		s.finishTask(&task, "needs-review", "publication-generation-unavailable")
 		return
 	}
 	runGeneration := s.generation.Load()
@@ -1079,7 +1144,7 @@ func (s *Service) run(taskID string) {
 			if !s.checkpointTask(&task, hasDurableMutation, "rebuild-start") {
 				return
 			}
-			s.withPauseGate(func() {
+			buildWork := func() {
 				if !s.generationCurrent(runGeneration) {
 					buildErr = content.ErrSourceChanged
 					return
@@ -1089,12 +1154,21 @@ func (s *Service) run(taskID string) {
 					buildErr = content.ErrSourceChanged
 					return
 				}
+				if task.PublicationRevision > 0 && !publicationTargetsCurrent(task, latest) {
+					buildErr = content.ErrTargetChanged
+					return
+				}
 				_, buildErr = s.rebuilder.Build(buildContext)
-			})
+			}
+			// Rendering observes immutable public releases. Keep its existing
+			// short pause fence rather than holding the server-wide durable
+			// mutation lock for an entire render; generation/CAS checks already
+			// prevent this task from mutating a later explicit publication.
+			s.withPauseGate(buildWork)
 			if s.root.Err() != nil {
 				return
 			}
-			if errors.Is(buildErr, content.ErrSourceChanged) {
+			if errors.Is(buildErr, content.ErrSourceChanged) || errors.Is(buildErr, content.ErrTargetChanged) {
 				s.finishTask(&task, "needs-review", "source-changed-before-start")
 				return
 			}
@@ -1152,6 +1226,9 @@ func (s *Service) getContent(kind, id string) (domain.Post, error) {
 // transient start-checkpoint failure abort before recoverPublishedHeadResult
 // can repair the promotion.
 func (s *Service) taskHasDurableMutation(task Task, taskPost domain.Post) bool {
+	if task.PublicationRevision > 0 && !taskMatchesPublication(task, taskPost) {
+		return false
+	}
 	for _, target := range task.Targets {
 		state, exists := taskPost.Meta.Locales[target.Locale]
 		if target.Status == "succeeded" || (exists && state.Origin == domain.LocaleOriginAI && state.State == "current" && state.SourceRevision == task.SourceRevision) {
@@ -1162,7 +1239,7 @@ func (s *Service) taskHasDurableMutation(task Task, taskPost domain.Post) bool {
 		return false
 	}
 	head, err := s.getContent(task.EntityKind, task.EntityID)
-	if err != nil {
+	if err != nil || !taskMatchesPublication(task, head) {
 		return false
 	}
 	for _, target := range task.Targets {
@@ -1177,9 +1254,37 @@ func (s *Service) taskHasDurableMutation(task Task, taskPost domain.Post) bool {
 
 func (s *Service) taskContent(task Task) (domain.Post, error) {
 	if task.PublicationRevision > 0 {
-		return s.content.GetPublishedRelease(task.EntityKind, task.EntityID)
+		published, err := s.content.GetPublishedRelease(task.EntityKind, task.EntityID)
+		if err != nil {
+			return domain.Post{}, err
+		}
+		if !taskMatchesPublication(task, published) {
+			return domain.Post{}, content.ErrSourceChanged
+		}
+		return published, nil
 	}
 	return s.getContent(task.EntityKind, task.EntityID)
+}
+
+func (s *Service) publicationGenerationUnavailable(task Task) bool {
+	if task.PublicationRevision <= 0 || task.PublicationGeneration > 0 {
+		return false
+	}
+	published, err := s.content.GetPublishedRelease(task.EntityKind, task.EntityID)
+	return err == nil && published.Meta.PublicationGeneration > 0
+}
+
+// taskMatchesPublication verifies stable explicit-publish ownership. A legacy
+// task record without the new generation is never allowed to mutate a release
+// once that release has been migrated or newly published with the marker.
+func taskMatchesPublication(task Task, published domain.Post) bool {
+	if task.PublicationRevision <= 0 {
+		return true
+	}
+	if task.PublicationGeneration <= 0 {
+		return published.Meta.PublicationGeneration <= 0
+	}
+	return published.Meta.PublicationGeneration == task.PublicationGeneration
 }
 
 // applyPublishedTranslation commits a result to the current public release
@@ -1188,12 +1293,15 @@ func (s *Service) taskContent(task Task) (domain.Post, error) {
 // keeps head and release coherent. A later source-only save makes the head a
 // separate draft, so only the immutable release is updated.
 func (s *Service) applyPublishedTranslation(task Task, target TargetTask, released domain.Post, translated domain.LocalizedMarkdown) (domain.Post, bool, error) {
-	if !taskMatchesSource(task, released) || released.Meta.Locales[released.Meta.SourceLocale].Revision != task.SourceRevision {
+	if !taskMatchesPublication(task, released) || !taskMatchesSource(task, released) || released.Meta.Locales[released.Meta.SourceLocale].Revision != task.SourceRevision {
 		return domain.Post{}, false, content.ErrSourceChanged
 	}
 	head, err := s.getContent(task.EntityKind, task.EntityID)
 	if err != nil {
 		return domain.Post{}, false, err
+	}
+	if !taskMatchesPublication(task, head) {
+		return domain.Post{}, false, content.ErrSourceChanged
 	}
 	if taskMatchesSource(task, head) && head.Meta.Locales[head.Meta.SourceLocale].Revision == task.SourceRevision {
 		headTarget, headTargetExists := head.Content[target.Locale]
@@ -1202,19 +1310,20 @@ func (s *Service) applyPublishedTranslation(task Task, target TargetTask, releas
 		}
 		expectedTargetRevision := target.ExpectedRevision
 		updated, applyErr := s.applyAITranslation(task.EntityKind, task.EntityID, target.Locale, content.ApplyAITranslationInput{
-			ExpectedSourceRevision: task.SourceRevision, ExpectedTargetRevision: &expectedTargetRevision, OverwriteManual: task.OverwriteManual, Content: translated,
+			ExpectedSourceRevision: task.SourceRevision, ExpectedTargetRevision: &expectedTargetRevision, ExpectedPublicationGeneration: task.PublicationGeneration, OverwriteManual: task.OverwriteManual, Content: translated,
 		})
 		applied := applyErr == nil
 		if applyErr == nil {
-			applyErr = s.promoteAITranslation(task.EntityKind, task.EntityID, target.Locale, task.SourceRevision)
+			applyErr = s.promoteAITranslation(task.EntityKind, task.EntityID, target.Locale, task.SourceRevision, task.PublicationGeneration)
 		}
 		return updated, applied, applyErr
 	}
 	applyErr := s.content.ApplyAIReleaseTranslation(task.EntityKind, task.EntityID, target.Locale, content.ApplyAIReleaseTranslationInput{
-		ExpectedReleaseRevision: released.Meta.Revision,
-		ExpectedSourceRevision:  task.SourceRevision,
-		ExpectedTargetRevision:  target.ExpectedRevision,
-		Content:                 translated,
+		ExpectedReleaseRevision:       released.Meta.Revision,
+		ExpectedSourceRevision:        task.SourceRevision,
+		ExpectedTargetRevision:        target.ExpectedRevision,
+		ExpectedPublicationGeneration: task.PublicationGeneration,
+		Content:                       translated,
 	})
 	if applyErr != nil {
 		return domain.Post{}, false, applyErr
@@ -1247,8 +1356,8 @@ func (s *Service) recoverPublishedHeadResult(task *Task, targetIndex int, runGen
 	if err != nil {
 		return false, err
 	}
-	if !taskMatchesSource(*task, head) || head.Meta.Locales[head.Meta.SourceLocale].Revision != task.SourceRevision {
-		return false, nil
+	if !taskMatchesPublication(*task, head) || !taskMatchesSource(*task, head) || head.Meta.Locales[head.Meta.SourceLocale].Revision != task.SourceRevision {
+		return false, content.ErrSourceChanged
 	}
 	state, exists := head.Meta.Locales[target.Locale]
 	localized, contentExists := head.Content[target.Locale]
@@ -1263,12 +1372,12 @@ func (s *Service) recoverPublishedHeadResult(task *Task, targetIndex int, runGen
 			return
 		}
 		latest, latestErr := s.taskContent(*task)
-		if latestErr != nil || !taskMatchesSource(*task, latest) || latest.Meta.Locales[latest.Meta.SourceLocale].Revision != task.SourceRevision {
+		if latestErr != nil || !taskMatchesPublication(*task, latest) || !taskMatchesSource(*task, latest) || latest.Meta.Locales[latest.Meta.SourceLocale].Revision != task.SourceRevision {
 			promoteErr = content.ErrSourceChanged
 			return
 		}
 		latestHead, headErr := s.getContent(task.EntityKind, task.EntityID)
-		if headErr != nil || !taskMatchesSource(*task, latestHead) || latestHead.Meta.Locales[latestHead.Meta.SourceLocale].Revision != task.SourceRevision {
+		if headErr != nil || !taskMatchesPublication(*task, latestHead) || !taskMatchesSource(*task, latestHead) || latestHead.Meta.Locales[latestHead.Meta.SourceLocale].Revision != task.SourceRevision {
 			promoteErr = content.ErrSourceChanged
 			return
 		}
@@ -1279,7 +1388,7 @@ func (s *Service) recoverPublishedHeadResult(task *Task, targetIndex int, runGen
 			return
 		}
 		notifyRevision = latestHead.Meta.Revision
-		promoteErr = s.promoteAITranslation(task.EntityKind, task.EntityID, target.Locale, task.SourceRevision)
+		promoteErr = s.promoteAITranslation(task.EntityKind, task.EntityID, target.Locale, task.SourceRevision, task.PublicationGeneration)
 	}, func() {
 		if promoteErr == nil {
 			s.notifyContentChanged(task.EntityKind, task.EntityID, notifyRevision)
@@ -1299,11 +1408,17 @@ func (s *Service) applyAITranslation(kind, id, locale string, input content.Appl
 	}
 }
 
-func (s *Service) promoteAITranslation(kind, id, locale string, sourceRevision int) error {
+func (s *Service) promoteAITranslation(kind, id, locale string, sourceRevision int, publicationGeneration ...int) error {
+	expectedGeneration := 0
+	if len(publicationGeneration) > 0 {
+		expectedGeneration = publicationGeneration[0]
+	}
 	var promoteErr error
 	for attempt := 0; attempt < promotionRetryAttempts; attempt++ {
 		if s.promoteAIHook != nil {
 			promoteErr = s.promoteAIHook(kind, id, locale, sourceRevision)
+		} else if expectedGeneration > 0 {
+			promoteErr = s.content.PromoteAITranslationForPublication(kind, id, locale, sourceRevision, expectedGeneration)
 		} else {
 			promoteErr = s.content.PromoteAITranslation(kind, id, locale, sourceRevision)
 		}
@@ -1477,7 +1592,7 @@ func validTaskID(id string) bool {
 }
 
 func validStoredTask(task Task, expectedID string) bool {
-	if task.SchemaVersion != domain.SchemaVersion || task.Kind != "Translation" || task.ID != expectedID || !validTaskID(task.ID) || task.PublicationRevision < 0 {
+	if task.SchemaVersion != domain.SchemaVersion || task.Kind != "Translation" || task.ID != expectedID || !validTaskID(task.ID) || task.PublicationRevision < 0 || task.PublicationGeneration < 0 || (task.PublicationRevision == 0 && task.PublicationGeneration != 0) {
 		return false
 	}
 	if task.BuildTaskID != "" && !taskstore.ValidStaticBuildID(task.BuildTaskID) {
@@ -1534,6 +1649,12 @@ func toTargetTasks(locales []string, states ...map[string]domain.LocaleContentSt
 }
 
 func initializeTranslationIdentity(task *Task, post domain.Post) {
+	if task.PublicationRevision > 0 && task.PublicationGeneration == 0 {
+		// Constructors in tests and trusted in-process callers may still build a
+		// task literal. Persist the release marker with every newly-written task;
+		// old YAML never calls this helper and remains fail-closed after migration.
+		task.PublicationGeneration = post.Meta.PublicationGeneration
+	}
 	source, sourceExists := post.Content[task.SourceLocale]
 	task.SourceContent = localizedContentFingerprint(source, sourceExists)
 	for index := range task.Targets {

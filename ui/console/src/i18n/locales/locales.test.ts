@@ -90,6 +90,32 @@ describe("console dictionaries", () => {
     expect(en.editorPage.translationPolicy).toContain("never starts translation");
     expect(en.editorPage.translationPolicy).toContain("continues after you leave this page");
   });
+
+  test("keeps every non-source content locale AI-managed and read-only", async () => {
+    const editor = await viewSource("PostEditorView.vue");
+    const markdownEditor = await sourceFile("components/MarkdownEditor.vue");
+
+    expect(editor).toContain('const SOURCE_LOCALE = "zh-CN";');
+    expect(editor).toContain("const sourceEditable = computed(");
+    expect(editor).toContain("post.value.meta.sourceLocale === sourceLocale.value");
+    expect(editor).toContain("const translationReadOnly = computed(");
+    expect(editor).toContain("const dirty = dirtyLocales[sourceLocale.value] ? [sourceLocale.value] : [];");
+    expect(editor).not.toContain("Object.keys(dirtyLocales)");
+    expect(editor).toContain(':readonly="translationReadOnly"');
+    expect(editor).toContain(':disabled="!sourceEditable"');
+    expect(editor).toContain("'read-only': !localeIsEditable(locale.code)");
+    expect(editor.match(/const current = await save\(true\);/g)).toHaveLength(2);
+    expect(editor).toContain('"editorPage.revisionSourceOnlyHelp"');
+    expect(editor).toContain('"editorPage.legacyRevisionReadOnlyHelp"');
+    expect(editor).toContain("!entitySourceEditable.value || (!sourceEditable.value && !allowInactiveSource)");
+    expect(editor).toContain("if (!session.session || !sourceEditable.value || files.length === 0) return;");
+    expect(markdownEditor).toContain("EditorState.readOnly.of(Boolean(props.readonly))");
+    expect(markdownEditor).toContain("EditorView.editable.of(!props.readonly)");
+    expect(markdownEditor).toContain("if (!editor || props.readonly) return;");
+    expect(markdownEditor.match(/if \(props\.readonly\) \{/g)).toHaveLength(2);
+    expect(zhCN.editorPage.aiTranslationReadOnlyHelp).toContain("只能编辑 {locale} 源内容");
+    expect(en.editorPage.legacySourceReadOnlyHelp).toContain("Migrate it before editing");
+  });
 });
 
 async function viewSource(name: string) {

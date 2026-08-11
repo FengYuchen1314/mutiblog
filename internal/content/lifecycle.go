@@ -96,6 +96,9 @@ func (s *Service) GetRevision(kind, id, revisionID string) (domain.Post, error) 
 	return s.readRevision(paths, id, revisionID)
 }
 
+// RestoreRevision creates a new administrator-editable head from a historical
+// source revision. AI-managed target content is retained and invalidated, not
+// restored from the historical snapshot.
 func (s *Service) RestoreRevision(kind, id, revisionID string, expectedRevision int) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -114,9 +117,43 @@ func (s *Service) RestoreRevision(kind, id, revisionID string, expectedRevision 
 	if err != nil {
 		return domain.Post{}, err
 	}
+	if !editableSourceLocale(current, current.Meta.SourceLocale) {
+		return domain.Post{}, ErrLocaleAIManaged
+	}
+	sourceContent, exists := restored.Content[current.Meta.SourceLocale]
+	if !exists {
+		return domain.Post{}, ErrSourceRevision
+	}
+	sourceState, exists := current.Meta.Locales[current.Meta.SourceLocale]
+	if !exists {
+		return domain.Post{}, ErrSourceRevision
+	}
 	if err := s.snapshotLifecycle(kind, current); err != nil {
 		return domain.Post{}, err
 	}
+	// Revision restore is an administrator-facing source edit, not a way to
+	// write derived locales. Keep the current target membership, content,
+	// revision, and origin. Advancing the source identity makes every retained
+	// target stale so only a later AI translation can make it current again.
+	restored.Meta.SourceLocale = current.Meta.SourceLocale
+	restored.Meta.Locales = make(map[string]domain.LocaleContentState, len(current.Meta.Locales))
+	restored.Content = make(map[string]domain.LocalizedMarkdown, len(current.Content))
+	for locale, localized := range current.Content {
+		restored.Content[locale] = localized
+	}
+	for locale, state := range current.Meta.Locales {
+		if locale == current.Meta.SourceLocale {
+			continue
+		}
+		state.State = "stale"
+		restored.Meta.Locales[locale] = state
+	}
+	sourceState.Revision++
+	sourceState.SourceRevision = sourceState.Revision
+	sourceState.State = "current"
+	sourceState.Origin = domain.LocaleOriginSource
+	restored.Meta.Locales[current.Meta.SourceLocale] = sourceState
+	restored.Content[current.Meta.SourceLocale] = sourceContent
 	restored.Meta.SchemaVersion = domain.SchemaVersion
 	restored.Meta.Kind = current.Meta.Kind
 	restored.Meta.ID = current.Meta.ID
@@ -132,6 +169,9 @@ func (s *Service) RestoreRevision(kind, id, revisionID string, expectedRevision 
 	restored.Meta.BaseRevision = current.Meta.BaseRevision
 	restored.Meta.HeadRevision = restored.Meta.Revision
 	restored.Meta.ReleaseRevision = current.Meta.ReleaseRevision
+	// Restoring a source revision changes only the editable head. It must not
+	// supersede the immutable public publication that translation tasks own.
+	restored.Meta.PublicationGeneration = current.Meta.PublicationGeneration
 	if err := s.writeLifecycleContent(paths, current, restored); err != nil {
 		return domain.Post{}, err
 	}

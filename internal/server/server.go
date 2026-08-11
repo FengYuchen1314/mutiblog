@@ -231,9 +231,16 @@ func New(options Options) (*Server, error) {
 	// Translation recovery starts only after the projection, its watcher, and the
 	// scheduled-publication invalidation hook are ready. Otherwise a recovered AI
 	// promotion could mutate the head without immediately retiring a stale
-	// publication intent.
+	// publication intent. Persist orphan publication receipts before Recover;
+	// Recover then launches all queued work in one pass without racing a runner's
+	// first checkpoint.
 	server.mutationGate.Lock()
-	_, recoverErr := server.translator.Recover()
+	_, recoverErr := server.translator.ReconcilePublishedPublications()
+	if recoverErr != nil {
+		recoverErr = fmt.Errorf("recover pending published translations: %w", recoverErr)
+	} else {
+		_, recoverErr = server.translator.Recover()
+	}
 	if recoverErr != nil {
 		recoverErr = fmt.Errorf("recover translation tasks: %w", recoverErr)
 	} else if _, err := server.scheduler.Recover(); err != nil {

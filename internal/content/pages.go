@@ -32,6 +32,9 @@ func (s *Service) CreatePage(input CreatePageInput) (domain.Post, error) {
 	return s.createContentLocked(pageContent, input)
 }
 
+// UpdatePageLocale is the administrator-authored Page content entry point. It
+// accepts only the fixed Simplified Chinese source; derived locales must use
+// ApplyAIPageTranslation.
 func (s *Service) UpdatePageLocale(id, locale string, input UpdateLocaleInput) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

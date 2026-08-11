@@ -158,8 +158,17 @@ func TestTranslationTaskAppliesAIContentAndProtectsManualTranslation(t *testing.
 	if providerCalledUnderMutationGate.Load() || mutationDepth.Load() != 0 || mutationAcquisitions.Load() != 2 {
 		t.Fatalf("mutation hook: acquisitions=%d depth=%d providerUnderGate=%t", mutationAcquisitions.Load(), mutationDepth.Load(), providerCalledUnderMutationGate.Load())
 	}
-	post, err = contentService.UpdateLocale(post.Meta.ID, "en", content.UpdateLocaleInput{ExpectedRevision: post.Meta.Revision, Title: "Manual", Markdown: "Manual"})
+	// A restored legacy backup may still carry a manual target even though the
+	// editor can no longer create one. Preserve the confirmation behavior for
+	// that compatibility state.
+	post, err = contentService.GetPost(post.Meta.ID)
 	if err != nil {
+		t.Fatal(err)
+	}
+	manualState := post.Meta.Locales["en"]
+	manualState.Origin = domain.LocaleOriginManual
+	post.Meta.Locales["en"] = manualState
+	if err := repository.WriteYAML(filepath.Join("content", "posts", post.Meta.ID, "meta.yaml"), post.Meta, false); err != nil {
 		t.Fatal(err)
 	}
 	before := requests.Load()
@@ -951,6 +960,43 @@ func TestRecoverMarksLegacyTaskWithoutContentIdentityNeedsReview(t *testing.T) {
 	}
 }
 
+func TestRecoverSupersedesLegacyPublicationTaskAfterGenerationMigration(t *testing.T) {
+	var requests atomic.Int32
+	service, post := newRunnableTranslationFixture(t, successfulTranslationHandler(t, &requests))
+	published, err := service.content.PublishPost(post.Meta.ID, post.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := Task{
+		SchemaVersion:       domain.SchemaVersion,
+		ID:                  "translation-legacy-publication-generation",
+		Kind:                "Translation",
+		EntityKind:          "Post",
+		EntityID:            post.Meta.ID,
+		PublicationRevision: published.Meta.ReleaseRevision,
+		SourceLocale:        published.Meta.SourceLocale,
+		SourceRevision:      published.Meta.Locales[published.Meta.SourceLocale].Revision,
+		ProviderID:          "test",
+		Model:               "test",
+		Status:              "queued",
+		Targets:             toTargetTasks([]string{"en"}, published.Meta.Locales),
+		CreatedAt:           time.Now().UTC(),
+	}
+	initializeTranslationIdentity(&legacy, published)
+	legacy.PublicationGeneration = 0
+	initializeTranslationProgress(&legacy, published.Content[published.Meta.SourceLocale])
+	if err := service.writeTask(legacy); err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := service.Recover(); err != nil || recovered != 1 {
+		t.Fatalf("Recover() = %d, %v", recovered, err)
+	}
+	legacy = waitForTask(t, service, legacy.ID)
+	if legacy.Status != "needs-review" || legacy.Error != "publication-generation-unavailable" || requests.Load() != 0 {
+		t.Fatalf("legacy publication task = %#v, provider calls=%d", legacy, requests.Load())
+	}
+}
+
 func TestCloseCancelsProviderAndWaitsForTranslationRunner(t *testing.T) {
 	requestStarted := make(chan struct{}, 1)
 	requestCanceled := make(chan struct{}, 1)
@@ -1472,7 +1518,7 @@ func TestPublishedTranslationFinishesOldReleaseAfterNewDraftSave(t *testing.T) {
 		EntityKind: "Post", PostID: post.Meta.ID, OverwriteManual: true,
 		PublishedRelease: true, SkipCurrentAI: true,
 	})
-	if err != nil || !created || task.PublicationRevision != published.Meta.ReleaseRevision || len(task.Targets) != 1 || task.Targets[0].Locale != "en" {
+	if err != nil || !created || task.PublicationRevision != published.Meta.ReleaseRevision || task.PublicationGeneration != published.Meta.PublicationGeneration || len(task.Targets) != 1 || task.Targets[0].Locale != "en" {
 		t.Fatalf("Prepare() = %#v, created %v, err %v", task, created, err)
 	}
 	if _, err := service.content.UpdateLocale(post.Meta.ID, "zh-CN", content.UpdateLocaleInput{
@@ -1499,7 +1545,7 @@ func TestPublishedTranslationFinishesOldReleaseAfterNewDraftSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if released.Content["zh-CN"].Title != "源标题" || released.Content["en"].Title != "Translated title" || released.Meta.Locales["en"].SourceRevision != released.Meta.Locales["zh-CN"].Revision {
+	if released.Content["zh-CN"].Title != "源标题" || released.Content["en"].Title != "Translated title" || released.Meta.Locales["en"].SourceRevision != released.Meta.Locales["zh-CN"].Revision || released.Meta.PublicationGeneration != task.PublicationGeneration {
 		t.Fatalf("translated public release = %#v", released)
 	}
 	head, err := service.content.GetPost(post.Meta.ID)
@@ -1509,8 +1555,236 @@ func TestPublishedTranslationFinishesOldReleaseAfterNewDraftSave(t *testing.T) {
 	if head.Content["zh-CN"].Title != "未发布的新标题" {
 		t.Fatalf("new draft source was overwritten: %#v", head.Content["zh-CN"])
 	}
+	if head.Meta.PublicationGeneration != task.PublicationGeneration {
+		t.Fatalf("source-only draft changed public generation: %#v", head.Meta)
+	}
 	if _, exists := head.Content["en"]; exists {
 		t.Fatalf("old release translation leaked into newer draft: %#v", head.Content["en"])
+	}
+}
+
+func TestPublishedTranslationDoesNotCrossSameSourceRepublishGeneration(t *testing.T) {
+	for _, kind := range []string{"Post", "Page"} {
+		t.Run(kind, func(t *testing.T) {
+			providerStarted := make(chan struct{})
+			providerRelease := make(chan struct{})
+			var startedOnce sync.Once
+			var requests atomic.Int32
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestNumber := requests.Add(1)
+				if requestNumber == 1 {
+					startedOnce.Do(func() { close(providerStarted) })
+					<-providerRelease
+				}
+				var body struct {
+					Messages []ai.ChatMessage `json:"messages"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					return
+				}
+				user := body.Messages[len(body.Messages)-1].Content
+				response := "Translated " + user
+				if strings.HasPrefix(strings.TrimSpace(user), "{") {
+					response = `{"title":"Translated title","summary":"Translated summary","seoTitle":"","seoDescription":""}`
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"role": "assistant", "content": response}, "finish_reason": "stop"}}})
+			})
+			service, post := newRunnableTranslationFixture(t, handler)
+			if kind == "Page" {
+				var err error
+				post, err = service.content.CreatePage(content.CreatePageInput{ID: "same-source-republish-page", Title: "源标题", Summary: "源摘要", Markdown: "正文"})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			var published domain.Post
+			var err error
+			if kind == "Page" {
+				published, err = service.content.PublishPage(post.Meta.ID, post.Meta.Revision)
+			} else {
+				published, err = service.content.PublishPost(post.Meta.ID, post.Meta.Revision)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			service.rebuilder = &fakeRebuilder{}
+			first, created, err := service.Prepare(StartInput{EntityKind: kind, PostID: published.Meta.ID, OverwriteManual: true, PublishedRelease: true, SkipCurrentAI: true})
+			if err != nil || !created || first.PublicationGeneration != published.Meta.PublicationGeneration {
+				t.Fatalf("first Prepare() = %#v, created %t, err %v", first, created, err)
+			}
+			if !service.LaunchPrepared(first.ID) {
+				t.Fatal("first publication task did not launch")
+			}
+			select {
+			case <-providerStarted:
+			case <-time.After(2 * time.Second):
+				t.Fatal("first provider request did not start")
+			}
+			if kind == "Page" {
+				published, err = service.content.PublishPage(post.Meta.ID, published.Meta.Revision)
+			} else {
+				published, err = service.content.PublishPost(post.Meta.ID, published.Meta.Revision)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, created, err := service.Prepare(StartInput{EntityKind: kind, PostID: published.Meta.ID, OverwriteManual: true, PublishedRelease: true, SkipCurrentAI: true})
+			if err != nil || !created || second.ID == first.ID || second.PublicationGeneration != published.Meta.PublicationGeneration || second.PublicationGeneration == first.PublicationGeneration {
+				t.Fatalf("second Prepare() = %#v, created %t, err %v; first=%#v", second, created, err, first)
+			}
+			close(providerRelease)
+			first = waitForTask(t, service, first.ID)
+			if first.Status != "needs-review" {
+				t.Fatalf("superseded first task = %#v", first)
+			}
+			rebuilder := service.rebuilder.(*fakeRebuilder)
+			if rebuilder.calls.Load() != 0 {
+				t.Fatalf("superseded task built the newer release %d times", rebuilder.calls.Load())
+			}
+			if !service.LaunchPrepared(second.ID) {
+				t.Fatal("second publication task did not launch")
+			}
+			second = waitForTask(t, service, second.ID)
+			if second.Status != "succeeded" || second.BuildStatus != "succeeded" || rebuilder.calls.Load() != 1 {
+				t.Fatalf("replacement task = %#v, builds=%d", second, rebuilder.calls.Load())
+			}
+			var released domain.Post
+			if kind == "Page" {
+				released, err = service.content.GetPublishedRelease("Page", post.Meta.ID)
+			} else {
+				released, err = service.content.GetPublishedRelease("Post", post.Meta.ID)
+			}
+			if err != nil || released.Meta.PublicationGeneration != second.PublicationGeneration || released.Meta.Locales["en"].State != "current" || released.Meta.Locales["en"].Origin != domain.LocaleOriginAI {
+				t.Fatalf("replacement public release = %#v, %v", released, err)
+			}
+		})
+	}
+}
+
+func TestRecoverDoesNotResumePublicationTaskAcrossSameSourceRepublish(t *testing.T) {
+	var requests atomic.Int32
+	service, post := newRunnableTranslationFixture(t, successfulTranslationHandler(t, &requests))
+	published, err := service.content.PublishPost(post.Meta.ID, post.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, created, err := service.Prepare(StartInput{EntityKind: "Post", PostID: published.Meta.ID, OverwriteManual: true, PublishedRelease: true, SkipCurrentAI: true})
+	if err != nil || !created {
+		t.Fatalf("first Prepare() = %#v, created %t, err %v", first, created, err)
+	}
+	published, err = service.content.PublishPost(post.Meta.ID, published.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, recoverErr := service.Recover(); recoverErr != nil || count != 1 {
+		t.Fatalf("Recover() = %d, %v", count, recoverErr)
+	}
+	first = waitForTask(t, service, first.ID)
+	if first.Status != "needs-review" || requests.Load() != 0 {
+		t.Fatalf("recovered superseded task = %#v, provider calls=%d", first, requests.Load())
+	}
+	second, created, err := service.Prepare(StartInput{EntityKind: "Post", PostID: published.Meta.ID, OverwriteManual: true, PublishedRelease: true, SkipCurrentAI: true})
+	if err != nil || !created || second.ID == first.ID || second.PublicationGeneration != published.Meta.PublicationGeneration {
+		t.Fatalf("replacement Prepare() = %#v, created %t, err %v", second, created, err)
+	}
+}
+
+func TestPublishedTranslationPartialSuccessDoesNotCrossSameSourceRepublish(t *testing.T) {
+	japaneseStarted := make(chan struct{})
+	allowJapanese := make(chan struct{})
+	var japaneseOnce sync.Once
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []ai.ChatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if len(body.Messages) > 0 && strings.Contains(body.Messages[0].Content, " to ja.") {
+			block := false
+			japaneseOnce.Do(func() {
+				block = true
+				close(japaneseStarted)
+			})
+			if block {
+				<-allowJapanese
+			}
+		}
+		user := body.Messages[len(body.Messages)-1].Content
+		response := "Translated " + user
+		if strings.HasPrefix(strings.TrimSpace(user), "{") {
+			response = `{"title":"Translated title","summary":"Translated summary","seoTitle":"","seoDescription":""}`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"role": "assistant", "content": response}, "finish_reason": "stop"}}})
+	})
+	service, post := newRunnableTranslationFixture(t, handler)
+	var locales domain.LocalesConfig
+	if err := service.repository.ReadYAML("config/locales.yaml", &locales); err != nil {
+		t.Fatal(err)
+	}
+	locales.Enabled = append(locales.Enabled, domain.LocaleDefinition{Code: "ja", Label: "日本語", Enabled: true, Status: domain.LocaleStatusReady})
+	if err := service.repository.WriteYAML("config/locales.yaml", locales, false); err != nil {
+		t.Fatal(err)
+	}
+	published, err := service.content.PublishPost(post.Meta.ID, post.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilder := &fakeRebuilder{}
+	service.rebuilder = rebuilder
+	first, created, err := service.Prepare(StartInput{
+		EntityKind: "Post", PostID: post.Meta.ID, OverwriteManual: true,
+		PublishedRelease: true, SkipCurrentAI: true,
+	})
+	if err != nil || !created || len(first.Targets) != 2 {
+		t.Fatalf("first Prepare() = %#v, created %t, err %v", first, created, err)
+	}
+	if !service.LaunchPrepared(first.ID) {
+		t.Fatal("first publication task did not launch")
+	}
+	select {
+	case <-japaneseStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first task did not reach its second target")
+	}
+	firstRelease, err := service.content.GetPublishedRelease("Post", post.Meta.ID)
+	if err != nil || firstRelease.Meta.PublicationGeneration != first.PublicationGeneration || firstRelease.Meta.Locales["en"].State != "current" || firstRelease.Meta.Locales["en"].Origin != domain.LocaleOriginAI {
+		t.Fatalf("first target was not durably public before republish: %#v, %v", firstRelease, err)
+	}
+	head, err := service.content.GetPost(post.Meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err = service.content.PublishPost(post.Meta.ID, head.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, created, err := service.Prepare(StartInput{
+		EntityKind: "Post", PostID: post.Meta.ID, OverwriteManual: true,
+		PublishedRelease: true, SkipCurrentAI: true,
+	})
+	if err != nil || !created || second.ID == first.ID || second.PublicationGeneration == first.PublicationGeneration || second.PublicationGeneration != published.Meta.PublicationGeneration || len(second.Targets) != 2 {
+		t.Fatalf("second Prepare() = %#v, created %t, err %v; first=%#v", second, created, err, first)
+	}
+	close(allowJapanese)
+	first = waitForTask(t, service, first.ID)
+	if first.Status != "needs-review" || rebuilder.calls.Load() != 0 {
+		t.Fatalf("superseded partial task = %#v, builds=%d", first, rebuilder.calls.Load())
+	}
+	if !service.LaunchPrepared(second.ID) {
+		t.Fatal("second publication task did not launch")
+	}
+	second = waitForTask(t, service, second.ID)
+	if second.Status != "succeeded" || second.BuildStatus != "succeeded" || rebuilder.calls.Load() != 1 {
+		t.Fatalf("replacement task = %#v, builds=%d", second, rebuilder.calls.Load())
+	}
+	released, err := service.content.GetPublishedRelease("Post", post.Meta.ID)
+	if err != nil || released.Meta.PublicationGeneration != second.PublicationGeneration || released.Meta.Locales["en"].State != "current" || released.Meta.Locales["ja"].State != "current" {
+		t.Fatalf("replacement release = %#v, %v", released, err)
 	}
 }
 

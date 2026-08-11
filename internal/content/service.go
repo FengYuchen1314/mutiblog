@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
+	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
 	"golang.org/x/text/language"
 )
@@ -24,6 +25,8 @@ var (
 	ErrConflict        = errors.New("content revision conflict")
 	ErrInvalidID       = errors.New("invalid content id")
 	ErrLocaleDisabled  = errors.New("locale is not enabled")
+	ErrLocaleAIManaged = errors.New("non-source content is managed by AI")
+	ErrSourceRevision  = errors.New("revision does not contain the editable source locale")
 	ErrManualProtected = errors.New("manual translation is protected")
 	ErrSourceChanged   = errors.New("source content changed during translation")
 	ErrTargetChanged   = errors.New("translation target changed during translation")
@@ -68,18 +71,23 @@ type UpdateLocaleInput struct {
 type ApplyAITranslationInput struct {
 	ExpectedSourceRevision int
 	ExpectedTargetRevision *int
-	OverwriteManual        bool
-	Content                domain.LocalizedMarkdown
+	// ExpectedPublicationGeneration fences automatic publication work. Zero
+	// preserves the legacy/head-only API behavior for callers that are not
+	// bound to an immutable public release.
+	ExpectedPublicationGeneration int
+	OverwriteManual               bool
+	Content                       domain.LocalizedMarkdown
 }
 
 // ApplyAIReleaseTranslationInput is used only when a published entity has a
 // newer unpublished source head. In that case the current public release and
 // the future head need separate translations with independent CAS checks.
 type ApplyAIReleaseTranslationInput struct {
-	ExpectedReleaseRevision int
-	ExpectedSourceRevision  int
-	ExpectedTargetRevision  int
-	Content                 domain.LocalizedMarkdown
+	ExpectedReleaseRevision       int
+	ExpectedSourceRevision        int
+	ExpectedTargetRevision        int
+	ExpectedPublicationGeneration int
+	Content                       domain.LocalizedMarkdown
 }
 
 func NewService(repository *fsrepo.Repository) *Service {
@@ -114,6 +122,9 @@ func (s *Service) CreatePost(input CreatePostInput) (domain.Post, error) {
 	return s.createContentLocked(postContent, input)
 }
 
+// UpdateLocale is the administrator-authored Post content entry point. It
+// accepts only the fixed Simplified Chinese source; derived locales must use
+// one of the ApplyAI translation primitives below.
 func (s *Service) UpdateLocale(id, locale string, input UpdateLocaleInput) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -158,6 +169,10 @@ func (s *Service) normalizeEnabledLocale(raw string) (string, error) {
 	return "", ErrLocaleDisabled
 }
 
+func editableSourceLocale(item domain.Post, locale string) bool {
+	return item.Meta.SourceLocale == localeconfig.FixedSourceLocale && locale == localeconfig.FixedSourceLocale
+}
+
 func (s *Service) writeLocale(id, locale string, value domain.LocalizedMarkdown) error {
 	return s.writeContentLocale(postContent, id, locale, value)
 }
@@ -175,7 +190,7 @@ func validID(id string) bool {
 }
 
 func validStoredContentMeta(meta domain.PostMeta, id, kind string) bool {
-	if meta.SchemaVersion != domain.SchemaVersion || meta.ID != id || meta.Kind != kind || meta.Revision < 1 || meta.ScheduledRevision < 0 || meta.ScheduledRevision > meta.Revision || meta.Locales == nil {
+	if meta.SchemaVersion != domain.SchemaVersion || meta.ID != id || meta.Kind != kind || meta.Revision < 1 || meta.PublicationGeneration < 0 || meta.ScheduledRevision < 0 || meta.ScheduledRevision > meta.Revision || meta.Locales == nil {
 		return false
 	}
 	if _, exists := meta.Locales[meta.SourceLocale]; !exists {

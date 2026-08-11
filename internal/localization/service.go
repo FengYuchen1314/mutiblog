@@ -64,11 +64,12 @@ func NewService(repository *fsrepo.Repository, contentService *content.Service, 
 }
 
 type contentPlan struct {
-	kind           string
-	id             string
-	sourceRevision int
-	targetRevision int
-	translated     domain.LocalizedMarkdown
+	kind                  string
+	id                    string
+	sourceRevision        int
+	targetRevision        int
+	publicationGeneration int
+	translated            domain.LocalizedMarkdown
 }
 
 type releaseContentPlan struct {
@@ -77,10 +78,10 @@ type releaseContentPlan struct {
 }
 
 type contentPromotionPlan struct {
-	kind           string
-	id             string
-	sourceRevision int
-	allowManual    bool
+	kind                  string
+	id                    string
+	sourceRevision        int
+	publicationGeneration int
 }
 
 type taxonomyPlan struct {
@@ -420,7 +421,13 @@ func (s *Service) Provision(ctx context.Context, rawLocale string) (Report, erro
 			return report, err
 		}
 		expectedTarget := plan.targetRevision
-		input := content.ApplyAITranslationInput{ExpectedSourceRevision: plan.sourceRevision, ExpectedTargetRevision: &expectedTarget, OverwriteManual: true, Content: plan.translated}
+		input := content.ApplyAITranslationInput{
+			ExpectedSourceRevision:        plan.sourceRevision,
+			ExpectedTargetRevision:        &expectedTarget,
+			ExpectedPublicationGeneration: plan.publicationGeneration,
+			OverwriteManual:               true,
+			Content:                       plan.translated,
+		}
 		if plan.kind == "Post" {
 			if _, err := s.content.ApplyAITranslation(plan.id, locale, input); err != nil {
 				return report, fmt.Errorf("apply post %s: %w", plan.id, err)
@@ -431,16 +438,12 @@ func (s *Service) Provision(ctx context.Context, rawLocale string) (Report, erro
 			}
 		}
 		markTranslatedContent(plan.kind, plan.id)
-		if err := s.content.PromoteAITranslation(plan.kind, plan.id, locale, plan.sourceRevision); err != nil {
+		if err := s.promoteContentTranslation(plan.kind, plan.id, locale, plan.sourceRevision, plan.publicationGeneration); err != nil {
 			return report, fmt.Errorf("promote %s %s: %w", strings.ToLower(plan.kind), plan.id, err)
 		}
 	}
 	for _, plan := range promotionPlans {
-		promote := s.content.PromoteAITranslation
-		if plan.allowManual {
-			promote = s.content.PromoteCurrentTranslation
-		}
-		if err := promote(plan.kind, plan.id, locale, plan.sourceRevision); err != nil {
+		if err := s.promoteContentTranslation(plan.kind, plan.id, locale, plan.sourceRevision, plan.publicationGeneration); err != nil {
 			return report, fmt.Errorf("repair promoted %s %s: %w", strings.ToLower(plan.kind), plan.id, err)
 		}
 		markTranslatedContent(plan.kind, plan.id)
@@ -450,10 +453,11 @@ func (s *Service) Provision(ctx context.Context, rawLocale string) (Report, erro
 			return report, err
 		}
 		if err := s.content.ApplyAIReleaseTranslation(plan.kind, plan.id, locale, content.ApplyAIReleaseTranslationInput{
-			ExpectedReleaseRevision: plan.releaseRevision,
-			ExpectedSourceRevision:  plan.sourceRevision,
-			ExpectedTargetRevision:  plan.targetRevision,
-			Content:                 plan.translated,
+			ExpectedReleaseRevision:       plan.releaseRevision,
+			ExpectedSourceRevision:        plan.sourceRevision,
+			ExpectedTargetRevision:        plan.targetRevision,
+			ExpectedPublicationGeneration: plan.publicationGeneration,
+			Content:                       plan.translated,
 		}); err != nil {
 			return report, fmt.Errorf("apply public %s %s: %w", strings.ToLower(plan.kind), plan.id, err)
 		}
@@ -497,6 +501,13 @@ func (s *Service) Provision(ctx context.Context, rawLocale string) (Report, erro
 		report.Menus++
 	}
 	return report, nil
+}
+
+func (s *Service) promoteContentTranslation(kind, id, locale string, sourceRevision, publicationGeneration int) error {
+	if publicationGeneration > 0 {
+		return s.content.PromoteAITranslationForPublication(kind, id, locale, sourceRevision, publicationGeneration)
+	}
+	return s.content.PromoteAITranslation(kind, id, locale, sourceRevision)
 }
 
 func (s *Service) revalidateResourceSources(siteFingerprint, dictionaryFingerprint, themeID, themeFingerprint string) error {
@@ -615,10 +626,28 @@ func (s *Service) planContentKind(
 		if err != nil {
 			return headPlans, releasePlans, promotions, err
 		}
+		released, published := publicByID[head.Meta.ID]
+		headGeneration, generationErr := publicationGenerationForContentPlan(kind, head)
+		if generationErr != nil {
+			return headPlans, releasePlans, promotions, generationErr
+		}
+		releaseGeneration := 0
+		if published {
+			releaseGeneration, generationErr = publicationGenerationForContentPlan(kind, released)
+			if generationErr != nil {
+				return headPlans, releasePlans, promotions, generationErr
+			}
+		}
 		if needed {
+			// A published head remains bound to the generation it branched from,
+			// even if it currently contains an unpublished source draft. A later
+			// explicit same-source publish keeps revision/content checks compatible
+			// while making every target stale, so it must fence this plan. Actual
+			// draft/unpublished entities intentionally retain zero and preserve
+			// their existing head-only behavior.
+			plan.publicationGeneration = headGeneration
 			headPlans = append(headPlans, plan)
 		}
-		released, published := publicByID[head.Meta.ID]
 		if !published || locale == released.Meta.SourceLocale {
 			continue
 		}
@@ -626,7 +655,7 @@ func (s *Service) planContentKind(
 			if !needed && currentContentLocale(head, locale) && !currentContentLocale(released, locale) {
 				promotions = append(promotions, contentPromotionPlan{
 					kind: kind, id: head.Meta.ID, sourceRevision: head.Meta.Locales[head.Meta.SourceLocale].Revision,
-					allowManual: head.Meta.Locales[locale].Origin == domain.LocaleOriginManual,
+					publicationGeneration: releaseGeneration,
 				})
 			}
 			continue
@@ -636,10 +665,21 @@ func (s *Service) planContentKind(
 			return headPlans, releasePlans, promotions, err
 		}
 		if releaseNeeded {
+			releasePlan.publicationGeneration = releaseGeneration
 			releasePlans = append(releasePlans, releaseContentPlan{contentPlan: releasePlan, releaseRevision: released.Meta.Revision})
 		}
 	}
 	return headPlans, releasePlans, promotions, nil
+}
+
+func publicationGenerationForContentPlan(kind string, item domain.Post) (int, error) {
+	if item.Meta.Status != domain.ContentStatusPublished {
+		return 0, nil
+	}
+	if item.Meta.PublicationGeneration <= 0 {
+		return 0, fmt.Errorf("published %s %s: publication-generation-migration-required: %w", strings.ToLower(kind), item.Meta.ID, content.ErrSourceChanged)
+	}
+	return item.Meta.PublicationGeneration, nil
 }
 
 func (s *Service) planTaxonomy(ctx context.Context, item domain.Taxonomy, locale string) (taxonomyPlan, bool, error) {
@@ -707,8 +747,7 @@ func currentContentLocale(item domain.Post, locale string) bool {
 	sourceState, stateExists := item.Meta.Locales[item.Meta.SourceLocale]
 	target, targetExists := item.Content[locale]
 	targetState, targetStateExists := item.Meta.Locales[locale]
-	validOrigin := targetState.Origin == domain.LocaleOriginAI || targetState.Origin == domain.LocaleOriginManual
-	return sourceExists && stateExists && targetExists && targetStateExists && validOrigin && targetState.State == "current" && targetState.SourceRevision == sourceState.Revision && completeLocalizedMarkdown(source, target)
+	return sourceExists && stateExists && targetExists && targetStateExists && targetState.Origin == domain.LocaleOriginAI && targetState.State == "current" && targetState.SourceRevision == sourceState.Revision && completeLocalizedMarkdown(source, target)
 }
 
 func completeLocalizedMarkdown(source, target domain.LocalizedMarkdown) bool {

@@ -488,6 +488,7 @@ export default {
     preview: "Preview",
     uploading: "Uploading image…",
     imageHelp: "Paste or drop images",
+    readOnly: "Read-only content",
     showSource: "Show source",
     hideSource: "Hide source",
     source: "Read-only source ({locale})",
@@ -715,6 +716,14 @@ export default {
     saving: "Saving",
     published: "Published",
     newTranslation: "New translation",
+    readOnlyBadge: "AI · read-only",
+    legacyReadOnlyBadge: "Legacy · read-only",
+    aiTranslationReadOnly: "AI-managed translation · read-only",
+    aiTranslationReadOnlyHelp:
+      "Only the {locale} source can be edited. Publish that source to replace this translation automatically.",
+    legacySourceReadOnly: "Source language policy requires migration · read-only",
+    legacySourceReadOnlyHelp:
+      "This item or site configuration does not use the fixed {locale} source. Migrate it before editing; all non-source content remains AI-managed.",
     conflict: "Conflict",
     saveFailed: "Save failed",
     loadingFailed: "Cannot load editor",
@@ -722,6 +731,10 @@ export default {
     revisionsLoadFailed: "Cannot load revisions",
     revisionConfirm:
       "Restore revision #{revision} as a new head? The public release will not change until you explicitly publish again.",
+    revisionSourceOnlyHelp:
+      "Restore changes only the {locale} source. Target translations stay AI-managed, are marked stale, and regenerate after the next publish.",
+    legacyRevisionReadOnlyHelp:
+      "Revision restore is unavailable until this content is migrated to the fixed {locale} source; it never restores AI-managed target translations.",
     revisionRestored: "Revision restored as a new head; publish again to update the public site",
     revisionRestoreFailed: "Cannot restore revision",
     settingsSaved: "Settings saved",

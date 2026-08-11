@@ -73,6 +73,21 @@ const postSettings = reactive({
 const drafts = reactive<Record<string, LocalizedMarkdown>>({});
 const dirtyLocales = reactive<Record<string, boolean>>({});
 const form = ref<LocalizedMarkdown>({ title: "", summary: "", seoTitle: "", seoDescription: "", markdown: "" });
+const SOURCE_LOCALE = "zh-CN";
+const sourceLocale = computed(() => SOURCE_LOCALE);
+const sourceConfigurationLocked = computed(() =>
+  Boolean(locales.value && locales.value.sourceLocale !== SOURCE_LOCALE),
+);
+const legacySourceLocked = computed(
+  () => sourceConfigurationLocked.value || Boolean(post.value && post.value.meta.sourceLocale !== sourceLocale.value),
+);
+const entitySourceEditable = computed(
+  () => !sourceConfigurationLocked.value && (!post.value || post.value.meta.sourceLocale === sourceLocale.value),
+);
+const sourceEditable = computed(
+  () => Boolean(activeLocale.value) && activeLocale.value === sourceLocale.value && entitySourceEditable.value,
+);
+const translationReadOnly = computed(() => Boolean(activeLocale.value) && !sourceEditable.value);
 const templateOptions = computed(() => {
   const defaultID = isPage ? "page" : "post";
   const custom = isPage ? activeTheme.value?.pageTemplates : activeTheme.value?.postTemplates;
@@ -114,7 +129,7 @@ onMounted(async () => {
       activeLocale.value = post.value.meta.sourceLocale;
       loadPostSettings();
       loadDraft(activeLocale.value);
-      saveState.value = t("editorPage.saved");
+      saveState.value = t(legacySourceLocked.value ? "editorPage.legacySourceReadOnly" : "editorPage.saved");
     }
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : t("editorPage.loadingFailed");
@@ -151,6 +166,7 @@ async function restoreRevision(revision: ContentRevision) {
   if (
     !session.session ||
     !post.value ||
+    !sourceEditable.value ||
     !window.confirm(t("editorPage.revisionConfirm", { revision: revision.revision }))
   )
     return;
@@ -200,7 +216,7 @@ async function saveSettings() {
   if (!session.session) return;
   settingsSaving.value = true;
   try {
-    const current = await save();
+    const current = await save(true);
     if (!current) return;
     const publishedAt = postSettings.publishedAt
       ? zonedLocalToISOString(postSettings.publishedAt, siteTimezone.value)
@@ -330,7 +346,7 @@ function zonedLocalToISOString(value: string, timezone: string) {
 }
 
 function stashDraft() {
-  if (activeLocale.value) drafts[activeLocale.value] = { ...form.value };
+  if (sourceEditable.value) drafts[activeLocale.value] = { ...form.value };
 }
 
 function loadDraft(locale: string) {
@@ -346,25 +362,29 @@ function loadDraft(locale: string) {
 
 function selectLocale(locale: string) {
   stashDraft();
+  settingsOpen.value = false;
   activeLocale.value = locale;
   loadDraft(locale);
   saveState.value = t(
-    dirtyLocales[locale]
-      ? "editorPage.unsaved"
-      : post.value?.content[locale]
-        ? "editorPage.saved"
-        : "editorPage.newTranslation",
+    !localeIsEditable(locale)
+      ? legacySourceLocked.value
+        ? "editorPage.legacySourceReadOnly"
+        : "editorPage.aiTranslationReadOnly"
+      : dirtyLocales[locale]
+        ? "editorPage.unsaved"
+        : "editorPage.saved",
   );
 }
 
 function markDirty() {
-  if (!activeLocale.value) return;
+  if (!sourceEditable.value) return;
   dirtyLocales[activeLocale.value] = true;
   saveState.value = t("editorPage.unsaved");
 }
 
-async function save() {
-  if (!session.session) return;
+async function save(allowInactiveSource = false) {
+  if (!session.session || !entitySourceEditable.value || (!sourceEditable.value && !allowInactiveSource))
+    return post.value;
   const csrfToken = session.session.csrfToken;
   stashDraft();
   saving.value = true;
@@ -380,7 +400,7 @@ async function save() {
       dirtyLocales[activeLocale.value] = false;
       await router.replace(`/${isPage ? "pages" : "posts"}/editor/${post.value.meta.id}`);
     } else {
-      const dirty = Object.keys(dirtyLocales).filter((locale) => dirtyLocales[locale]);
+      const dirty = dirtyLocales[sourceLocale.value] ? [sourceLocale.value] : [];
       if (dirty.length === 0) {
         saveState.value = t(post.value.meta.status === "published" ? "editorPage.published" : "editorPage.saved");
         return post.value;
@@ -425,7 +445,7 @@ async function publish() {
   if (!session.session) return;
   publishing.value = true;
   publicationWarning.value = "";
-  const current = await save();
+  const current = await save(true);
   if (current) {
     await Promise.all([beginPublicationOperation(), beginTranslationOperation()]);
     const buildTaskId = createPublicationTask();
@@ -470,7 +490,7 @@ async function publish() {
 }
 
 async function handleImages(files: File[]) {
-  if (!session.session || files.length === 0) return;
+  if (!session.session || !sourceEditable.value || files.length === 0) return;
   uploading.value = true;
   error.value = "";
   try {
@@ -488,6 +508,10 @@ async function handleImages(files: File[]) {
     uploading.value = false;
   }
 }
+
+function localeIsEditable(locale: string) {
+  return locale === sourceLocale.value && entitySourceEditable.value;
+}
 </script>
 
 <template>
@@ -503,7 +527,7 @@ async function handleImages(files: File[]) {
         <span class="save-state">{{ saveState }}</span>
         <VButton :disabled="!post" @click="toggleRevisions">{{ t("editorPage.revisions") }}</VButton
         ><VButton @click="preview">{{ t("editorPage.preview") }}</VButton
-        ><VButton :loading="saving" @click="save">{{ t("editorPage.save") }}</VButton
+        ><VButton :disabled="!sourceEditable" :loading="saving" @click="save()">{{ t("editorPage.save") }}</VButton
         ><VButton @click="toggleSettings">{{ t("editorPage.settings") }}</VButton>
         <VButton type="secondary" :loading="publishing" @click="publish">{{ t("editorPage.publish") }}</VButton>
       </template>
@@ -514,12 +538,16 @@ async function handleImages(files: File[]) {
         <input
           v-model="form.title"
           class="title-input"
+          :readonly="translationReadOnly"
+          :aria-readonly="translationReadOnly"
           :placeholder="t('editorPage.titlePlaceholder')"
           @input="markDirty"
         />
         <input
           v-model="form.summary"
           class="summary-input"
+          :readonly="translationReadOnly"
+          :aria-readonly="translationReadOnly"
           :placeholder="t('editorPage.summaryPlaceholder')"
           @input="markDirty"
         />
@@ -534,13 +562,20 @@ async function handleImages(files: File[]) {
             (item) => item.enabled && (post || item.code === locales?.sourceLocale),
           )"
           :key="locale.code"
-          :class="{ active: locale.code === activeLocale }"
+          :class="{ active: locale.code === activeLocale, 'read-only': !localeIsEditable(locale.code) }"
           type="button"
           @click="selectLocale(locale.code)"
         >
           {{ locale.label }}
           <span v-if="post?.meta.locales[locale.code]" class="locale-origin-badge">{{
             codeLabel(post.meta.locales[locale.code].origin)
+          }}</span>
+          <span v-if="!localeIsEditable(locale.code)" class="locale-readonly-badge">{{
+            t(
+              legacySourceLocked && locale.code === post?.meta.sourceLocale
+                ? "editorPage.legacyReadOnlyBadge"
+                : "editorPage.readOnlyBadge",
+            )
           }}</span>
         </button>
       </div>
@@ -554,6 +589,13 @@ async function handleImages(files: File[]) {
       </div>
       <div v-if="revisionsOpen" class="provider-form editor-settings revision-panel">
         <h3>{{ t("editorPage.history") }}</h3>
+        <p class="revision-source-only-help">
+          {{
+            t(legacySourceLocked ? "editorPage.legacyRevisionReadOnlyHelp" : "editorPage.revisionSourceOnlyHelp", {
+              locale: sourceLocale,
+            })
+          }}
+        </p>
         <p v-if="!revisions.length">{{ t("editorPage.noHistory") }}</p>
         <article v-for="revision in revisions" :key="revision.id" class="revision-row">
           <div>
@@ -565,7 +607,9 @@ async function handleImages(files: File[]) {
             >
           </div>
           <VButton size="sm" @click="compareRevision(revision)">{{ t("revisionCompare.compare") }}</VButton
-          ><VButton size="sm" @click="restoreRevision(revision)">{{ t("editorPage.restoreRevision") }}</VButton>
+          ><VButton size="sm" :disabled="!sourceEditable" @click="restoreRevision(revision)">{{
+            t("editorPage.restoreRevision")
+          }}</VButton>
         </article>
         <section v-if="revisionComparison" class="revision-comparison">
           <header>
@@ -594,6 +638,16 @@ async function handleImages(files: File[]) {
     </div>
     <div v-if="error" class="form-alert editor-alert">{{ error }}</div>
     <div v-if="publicationWarning" class="editor-publication-warning">{{ publicationWarning }}</div>
+    <section v-if="translationReadOnly" class="editor-readonly-notice" role="status">
+      <strong>{{
+        t(legacySourceLocked ? "editorPage.legacySourceReadOnly" : "editorPage.aiTranslationReadOnly")
+      }}</strong>
+      <span>{{
+        t(legacySourceLocked ? "editorPage.legacySourceReadOnlyHelp" : "editorPage.aiTranslationReadOnlyHelp", {
+          locale: sourceLocale,
+        })
+      }}</span>
+    </section>
     <section v-if="publicationTaskIds.length || translationTaskIds.length" class="editor-task-progress">
       <div v-if="publicationTaskIds.length">
         <strong>{{ t("taskProgress.publication") }}</strong
@@ -613,6 +667,7 @@ async function handleImages(files: File[]) {
       :key="activeLocale"
       ref="editor"
       v-model="form.markdown"
+      :readonly="translationReadOnly"
       :uploading="uploading"
       :source-comparison="sourceComparison"
       @update:model-value="markDirty"
@@ -638,7 +693,11 @@ async function handleImages(files: File[]) {
               <div class="content-settings-fields">
                 <label class="field--wide"
                   ><span>{{ t("editorPage.title") }}</span
-                  ><input v-model="form.title" @input="markDirty"
+                  ><input
+                    v-model="form.title"
+                    :readonly="translationReadOnly"
+                    :aria-readonly="translationReadOnly"
+                    @input="markDirty"
                 /></label>
                 <label class="field--wide"
                   ><span>{{ t("editorPage.slug") }}</span
@@ -650,7 +709,13 @@ async function handleImages(files: File[]) {
                 /></label>
                 <label class="field--wide"
                   ><span>{{ t("editorPage.summary") }}</span
-                  ><textarea v-model="form.summary" rows="3" @input="markDirty" />
+                  ><textarea
+                    v-model="form.summary"
+                    :readonly="translationReadOnly"
+                    :aria-readonly="translationReadOnly"
+                    rows="3"
+                    @input="markDirty"
+                  />
                 </label>
                 <fieldset v-if="!isPage">
                   <legend>{{ t("editorPage.categories") }}</legend>
@@ -712,11 +777,23 @@ async function handleImages(files: File[]) {
               <div class="content-settings-fields">
                 <label
                   ><span>{{ t("editorPage.seoTitle") }}</span
-                  ><input v-model="form.seoTitle" :placeholder="form.title" @input="markDirty"
+                  ><input
+                    v-model="form.seoTitle"
+                    :readonly="translationReadOnly"
+                    :aria-readonly="translationReadOnly"
+                    :placeholder="form.title"
+                    @input="markDirty"
                 /></label>
                 <label
                   ><span>{{ t("editorPage.seoDescription") }}</span
-                  ><textarea v-model="form.seoDescription" :placeholder="form.summary" rows="3" @input="markDirty" />
+                  ><textarea
+                    v-model="form.seoDescription"
+                    :readonly="translationReadOnly"
+                    :aria-readonly="translationReadOnly"
+                    :placeholder="form.summary"
+                    rows="3"
+                    @input="markDirty"
+                  />
                 </label>
               </div>
             </section>
@@ -752,5 +829,41 @@ async function handleImages(files: File[]) {
   padding: 0.65rem 0.75rem;
   color: #78540d;
   font-size: 0.75rem;
+}
+
+.editor-readonly-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  border-bottom: 1px solid #c7d2fe;
+  background: #eef2ff;
+  padding: 0.7rem 1rem;
+  color: #3730a3;
+  font-size: 0.75rem;
+}
+
+.editor-readonly-notice strong {
+  font-weight: 700;
+}
+
+.locale-readonly-badge {
+  pointer-events: none;
+  border-radius: 999px;
+  background: #eef2ff;
+  padding: 0.08rem 0.3rem;
+  color: #4338ca;
+  font-size: 0.62rem;
+  line-height: 1.2;
+}
+
+.revision-source-only-help {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.title-input:read-only,
+.summary-input:read-only {
+  cursor: default;
 }
 </style>

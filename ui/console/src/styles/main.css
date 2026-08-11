@@ -744,6 +744,11 @@ a {
   background: #eefaf6;
   color: #127c5b;
 }
+.editor-toolbar button:disabled {
+  background: transparent;
+  color: #b6bdc9;
+  cursor: not-allowed;
+}
 .mode-tabs {
   display: flex;
   gap: 0.2rem;
@@ -823,6 +828,12 @@ a {
 }
 .markdown-source .cm-focused {
   outline: 0;
+}
+.markdown-editor--readonly .markdown-source {
+  background: #f8fafc;
+}
+.markdown-editor--readonly .markdown-source .cm-content {
+  cursor: default;
 }
 .markdown-preview {
   min-width: 0;

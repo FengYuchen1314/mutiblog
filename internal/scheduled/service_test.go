@@ -39,7 +39,7 @@ type countingTranslator struct {
 
 func (translator *countingTranslator) Prepare(input translation.StartInput) (translation.Task, bool, error) {
 	translator.prepareCalls.Add(1)
-	task := translation.Task{ID: "translation-scheduled-test", Status: "queued"}
+	task := translation.Task{ID: "translation-scheduled-test", Status: "queued", PublicationGeneration: input.PublicationGeneration}
 	translator.mu.Lock()
 	defer translator.mu.Unlock()
 	translator.input = input
@@ -234,7 +234,7 @@ func TestCompletedParentReflectsTranslationChildWithoutWaitingOrRewriting(t *tes
 	now := time.Now().UTC()
 	task := Task{
 		SchemaVersion: domain.SchemaVersion, ID: "scheduled-publish-20260811T010203.000000000Z-aabbccdd", Kind: "ScheduledPublish", Operation: "publish",
-		EntityKind: "Post", EntityID: "scheduled-post", Revision: 3, DueAt: now.Add(time.Hour), FirstPublish: true,
+		EntityKind: "Post", EntityID: "scheduled-post", Revision: 3, PublicationGeneration: 4, DueAt: now.Add(time.Hour), FirstPublish: true,
 		Status: "succeeded", Progress: taskstore.Progress{Phase: "completed", Current: 4, Total: 4, Percent: 100}, BuildStatus: "succeeded",
 		TranslationStatus: "queued", TranslationTaskID: "translation-scheduled-test", Outcome: "published", CreatedAt: now,
 	}
@@ -253,7 +253,7 @@ func TestCompletedParentReflectsTranslationChildWithoutWaitingOrRewriting(t *tes
 		{childStatus: "needs-review", expected: "needs-review", outcome: "published-with-warning"},
 		{childStatus: "unknown", expected: "failed", outcome: "published-with-warning"},
 	} {
-		child := translation.Task{SchemaVersion: domain.SchemaVersion, ID: task.TranslationTaskID, Kind: "Translation", Status: test.childStatus, CreatedAt: now}
+		child := translation.Task{SchemaVersion: domain.SchemaVersion, ID: task.TranslationTaskID, Kind: "Translation", PublicationRevision: 4, PublicationGeneration: task.PublicationGeneration, Status: test.childStatus, CreatedAt: now}
 		if err := repository.WriteYAML(filepath.Join("state", "tasks", child.ID+".yaml"), child, false); err != nil {
 			t.Fatal(err)
 		}
@@ -283,7 +283,7 @@ func TestCompletedParentReflectsTranslationChildWithoutWaitingOrRewriting(t *tes
 		t.Fatalf("read-time child projection rewrote stored parent = %#v", stored)
 	}
 
-	child := translation.Task{SchemaVersion: domain.SchemaVersion, ID: task.TranslationTaskID, Kind: "Translation", Status: "failed", CreatedAt: now}
+	child := translation.Task{SchemaVersion: domain.SchemaVersion, ID: task.TranslationTaskID, Kind: "Translation", PublicationRevision: 4, PublicationGeneration: task.PublicationGeneration, Status: "failed", CreatedAt: now}
 	if err := repository.WriteYAML(filepath.Join("state", "tasks", child.ID+".yaml"), child, false); err != nil {
 		t.Fatal(err)
 	}
@@ -691,6 +691,40 @@ func TestLiveReconcileReplacesCanceledTimerForSameTask(t *testing.T) {
 	}
 }
 
+func TestReconcileReattachesLegacyClearedScheduleIntentAfterGenerationReservation(t *testing.T) {
+	repository, contentService, post := scheduledFixture(t, "Post")
+	dueAt := time.Now().UTC().Add(time.Hour)
+	post = configureSchedule(t, contentService, "Post", post, dueAt)
+	if err := contentService.ClearScheduledPublish("Post", post.Meta.ID, post.Meta.Revision); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(repository, contentService, &countingRebuilder{}, nil, nil)
+	defer service.Close()
+	task, err := service.newTask(post, post.Meta.Revision, dueAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a pre-generation task file whose durable content intent was
+	// cleared by an older recovery path.
+	task.PublicationGeneration = 0
+	if err := service.writeTask(task); err != nil {
+		t.Fatal(err)
+	}
+
+	if recovered, err := service.Reconcile(); err != nil || recovered != 1 {
+		t.Fatalf("Reconcile() = %d, %v", recovered, err)
+	}
+	stored, err := service.Get(task.ID)
+	if err != nil || stored.Status != "queued" || stored.PublicationGeneration != scheduledPublicationGeneration(post.Meta.Revision, 0) {
+		t.Fatalf("recovered task = %#v, %v", stored, err)
+	}
+	repaired, err := contentService.GetPost(post.Meta.ID)
+	if err != nil || repaired.Meta.ScheduledRevision != post.Meta.Revision {
+		t.Fatalf("repaired schedule intent = %#v, %v", repaired.Meta, err)
+	}
+}
+
 func TestRecoverResumesBuildAfterPublishWasPersisted(t *testing.T) {
 	repository, contentService, post := scheduledFixture(t, "Post")
 	dueAt := time.Now().UTC().Add(250 * time.Millisecond)
@@ -758,6 +792,7 @@ func TestRecoverCompletesHeadCommittedBeforeReleasePointerForPostAndPage(t *test
 			committed.Revision++
 			committed.HeadRevision = committed.Revision
 			committed.ReleaseRevision = committed.Revision
+			committed.PublicationGeneration = task.PublicationGeneration
 			committed.UpdatedAt = time.Now().UTC()
 			if err := repository.WriteYAML(metaPath, committed, false); err != nil {
 				t.Fatal(err)
@@ -766,8 +801,8 @@ func TestRecoverCompletesHeadCommittedBeforeReleasePointerForPostAndPage(t *test
 				t.Fatal(err)
 			}
 			staleRelease, err := contentService.GetPublishedRelease(kind, item.Meta.ID)
-			if err != nil || staleRelease.Meta.Revision != oldReleaseRevision {
-				t.Fatalf("pre-recovery release = %#v, %v; want old revision %d", staleRelease.Meta, err, oldReleaseRevision)
+			if err != nil || staleRelease.Meta.Revision != scheduledRevision+1 || staleRelease.Meta.PublicationGeneration != task.PublicationGeneration {
+				t.Fatalf("pre-recovery pending release = %#v, %v; old revision was %d", staleRelease.Meta, err, oldReleaseRevision)
 			}
 			time.Sleep(time.Until(dueAt) + 25*time.Millisecond)
 
@@ -842,14 +877,15 @@ func TestRecoverFinalizesPersistedBuildAndTranslationCheckpointsWithoutRepeating
 
 func TestPublishedContentIsRecoveryCheckpointWithoutTaskFileProgress(t *testing.T) {
 	dueAt := time.Now().UTC().Truncate(time.Second)
-	task := Task{Revision: 7, DueAt: dueAt, Progress: taskstore.Progress{Phase: "scheduled-publish", Percent: 10}}
+	task := Task{Revision: 7, PublicationGeneration: 11, DueAt: dueAt, Progress: taskstore.Progress{Phase: "scheduled-publish", Percent: 10}}
 	publishedAt := dueAt
 	item := domain.Post{Meta: domain.PostMeta{
-		Status:            domain.ContentStatusPublished,
-		Revision:          10,
-		ReleaseRevision:   10,
-		ScheduledRevision: 0,
-		PublishedAt:       &publishedAt,
+		Status:                domain.ContentStatusPublished,
+		Revision:              10,
+		ReleaseRevision:       10,
+		PublicationGeneration: 11,
+		ScheduledRevision:     0,
+		PublishedAt:           &publishedAt,
 	}}
 	if !publishedByScheduledTask(task, item) {
 		t.Fatal("durable publication was not recognized without a post-publish task checkpoint")

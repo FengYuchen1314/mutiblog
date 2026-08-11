@@ -46,6 +46,9 @@ func (s *Server) handleGetPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdatePageLocale(w http.ResponseWriter, r *http.Request) {
+	if !s.requireEditableContentLocale(w, r) {
+		return
+	}
 	var request updatePostLocaleRequest
 	if !decodeJSON(w, r, &request) {
 		s.writeError(w, http.StatusBadRequest, "invalid_json", "The request body is invalid.", nil)

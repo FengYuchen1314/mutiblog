@@ -130,6 +130,7 @@ func TestEveryImmediatePublishRecordsProviderPreflightFailureWithoutUnsafeBuild(
 				app.handlePublishPost(repeatRecorder, repeatRequest)
 			}
 			var repeated struct {
+				Post  domain.Post `json:"post"`
 				Build struct {
 					Status string `json:"status"`
 				} `json:"build"`
@@ -141,8 +142,12 @@ func TestEveryImmediatePublishRecordsProviderPreflightFailureWithoutUnsafeBuild(
 			if err := json.Unmarshal(repeatRecorder.Body.Bytes(), &repeated); err != nil {
 				t.Fatal(err)
 			}
-			if repeatRecorder.Code != http.StatusAccepted || repeated.Build.Status != "blocked" || repeated.Translation.Status != "not-configured" || repeated.Translation.TaskID != response.Translation.TaskID || builds.calls.Load() != 0 {
+			if repeatRecorder.Code != http.StatusAccepted || repeated.Build.Status != "blocked" || repeated.Translation.Status != "not-configured" || repeated.Translation.TaskID == "" || repeated.Translation.TaskID == response.Translation.TaskID || builds.calls.Load() != 0 {
 				t.Fatalf("repeat publish = status %d, %#v, builds %d, body %s", repeatRecorder.Code, repeated, builds.calls.Load(), repeatRecorder.Body.String())
+			}
+			repeatedTask, getErr := translator.Get(repeated.Translation.TaskID)
+			if getErr != nil || repeatedTask.PublicationGeneration == stored.PublicationGeneration || repeatedTask.PublicationGeneration != repeated.Post.Meta.PublicationGeneration {
+				t.Fatalf("repeat publication preflight task = %#v, %v; first=%#v", repeatedTask, getErr, stored)
 			}
 		})
 	}

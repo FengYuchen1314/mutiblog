@@ -3,6 +3,7 @@ package localization
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,19 @@ func (prefixTranslator) TranslateFields(_ context.Context, _, target string, sou
 	return translated, nil
 }
 
+type countingPrefixTranslator struct {
+	contentCalls int
+}
+
+func (translator *countingPrefixTranslator) TranslateContent(ctx context.Context, sourceLocale, targetLocale string, source domain.LocalizedMarkdown) (domain.LocalizedMarkdown, error) {
+	translator.contentCalls++
+	return (prefixTranslator{}).TranslateContent(ctx, sourceLocale, targetLocale, source)
+}
+
+func (*countingPrefixTranslator) TranslateFields(ctx context.Context, sourceLocale, targetLocale string, source map[string]string) (map[string]string, error) {
+	return (prefixTranslator{}).TranslateFields(ctx, sourceLocale, targetLocale, source)
+}
+
 type mutatingPrefixTranslator struct {
 	onFirstContent func() error
 	fieldSources   []map[string]string
@@ -64,6 +78,23 @@ func (t *mutatingPrefixTranslator) TranslateFields(ctx context.Context, sourceLo
 	}
 	t.fieldSources = append(t.fieldSources, copyOfSource)
 	return (prefixTranslator{}).TranslateFields(ctx, sourceLocale, targetLocale, source)
+}
+
+func setHeadPublicationGeneration(t *testing.T, repository *fsrepo.Repository, kind, id string, generation int) {
+	t.Helper()
+	directory := "posts"
+	if kind == "Page" {
+		directory = "pages"
+	}
+	path := filepath.Join("content", directory, id, "meta.yaml")
+	var meta domain.PostMeta
+	if err := repository.ReadYAML(path, &meta); err != nil {
+		t.Fatal(err)
+	}
+	meta.PublicationGeneration = generation
+	if err := repository.WriteYAML(path, meta, false); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestProvisionCoversEveryPublicEntityAndThemeText(t *testing.T) {
@@ -172,6 +203,115 @@ func TestProvisionCoversEveryPublicEntityAndThemeText(t *testing.T) {
 	}
 }
 
+func TestProvisionRetranslatesManualPostAndPageTargetsBeforePromotion(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  localeconfig.FixedSourceLocale,
+		Enabled: []domain.LocaleDefinition{
+			{Code: localeconfig.FixedSourceLocale, Label: "简体中文", Enabled: true, Status: domain.LocaleStatusReady},
+			{Code: "ja", Label: "日本語", Enabled: true, Status: domain.LocaleStatusProvisioning},
+		},
+		Fallback: []string{localeconfig.FixedSourceLocale},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/site.yaml", domain.SiteConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  localeconfig.FixedSourceLocale,
+		ActiveTheme:   "earth",
+		Locales:       map[string]domain.LocalizedSite{localeconfig.FixedSourceLocale: {Title: "测试站"}},
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := dictionary.Ensure(repository); err != nil {
+		t.Fatal(err)
+	}
+
+	contentService := content.NewService(repository)
+	post, err := contentService.CreatePost(content.CreatePostInput{ID: "manual-post", Title: "文章", Markdown: "正文"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post, err = contentService.PublishPost(post.Meta.ID, post.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	post, err = contentService.ApplyAITranslation(post.Meta.ID, "ja", content.ApplyAITranslationInput{
+		ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "Manual post", Markdown: "Manual body"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	postTarget := post.Meta.Locales["ja"]
+	postTarget.Origin = domain.LocaleOriginManual
+	post.Meta.Locales["ja"] = postTarget
+	if err := repository.WriteYAML("content/posts/"+post.Meta.ID+"/meta.yaml", post.Meta, false); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := contentService.CreatePage(content.CreatePageInput{ID: "manual-page", Title: "页面", Markdown: "页面正文"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err = contentService.PublishPage(page.Meta.ID, page.Meta.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err = contentService.ApplyAIPageTranslation(page.Meta.ID, "ja", content.ApplyAITranslationInput{
+		ExpectedSourceRevision: page.Meta.Locales[page.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "Manual page", Markdown: "Manual page body"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageTarget := page.Meta.Locales["ja"]
+	pageTarget.Origin = domain.LocaleOriginManual
+	page.Meta.Locales["ja"] = pageTarget
+	if err := repository.WriteYAML("content/pages/"+page.Meta.ID+"/meta.yaml", page.Meta, false); err != nil {
+		t.Fatal(err)
+	}
+
+	translator := &countingPrefixTranslator{}
+	service := NewService(repository, contentService, translator)
+	report, err := service.Provision(context.Background(), "ja")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if translator.contentCalls != 2 || report.Posts != 1 || report.Pages != 1 {
+		t.Fatalf("manual target translation calls = %d, report = %#v", translator.contentCalls, report)
+	}
+	for _, item := range []struct {
+		kind  string
+		id    string
+		title string
+	}{
+		{kind: "Post", id: post.Meta.ID, title: "JA 文章"},
+		{kind: "Page", id: page.Meta.ID, title: "JA 页面"},
+	} {
+		released, err := contentService.GetPublishedRelease(item.kind, item.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state := released.Meta.Locales["ja"]
+		if state.Origin != domain.LocaleOriginAI || state.State != "current" || released.Content["ja"].Title != item.title {
+			t.Fatalf("%s manual target was not replaced before promotion: %#v", item.kind, released)
+		}
+	}
+
+	retry, err := service.Provision(context.Background(), "ja")
+	if err != nil || retry.Posts != 0 || retry.Pages != 0 || translator.contentCalls != 2 {
+		t.Fatalf("idempotent AI-only retry = %#v, calls = %d, err = %v", retry, translator.contentCalls, err)
+	}
+}
+
 func TestProvisionRepairsPublishedReleaseBehindUnpublishedSourceHead(t *testing.T) {
 	repository, err := fsrepo.Open(t.TempDir())
 	if err != nil {
@@ -239,6 +379,144 @@ func TestProvisionRepairsPublishedReleaseBehindUnpublishedSourceHead(t *testing.
 	retry, err := service.Provision(context.Background(), "ja")
 	if err != nil || retry.Posts != 0 {
 		t.Fatalf("idempotent provision retry = %#v, %v", retry, err)
+	}
+}
+
+func TestProvisionDoesNotWriteLaterSameSourcePublication(t *testing.T) {
+	for _, legacyGeneration := range []bool{false, true} {
+		testName := "generation-fenced"
+		if legacyGeneration {
+			testName = "legacy-generation-migration-required"
+		}
+		for _, kind := range []string{"Post", "Page"} {
+			t.Run(testName+"/"+kind, func(t *testing.T) {
+				repository, err := fsrepo.Open(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				now := time.Now().UTC()
+				if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+					SchemaVersion: domain.SchemaVersion,
+					SourceLocale:  localeconfig.FixedSourceLocale,
+					Enabled: []domain.LocaleDefinition{
+						{Code: localeconfig.FixedSourceLocale, Label: "简体中文", Enabled: true, Status: domain.LocaleStatusReady},
+						{Code: "ja", Label: "日本語", Enabled: true, Status: domain.LocaleStatusProvisioning},
+					},
+					Fallback: []string{localeconfig.FixedSourceLocale},
+				}, false); err != nil {
+					t.Fatal(err)
+				}
+				if err := repository.WriteYAML("config/site.yaml", domain.SiteConfig{
+					SchemaVersion: domain.SchemaVersion,
+					SourceLocale:  localeconfig.FixedSourceLocale,
+					ActiveTheme:   "earth",
+					Locales:       map[string]domain.LocalizedSite{localeconfig.FixedSourceLocale: {Title: "测试站"}},
+					CreatedAt:     now,
+					UpdatedAt:     now,
+				}, false); err != nil {
+					t.Fatal(err)
+				}
+				if err := dictionary.Ensure(repository); err != nil {
+					t.Fatal(err)
+				}
+				contentService := content.NewService(repository)
+				var item domain.Post
+				if kind == "Page" {
+					item, err = contentService.CreatePage(content.CreatePageInput{ID: "bulk-republish-page", Title: "公开页面", Markdown: "页面正文"})
+				} else {
+					item, err = contentService.CreatePost(content.CreatePostInput{ID: "bulk-republish-post", Title: "公开文章", Markdown: "文章正文"})
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if kind == "Page" {
+					item, err = contentService.PublishPage(item.Meta.ID, item.Meta.Revision)
+				} else {
+					item, err = contentService.PublishPost(item.Meta.ID, item.Meta.Revision)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				firstGeneration := item.Meta.PublicationGeneration
+				if legacyGeneration {
+					setHeadPublicationGeneration(t, repository, kind, item.Meta.ID, 0)
+					if kind == "Page" {
+						item, err = contentService.GetPage(item.Meta.ID)
+					} else {
+						item, err = contentService.GetPost(item.Meta.ID)
+					}
+					if err != nil || item.Meta.PublicationGeneration != 0 {
+						t.Fatalf("legacy published head = %#v, %v", item.Meta, err)
+					}
+					firstGeneration = item.Meta.PublicationGeneration
+				}
+				if kind == "Page" {
+					item, err = contentService.UpdatePageLocale(item.Meta.ID, item.Meta.SourceLocale, content.UpdateLocaleInput{
+						ExpectedRevision: item.Meta.Revision,
+						Title:            "未发布页面 B",
+						Markdown:         "未发布页面正文 B",
+					})
+				} else {
+					item, err = contentService.UpdateLocale(item.Meta.ID, item.Meta.SourceLocale, content.UpdateLocaleInput{
+						ExpectedRevision: item.Meta.Revision,
+						Title:            "未发布文章 B",
+						Markdown:         "未发布文章正文 B",
+					})
+				}
+				if err != nil || item.Meta.Status != domain.ContentStatusPublished || item.Meta.PublicationGeneration != firstGeneration {
+					t.Fatalf("unpublished source head = %#v, %v", item.Meta, err)
+				}
+				secondGeneration := 0
+				translator := &mutatingPrefixTranslator{}
+				translator.onFirstContent = func() error {
+					var current domain.Post
+					var getErr error
+					if kind == "Page" {
+						current, getErr = contentService.GetPage(item.Meta.ID)
+					} else {
+						current, getErr = contentService.GetPost(item.Meta.ID)
+					}
+					if getErr != nil {
+						return getErr
+					}
+					if kind == "Page" {
+						current, getErr = contentService.PublishPage(item.Meta.ID, current.Meta.Revision)
+					} else {
+						current, getErr = contentService.PublishPost(item.Meta.ID, current.Meta.Revision)
+					}
+					if getErr == nil {
+						secondGeneration = current.Meta.PublicationGeneration
+					}
+					return getErr
+				}
+				service := NewService(repository, contentService, translator)
+				if _, err := service.Provision(context.Background(), "ja"); !errors.Is(err, content.ErrSourceChanged) {
+					t.Fatalf("Provision() error = %v, want content.ErrSourceChanged", err)
+				}
+				if secondGeneration <= firstGeneration {
+					t.Fatalf("same-source republish generations = %d -> %d", firstGeneration, secondGeneration)
+				}
+				released, err := contentService.GetPublishedRelease(kind, item.Meta.ID)
+				if err != nil || released.Meta.PublicationGeneration != secondGeneration {
+					t.Fatalf("later release = %#v, %v", released.Meta, err)
+				}
+				if _, exists := released.Content["ja"]; exists {
+					t.Fatalf("P1 bulk translation wrote P2 release: %#v", released.Content["ja"])
+				}
+				var current domain.Post
+				if kind == "Page" {
+					current, err = contentService.GetPage(item.Meta.ID)
+				} else {
+					current, err = contentService.GetPost(item.Meta.ID)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, exists := current.Content["ja"]; exists {
+					t.Fatalf("P1 bulk translation wrote P2 head: %#v", current.Content["ja"])
+				}
+			})
+		}
 	}
 }
 

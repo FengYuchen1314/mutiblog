@@ -301,14 +301,28 @@ func TestPostAndPageCoreBehaviorParity(t *testing.T) {
 				t.Fatalf("%s crossed into %s path: exists = %t, err = %v", test.name, oppositePlural, exists, pathErr)
 			}
 
-			if _, err := test.update(service, item.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: 99, Title: "Stale"}); !errors.Is(err, ErrConflict) {
-				t.Fatalf("stale %s update error = %v", test.name, err)
+			if _, err := test.update(service, item.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: 99, Title: "Stale"}); !errors.Is(err, ErrLocaleAIManaged) {
+				t.Fatalf("derived %s update error = %v", test.name, err)
 			}
-			item, err = test.update(service, item.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: item.Meta.Revision, Title: "  Manual  ", Markdown: "Manual body"})
+			if _, err := test.update(service, item.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: item.Meta.Revision, Title: "  Manual  ", Markdown: "Manual body"}); !errors.Is(err, ErrLocaleAIManaged) {
+				t.Fatalf("manual %s update error = %v", test.name, err)
+			}
+			item, err = test.translate(service, item.Meta.ID, "en", ApplyAITranslationInput{
+				ExpectedSourceRevision: item.Meta.Locales[sourceLocale].Revision,
+				Content:                domain.LocalizedMarkdown{Title: "  Manual  ", Markdown: "Manual body"},
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Seed an imported legacy manual target explicitly. New manual writes
+			// are rejected above, while the AI overwrite compatibility remains
+			// important for restored repositories.
 			manualState := item.Meta.Locales["en"]
+			manualState.Origin = domain.LocaleOriginManual
+			item.Meta.Locales["en"] = manualState
+			if err := repository.WriteYAML(filepath.Join(contentPath, "meta.yaml"), item.Meta, false); err != nil {
+				t.Fatal(err)
+			}
 			if item.Meta.Revision != 2 || manualState.Revision != 1 || manualState.Origin != domain.LocaleOriginManual || item.Content["en"].Title != "Manual" {
 				t.Fatalf("manual %s locale = %#v", test.name, item)
 			}
@@ -390,6 +404,52 @@ func TestPostAndPageCoreBehaviorParity(t *testing.T) {
 	}
 }
 
+func TestManualContentMutationsFailClosedForLegacyNonChineseSource(t *testing.T) {
+	for _, kind := range []string{"Post", "Page"} {
+		t.Run(kind, func(t *testing.T) {
+			service, repository := testService(t)
+			var item domain.Post
+			var err error
+			contentRoot := filepath.Join("content", "posts")
+			if kind == "Page" {
+				contentRoot = filepath.Join("content", "pages")
+				item, err = service.CreatePage(CreatePageInput{ID: "legacy-source-page", Title: "源文", Markdown: "正文"})
+				if err == nil {
+					item, err = service.ApplyAIPageTranslation(item.Meta.ID, "en", ApplyAITranslationInput{ExpectedSourceRevision: 1, Content: domain.LocalizedMarkdown{Title: "Legacy source", Markdown: "Legacy body"}})
+				}
+			} else {
+				item, err = service.CreatePost(CreatePostInput{ID: "legacy-source-post", Title: "源文", Markdown: "正文"})
+				if err == nil {
+					item, err = service.ApplyAITranslation(item.Meta.ID, "en", ApplyAITranslationInput{ExpectedSourceRevision: 1, Content: domain.LocalizedMarkdown{Title: "Legacy source", Markdown: "Legacy body"}})
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			item.Meta.SourceLocale = "en"
+			if err := repository.WriteYAML(filepath.Join(contentRoot, item.Meta.ID, "meta.yaml"), item.Meta, false); err != nil {
+				t.Fatal(err)
+			}
+			var updateErr error
+			if kind == "Page" {
+				_, updateErr = service.UpdatePageLocale(item.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: item.Meta.Revision, Title: "Manual legacy edit", Markdown: "Blocked"})
+			} else {
+				_, updateErr = service.UpdateLocale(item.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: item.Meta.Revision, Title: "Manual legacy edit", Markdown: "Blocked"})
+			}
+			if !errors.Is(updateErr, ErrLocaleAIManaged) {
+				t.Fatalf("legacy manual update error = %v", updateErr)
+			}
+			revisions, err := service.ListRevisions(kind, item.Meta.ID)
+			if err != nil || len(revisions) == 0 {
+				t.Fatalf("legacy revisions = %#v, %v", revisions, err)
+			}
+			if _, err := service.RestoreRevision(kind, item.Meta.ID, revisions[0].ID, item.Meta.Revision); !errors.Is(err, ErrLocaleAIManaged) {
+				t.Fatalf("legacy revision restore error = %v", err)
+			}
+		})
+	}
+}
+
 func TestCommitPublicationPreservesReleaseAndRollbackErrors(t *testing.T) {
 	releaseFailure := errors.New("release failed")
 	rollbackFailure := errors.New("rollback failed")
@@ -433,7 +493,7 @@ func TestCommitPublicationPreservesReleaseAndRollbackErrors(t *testing.T) {
 	}
 }
 
-func TestPostLifecycleAndManualTranslationProtection(t *testing.T) {
+func TestPostLifecycleAndDerivedLocaleWriteProtection(t *testing.T) {
 	service, repository := testService(t)
 	post, err := service.CreatePost(CreatePostInput{ID: "hello-world", Title: "你好", SEOTitle: "搜索标题", SEODescription: "搜索描述", Markdown: "# 第一版"})
 	if err != nil {
@@ -450,12 +510,15 @@ func TestPostLifecycleAndManualTranslationProtection(t *testing.T) {
 		t.Fatalf("unexpected markdown file:\n%s", data)
 	}
 
-	post, err = service.UpdateLocale(post.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: 1, Title: "Hello", Markdown: "# Manual English"})
-	if err != nil {
-		t.Fatal(err)
+	if _, err := service.UpdateLocale(post.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: 1, Title: "Manual English", Markdown: "# Manual English"}); !errors.Is(err, ErrLocaleAIManaged) {
+		t.Fatalf("manual target update error = %v", err)
 	}
-	if post.Meta.Locales["en"].Origin != domain.LocaleOriginManual {
-		t.Fatalf("origin = %s", post.Meta.Locales["en"].Origin)
+	post, err = service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{
+		ExpectedSourceRevision: 1,
+		Content:                domain.LocalizedMarkdown{Title: "Hello", Markdown: "# AI English"},
+	})
+	if err != nil || post.Meta.Locales["en"].Origin != domain.LocaleOriginAI {
+		t.Fatalf("AI target update = %#v, %v", post, err)
 	}
 
 	post, err = service.UpdateLocale(post.Meta.ID, "zh-CN", UpdateLocaleInput{ExpectedRevision: 2, Title: "你好", Markdown: "# 第二版"})
@@ -463,11 +526,11 @@ func TestPostLifecycleAndManualTranslationProtection(t *testing.T) {
 		t.Fatal(err)
 	}
 	english := post.Meta.Locales["en"]
-	if english.State != "stale" || english.Origin != domain.LocaleOriginManual {
-		t.Fatalf("manual translation was not preserved: %#v", english)
+	if english.State != "stale" || english.Origin != domain.LocaleOriginAI {
+		t.Fatalf("AI translation was not preserved as stale: %#v", english)
 	}
-	if post.Content["en"].Markdown != "# Manual English" {
-		t.Fatal("manual translation content was overwritten")
+	if post.Content["en"].Markdown != "# AI English" {
+		t.Fatal("AI translation content was overwritten by a source edit")
 	}
 
 	post, err = service.PublishPost(post.Meta.ID, 3)
@@ -565,12 +628,18 @@ func TestAITranslationDoesNotOverwriteTargetChangedAfterConfirmation(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	post, err = service.UpdateLocale(post.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: post.Meta.Revision, Title: "Manual before confirmation", Markdown: "First"})
+	post, err = service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{
+		ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "AI before confirmation", Markdown: "First"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	confirmedRevision := post.Meta.Locales["en"].Revision
-	post, err = service.UpdateLocale(post.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: post.Meta.Revision, Title: "Manual after confirmation", Markdown: "Second"})
+	post, err = service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{
+		ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "AI after confirmation", Markdown: "Second"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,12 +653,12 @@ func TestAITranslationDoesNotOverwriteTargetChangedAfterConfirmation(t *testing.
 		t.Fatalf("ApplyAITranslation() error = %v", err)
 	}
 	post, err = service.GetPost(post.Meta.ID)
-	if err != nil || post.Content["en"].Title != "Manual after confirmation" || post.Meta.Locales["en"].Origin != domain.LocaleOriginManual {
-		t.Fatalf("newer manual target was not preserved: %#v, %v", post, err)
+	if err != nil || post.Content["en"].Title != "AI after confirmation" || post.Meta.Locales["en"].Origin != domain.LocaleOriginAI {
+		t.Fatalf("newer AI target was not preserved: %#v, %v", post, err)
 	}
 }
 
-func TestAITranslationChecksSourceRevisionAndProtectsManualContent(t *testing.T) {
+func TestAITranslationChecksSourceRevisionAndManualTargetsStayReadOnly(t *testing.T) {
 	service, _ := testService(t)
 	post, err := service.CreatePost(CreatePostInput{ID: "translation-test", Title: "源文", Markdown: "正文"})
 	if err != nil {
@@ -599,12 +668,8 @@ func TestAITranslationChecksSourceRevisionAndProtectsManualContent(t *testing.T)
 	if err != nil || post.Meta.Locales["en"].Origin != domain.LocaleOriginAI {
 		t.Fatalf("AI translation = %#v, err = %v", post, err)
 	}
-	post, err = service.UpdateLocale(post.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: post.Meta.Revision, Title: "Manual", Markdown: "Manual body"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{ExpectedSourceRevision: 1, Content: domain.LocalizedMarkdown{Title: "Overwrite"}}); !errors.Is(err, ErrManualProtected) {
-		t.Fatalf("manual protection error = %v", err)
+	if _, err := service.UpdateLocale(post.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: post.Meta.Revision, Title: "Manual", Markdown: "Manual body"}); !errors.Is(err, ErrLocaleAIManaged) {
+		t.Fatalf("manual target update error = %v", err)
 	}
 	post, err = service.UpdateLocale(post.Meta.ID, "zh-CN", UpdateLocaleInput{ExpectedRevision: post.Meta.Revision, Title: "源文第二版", Markdown: "正文第二版"})
 	if err != nil {
@@ -613,7 +678,7 @@ func TestAITranslationChecksSourceRevisionAndProtectsManualContent(t *testing.T)
 	if _, err := service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{ExpectedSourceRevision: 1, OverwriteManual: true, Content: domain.LocalizedMarkdown{Title: "Stale"}}); !errors.Is(err, ErrSourceChanged) {
 		t.Fatalf("source revision error = %v", err)
 	}
-	post, err = service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{ExpectedSourceRevision: 2, OverwriteManual: true, Content: domain.LocalizedMarkdown{Title: "Fresh", Markdown: "Fresh body"}})
+	post, err = service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{ExpectedSourceRevision: 2, Content: domain.LocalizedMarkdown{Title: "Fresh", Markdown: "Fresh body"}})
 	if err != nil || post.Meta.Locales["en"].Origin != domain.LocaleOriginAI || post.Content["en"].Title != "Fresh" {
 		t.Fatalf("forced AI translation = %#v, err = %v", post, err)
 	}
@@ -1028,6 +1093,7 @@ func TestInitializePublishedReleasesMigratesLegacyHead(t *testing.T) {
 	legacy.BaseRevision = 0
 	legacy.HeadRevision = 0
 	legacy.ReleaseRevision = 0
+	legacy.PublicationGeneration = 0
 	if err := repository.WriteYAML(postPath(post.Meta.ID, "meta.yaml"), legacy, false); err != nil {
 		t.Fatal(err)
 	}
@@ -1039,8 +1105,185 @@ func TestInitializePublishedReleasesMigratesLegacyHead(t *testing.T) {
 	if err != nil || released[0].Content["zh-CN"].Title != "Legacy public" {
 		t.Fatalf("migrated release = %#v, %v", released, err)
 	}
-	if err := repository.ReadYAML(postPath(post.Meta.ID, "meta.yaml"), &legacy); err != nil || legacy.BaseRevision != 1 || legacy.HeadRevision != legacy.Revision || legacy.ReleaseRevision != legacy.Revision {
+	if err := repository.ReadYAML(postPath(post.Meta.ID, "meta.yaml"), &legacy); err != nil || legacy.BaseRevision != 1 || legacy.HeadRevision != legacy.Revision || legacy.ReleaseRevision != legacy.Revision || legacy.PublicationGeneration != legacy.Revision {
 		t.Fatalf("migrated pointers = %#v, %v", legacy, err)
+	}
+}
+
+func TestInitializePublishedReleasesSeedsGenerationFromReleaseAndAdvancesPastDraft(t *testing.T) {
+	for _, kind := range []string{"Post", "Page"} {
+		t.Run(kind, func(t *testing.T) {
+			service, repository := testService(t)
+			var (
+				item domain.Post
+				err  error
+			)
+			if kind == "Page" {
+				item, err = service.CreatePage(CreatePageInput{ID: "legacy-generation-page", Title: "Published", Markdown: "Body"})
+			} else {
+				item, err = service.CreatePost(CreatePostInput{ID: "legacy-generation-post", Title: "Published", Markdown: "Body"})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == "Page" {
+				item, err = service.PublishPage(item.Meta.ID, item.Meta.Revision)
+			} else {
+				item, err = service.PublishPost(item.Meta.ID, item.Meta.Revision)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			publishedRevision := item.Meta.ReleaseRevision
+			if kind == "Page" {
+				item, err = service.UpdatePageLocale(item.Meta.ID, item.Meta.SourceLocale, UpdateLocaleInput{ExpectedRevision: item.Meta.Revision, Title: "Draft", Markdown: "Draft body"})
+			} else {
+				item, err = service.UpdateLocale(item.Meta.ID, item.Meta.SourceLocale, UpdateLocaleInput{ExpectedRevision: item.Meta.Revision, Title: "Draft", Markdown: "Draft body"})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			root, err := releaseRoot(kind, item.Meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var pointer releasePointer
+			if err := repository.ReadYAML(filepath.Join(root, "current.yaml"), &pointer); err != nil {
+				t.Fatal(err)
+			}
+			released, err := service.GetPublishedRelease(kind, item.Meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			released.Meta.PublicationGeneration = 0
+			if err := service.writeContentSnapshot(filepath.Join(root, "snapshots", pointer.Snapshot), released); err != nil {
+				t.Fatal(err)
+			}
+			paths, err := lifecyclePaths(kind, item.Meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := service.writeContentSnapshot(filepath.Join(paths.revisions, pointer.HistorySnapshot), released); err != nil {
+				t.Fatal(err)
+			}
+			item.Meta.PublicationGeneration = 0
+			metaPath := postPath(item.Meta.ID, "meta.yaml")
+			if kind == "Page" {
+				metaPath = pagePath(item.Meta.ID, "meta.yaml")
+			}
+			if err := repository.WriteYAML(metaPath, item.Meta, false); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := service.InitializePublishedReleases(); err != nil {
+				t.Fatal(err)
+			}
+			released, err = service.GetPublishedRelease(kind, item.Meta.ID)
+			if err != nil || released.Meta.PublicationGeneration != publishedRevision {
+				t.Fatalf("migrated release = %#v, %v; want generation %d", released.Meta, err, publishedRevision)
+			}
+			migratedHead, err := func() (domain.Post, error) {
+				if kind == "Page" {
+					return service.GetPage(item.Meta.ID)
+				}
+				return service.GetPost(item.Meta.ID)
+			}()
+			if err != nil || migratedHead.Meta.PublicationGeneration != publishedRevision || migratedHead.Meta.Revision <= publishedRevision {
+				t.Fatalf("migrated draft head = %#v, %v", migratedHead.Meta, err)
+			}
+			if kind == "Page" {
+				item, err = service.PublishPage(item.Meta.ID, migratedHead.Meta.Revision)
+			} else {
+				item, err = service.PublishPost(item.Meta.ID, migratedHead.Meta.Revision)
+			}
+			if err != nil || item.Meta.PublicationGeneration <= publishedRevision {
+				t.Fatalf("next publication = %#v, %v; want generation after %d", item.Meta, err, publishedRevision)
+			}
+		})
+	}
+}
+
+func TestInitializePublishedReleasesPreservesNewerHeadGenerationAsPendingRelease(t *testing.T) {
+	for _, kind := range []string{"Post", "Page"} {
+		t.Run(kind, func(t *testing.T) {
+			service, repository := testService(t)
+			var (
+				item domain.Post
+				err  error
+			)
+			if kind == "Page" {
+				item, err = service.CreatePage(CreatePageInput{ID: "interrupted-generation-page", Title: "Source", Markdown: "Body"})
+			} else {
+				item, err = service.CreatePost(CreatePostInput{ID: "interrupted-generation-post", Title: "Source", Markdown: "Body"})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == "Page" {
+				item, err = service.PublishPage(item.Meta.ID, item.Meta.Revision)
+			} else {
+				item, err = service.PublishPost(item.Meta.ID, item.Meta.Revision)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			generation := item.Meta.PublicationGeneration
+			sourceRevision := item.Meta.Locales[item.Meta.SourceLocale].Revision
+			translation := ApplyAITranslationInput{
+				ExpectedSourceRevision: sourceRevision,
+				Content:                domain.LocalizedMarkdown{Title: "English", Markdown: "English body"},
+			}
+			if kind == "Page" {
+				item, err = service.ApplyAIPageTranslation(item.Meta.ID, "en", translation)
+			} else {
+				item, err = service.ApplyAITranslation(item.Meta.ID, "en", translation)
+			}
+			if err != nil {
+				t.Fatalf("prepare current P1 target = %#v, %v", item.Meta, err)
+			}
+			if err := service.PromoteAITranslationForPublication(kind, item.Meta.ID, "en", sourceRevision, generation); err != nil {
+				t.Fatal(err)
+			}
+			head, err := func() (domain.Post, error) {
+				if kind == "Page" {
+					return service.GetPage(item.Meta.ID)
+				}
+				return service.GetPost(item.Meta.ID)
+			}()
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Reproduce the crash point after P2's head metadata commit but before
+			// its release pointer write. The previous P1 release remains current.
+			advanceHead(&head.Meta)
+			head.Meta.ReleaseRevision = head.Meta.Revision
+			head.Meta.PublicationGeneration = max(head.Meta.Revision, generation+1)
+			metaPath := postPath(head.Meta.ID, "meta.yaml")
+			if kind == "Page" {
+				metaPath = pagePath(head.Meta.ID, "meta.yaml")
+			}
+			if err := repository.WriteYAML(metaPath, head.Meta, false); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := service.InitializePublishedReleases(); err != nil {
+				t.Fatal(err)
+			}
+			released, err := service.GetPublishedRelease(kind, head.Meta.ID)
+			if err != nil || released.Meta.PublicationGeneration != head.Meta.PublicationGeneration || released.Meta.Revision != head.Meta.Revision || released.Meta.Locales["en"].State != "stale" {
+				t.Fatalf("recovered P2 pending release = %#v, %v", released.Meta, err)
+			}
+			storedHead, err := func() (domain.Post, error) {
+				if kind == "Page" {
+					return service.GetPage(head.Meta.ID)
+				}
+				return service.GetPost(head.Meta.ID)
+			}()
+			if err != nil || storedHead.Meta.PublicationGeneration != head.Meta.PublicationGeneration || storedHead.Meta.ReleaseRevision != head.Meta.Revision {
+				t.Fatalf("recovered P2 head = %#v, %v", storedHead.Meta, err)
+			}
+		})
 	}
 }
 
@@ -1206,7 +1449,7 @@ func TestRestoreRevisionCreatesHeadWithoutChangingRelease(t *testing.T) {
 	}
 }
 
-func TestRestoreRevisionRemovesLocalesAbsentFromSnapshot(t *testing.T) {
+func TestRestoreRevisionPreservesAIManagedLocalesAbsentFromSnapshot(t *testing.T) {
 	for _, kind := range []string{"Post", "Page"} {
 		t.Run(kind, func(t *testing.T) {
 			service, repository := testService(t)
@@ -1221,9 +1464,9 @@ func TestRestoreRevisionRemovesLocalesAbsentFromSnapshot(t *testing.T) {
 				t.Fatal(err)
 			}
 			if kind == "Post" {
-				item, err = service.UpdateLocale(item.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: item.Meta.Revision, Title: "English", Markdown: "Body"})
+				item, err = service.ApplyAITranslation(item.Meta.ID, "en", ApplyAITranslationInput{ExpectedSourceRevision: 1, Content: domain.LocalizedMarkdown{Title: "English", Markdown: "Body"}})
 			} else {
-				item, err = service.UpdatePageLocale(item.Meta.ID, "en", UpdateLocaleInput{ExpectedRevision: item.Meta.Revision, Title: "English", Markdown: "Body"})
+				item, err = service.ApplyAIPageTranslation(item.Meta.ID, "en", ApplyAITranslationInput{ExpectedSourceRevision: 1, Content: domain.LocalizedMarkdown{Title: "English", Markdown: "Body"}})
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -1246,18 +1489,21 @@ func TestRestoreRevisionRemovesLocalesAbsentFromSnapshot(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, exists := restored.Meta.Locales["en"]; exists {
-				t.Fatalf("restored metadata retained removed locale: %#v", restored.Meta.Locales)
+			if state, exists := restored.Meta.Locales["en"]; !exists || state.State != "stale" || state.Origin != domain.LocaleOriginAI || state.Revision != item.Meta.Locales["en"].Revision {
+				t.Fatalf("restored metadata did not preserve stale AI locale: %#v", restored.Meta.Locales)
 			}
-			if _, exists := restored.Content["en"]; exists {
-				t.Fatalf("restored content retained removed locale: %#v", restored.Content)
+			if restored.Content["en"] != item.Content["en"] {
+				t.Fatalf("restored content changed AI locale: %#v", restored.Content)
+			}
+			if restored.Meta.Locales[restored.Meta.SourceLocale].Revision != item.Meta.Locales[item.Meta.SourceLocale].Revision+1 {
+				t.Fatalf("restored source revision = %#v, previous = %#v", restored.Meta.Locales[restored.Meta.SourceLocale], item.Meta.Locales[item.Meta.SourceLocale])
 			}
 			paths, err := lifecyclePaths(kind, item.Meta.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := repository.ReadFile(filepath.Join(paths.content, "en.md")); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("removed head locale read error = %v, want not exist", err)
+			if data, err := repository.ReadFile(filepath.Join(paths.content, "en.md")); err != nil || len(data) == 0 {
+				t.Fatalf("preserved head locale read = %q, %v", data, err)
 			}
 			var reloaded domain.Post
 			if kind == "Post" {
