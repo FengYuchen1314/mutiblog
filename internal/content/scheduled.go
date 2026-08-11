@@ -17,7 +17,7 @@ import (
 func (s *Service) SetScheduledPublish(kind, id string, expectedRevision int, dueAt time.Time) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	item, path, err := s.scheduledContent(kind, id)
+	item, path, err := s.scheduledContentLocked(kind, id)
 	if err != nil {
 		return domain.Post{}, err
 	}
@@ -40,7 +40,7 @@ func (s *Service) SetScheduledPublish(kind, id string, expectedRevision int, due
 func (s *Service) ClearScheduledPublish(kind, id string, scheduledRevision int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	item, path, err := s.scheduledContent(kind, id)
+	item, path, err := s.scheduledContentLocked(kind, id)
 	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
@@ -62,7 +62,7 @@ func (s *Service) ClearScheduledPublish(kind, id string, scheduledRevision int) 
 func (s *Service) CompleteScheduledPublish(kind, id string, scheduledRevision int, dueAt time.Time) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	item, _, err := s.scheduledContent(kind, id)
+	item, _, err := s.scheduledContentLocked(kind, id)
 	if err != nil {
 		return domain.Post{}, err
 	}
@@ -94,13 +94,14 @@ func (s *Service) CompleteScheduledPublish(kind, id string, scheduledRevision in
 	return item, nil
 }
 
-func (s *Service) scheduledContent(kind, id string) (domain.Post, string, error) {
+// scheduledContentLocked expects the caller to hold s.mu for writing.
+func (s *Service) scheduledContentLocked(kind, id string) (domain.Post, string, error) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "post", "posts":
-		item, err := s.GetPost(id)
+		item, err := s.getPostLocked(id)
 		return item, filepath.Join("content", "posts", id, "meta.yaml"), err
 	case "page", "pages":
-		item, err := s.GetPage(id)
+		item, err := s.getPageLocked(id)
 		return item, filepath.Join("content", "pages", id, "meta.yaml"), err
 	default:
 		return domain.Post{}, "", ErrNotFound

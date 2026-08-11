@@ -4,7 +4,8 @@ import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs";
 import type Token from "markdown-it/lib/token.mjs";
 
 const currencyAmount = /^\$(?:0|[1-9]\d*)(?:,\d{3})*(?:\.\d{1,2})?(?=$|[\s.,;:!?)}\]])/;
-const unsafeTeX = /(?:\\(?:require|autoload|newcommand|renewcommand|newenvironment|renewenvironment|def|let|setoptions|href|url|class|cssid|style|data|htmlclass|htmlid|htmlstyle|htmldata|includegraphics)\b|(?:javascript|vbscript|data)\s*:)/i;
+const unsafeTeX =
+  /(?:\\(?:require|autoload|newcommand|renewcommand|newenvironment|renewenvironment|def|let|setoptions|href|url|class|cssid|style|data|htmlclass|htmlid|htmlstyle|htmldata|includegraphics)\b|(?:javascript|vbscript|data)\s*:)/i;
 
 /**
  * Creates the browser-only Markdown renderer used by the editor preview.
@@ -23,12 +24,10 @@ export function createPreviewMarkdownRenderer() {
   });
   renderer.inline.ruler.before("math_inline", "currency_amount", currencyInline);
 
-  renderer.renderer.rules.math_inline = (tokens: Token[], index: number) => (
-    `<span class="math-inline" data-math-preview="inline">${renderer.utils.escapeHtml(tokens[index].content)}</span>`
-  );
-  renderer.renderer.rules.math_block = (tokens: Token[], index: number) => (
-    `<div class="math-display" data-math-preview="display">${renderer.utils.escapeHtml(tokens[index].content)}</div>\n`
-  );
+  renderer.renderer.rules.math_inline = (tokens: Token[], index: number) =>
+    `<span class="math-inline" data-math-preview="inline">${renderer.utils.escapeHtml(tokens[index].content)}</span>`;
+  renderer.renderer.rules.math_block = (tokens: Token[], index: number) =>
+    `<div class="math-display" data-math-preview="display">${renderer.utils.escapeHtml(tokens[index].content)}</div>\n`;
 
   return renderer;
 }
@@ -128,9 +127,10 @@ function mathBlock(state: StateBlock, start: number, end: number, silent: boolea
     }
   }
 
-  const content = (firstLine && firstLine.trim() ? `${firstLine}\n` : "")
-    + state.getLines(start + 1, next, state.tShift[start], true)
-    + (lastLine && lastLine.trim() ? lastLine : "");
+  const content =
+    (firstLine && firstLine.trim() ? `${firstLine}\n` : "") +
+    state.getLines(start + 1, next, state.tShift[start], true) +
+    (lastLine && lastLine.trim() ? lastLine : "");
   if (!isSafeMathSource(content)) return false;
 
   state.line = next + 1;

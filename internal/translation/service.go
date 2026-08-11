@@ -86,6 +86,9 @@ type StartInput struct {
 	Locales         []string
 	OverwriteManual bool
 	SkipManual      bool
+	// RecordPreflightFailure opts automatic publication flows into durable,
+	// sanitized task history when a real target exists but AI is not configured.
+	RecordPreflightFailure bool
 }
 
 type Service struct {
@@ -105,6 +108,7 @@ type Service struct {
 	cancel          context.CancelFunc
 	lifecycleMu     sync.Mutex
 	closed          bool
+	launched        map[string]struct{}
 	runWG           sync.WaitGroup
 	terminalMu      sync.Mutex
 	terminalClosed  bool
@@ -117,7 +121,7 @@ func NewService(repository *fsrepo.Repository, contentService *content.Service, 
 	root, cancel := context.WithCancel(context.Background())
 	service := &Service{
 		repository: repository, content: contentService, ai: aiService, rebuilder: rebuilder, semaphore: make(chan struct{}, 1),
-		root: root, cancel: cancel, terminalRetries: make(map[string]terminalRetry),
+		root: root, cancel: cancel, launched: make(map[string]struct{}), terminalRetries: make(map[string]terminalRetry),
 	}
 	service.generation.Store(1)
 	return service
@@ -144,6 +148,11 @@ func (s *Service) launch(taskID string) bool {
 		s.lifecycleMu.Unlock()
 		return false
 	}
+	if _, exists := s.launched[taskID]; exists {
+		s.lifecycleMu.Unlock()
+		return false
+	}
+	s.launched[taskID] = struct{}{}
 	s.runWG.Add(1)
 	s.lifecycleMu.Unlock()
 	go func() {
@@ -165,8 +174,9 @@ func (s *Service) SetContentChangedCallback(callback func(entityKind, entityID s
 
 // SetContentMutationAcquire installs an optional narrow mutation gate. Provider
 // calls intentionally remain outside it; only the durable Apply/Promote pair
-// and the resulting schedule invalidation callback are serialized with other
-// content mutations and external-change projection handling.
+// is serialized with other content mutations and external-change projection
+// handling. The resulting schedule invalidation callback runs after this gate
+// is released, while the pause gate still prevents a restore from interleaving.
 func (s *Service) SetContentMutationAcquire(acquire func() func()) {
 	s.callbackMu.Lock()
 	s.mutationAcquire = acquire
@@ -187,12 +197,21 @@ func (s *Service) acquireContentMutation() func() {
 	return release
 }
 
-func (s *Service) withDurableContentMutation(work func()) {
-	releaseMutation := s.acquireContentMutation()
-	defer releaseMutation()
+func (s *Service) withDurableContentMutation(work, after func()) {
+	release := s.acquireContentMutation()
+	var releaseOnce sync.Once
+	releaseMutation := func() { releaseOnce.Do(release) }
+	// Resolve and acquire the mutation gate before entering the pause gate to
+	// preserve the server-wide lock order. sync.Once makes both the normal and
+	// panic paths safe without risking a double unlock.
 	s.runGate.RLock()
 	defer s.runGate.RUnlock()
+	defer releaseMutation()
 	work()
+	releaseMutation()
+	if after != nil {
+		after()
+	}
 }
 
 func (s *Service) withPauseGate(work func()) {
@@ -260,6 +279,20 @@ func (s *Service) Recover() (int, error) {
 }
 
 func (s *Service) Start(input StartInput) (Task, error) {
+	task, created, err := s.Prepare(input)
+	if err != nil {
+		return task, err
+	}
+	if created && !s.LaunchPrepared(task.ID) {
+		slog.Warn("translation task persisted for next-start recovery because service is closing", "task", task.ID)
+	}
+	return task, nil
+}
+
+// Prepare validates a translation request and durably records new work without
+// starting provider calls. Reusing an identical queued/running task returns
+// created=false so its existing owner remains solely responsible for launch.
+func (s *Service) Prepare(input StartInput) (Task, bool, error) {
 	s.startMu.Lock()
 	defer s.startMu.Unlock()
 
@@ -269,11 +302,11 @@ func (s *Service) Start(input StartInput) (Task, error) {
 	}
 	post, err := s.getContent(entityKind, input.PostID)
 	if err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
 	targets, manual, err := s.targets(post, input.Locales)
 	if err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
 	if len(manual) > 0 && !input.OverwriteManual {
 		if input.SkipManual {
@@ -289,24 +322,31 @@ func (s *Service) Start(input StartInput) (Task, error) {
 			}
 			targets = filtered
 			if len(targets) == 0 {
-				return Task{}, ErrNoTargets
+				return Task{}, false, ErrNoTargets
 			}
 		} else {
-			return Task{Targets: toTargetTasks(manual)}, ErrManualConfirmation
+			return Task{Targets: toTargetTasks(manual)}, false, ErrManualConfirmation
 		}
 	}
 	provider, _, err := s.ai.DefaultCredentials()
 	if err != nil {
-		return Task{}, err
+		if input.RecordPreflightFailure && recordableProviderPreflightError(err) {
+			task, recordErr := s.recordPreflightFailure(post, entityKind, targets, input.OverwriteManual, err)
+			if recordErr != nil {
+				return Task{}, false, errors.Join(err, fmt.Errorf("persist translation preflight failure: %w", recordErr))
+			}
+			return task, false, err
+		}
+		return Task{}, false, err
 	}
-	if existing, ok, err := s.activeTask(entityKind, post.Meta.ID, post.Meta.SourceLocale, post.Meta.Locales[post.Meta.SourceLocale].Revision, provider.ID, input.OverwriteManual, targets); err != nil {
-		return Task{}, err
+	if existing, ok, err := s.activeTask(post, provider.ID, input.OverwriteManual, targets); err != nil {
+		return Task{}, false, err
 	} else if ok {
-		return existing, nil
+		return existing, false, nil
 	}
 	taskID, err := newTaskID()
 	if err != nil {
-		return Task{}, err
+		return Task{}, false, err
 	}
 	task := Task{
 		SchemaVersion: domain.SchemaVersion, ID: taskID, Kind: "Translation", EntityKind: entityKind, EntityID: post.Meta.ID,
@@ -317,19 +357,58 @@ func (s *Service) Start(input StartInput) (Task, error) {
 	initializeTranslationIdentity(&task, post)
 	initializeTranslationProgress(&task, post.Content[post.Meta.SourceLocale], provider.MaxOutputTokens)
 	if err := s.writeTask(task); err != nil {
+		return Task{}, false, err
+	}
+	return task, true, nil
+}
+
+func recordableProviderPreflightError(err error) bool {
+	return errors.Is(err, ai.ErrProviderNotFound) || errors.Is(err, ai.ErrKeyMissing) || errors.Is(err, ai.ErrInvalidProvider)
+}
+
+func (s *Service) recordPreflightFailure(post domain.Post, entityKind string, targets []string, overwriteManual bool, cause error) (Task, error) {
+	taskID, err := newTaskID()
+	if err != nil {
 		return Task{}, err
 	}
-	if !s.launch(task.ID) {
-		slog.Warn("translation task persisted for next-start recovery because service is closing", "task", task.ID)
+	now := time.Now().UTC()
+	safeError := safeTaskError(cause)
+	task := Task{
+		SchemaVersion: domain.SchemaVersion, ID: taskID, Kind: "Translation", EntityKind: entityKind, EntityID: post.Meta.ID,
+		SourceLocale: post.Meta.SourceLocale, SourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		OverwriteManual: overwriteManual, Status: "failed", Targets: toTargetTasks(targets, post.Meta.Locales),
+		CreatedAt: now, CompletedAt: &now, Error: safeError,
+	}
+	initializeTranslationIdentity(&task, post)
+	for index := range task.Targets {
+		task.Targets[index].Status = "failed"
+		task.Targets[index].Error = safeError
+		task.Targets[index].CompletedAt = &now
+		task.Targets[index].Progress = taskstore.Advance(task.Targets[index].Progress, "translation-preflight", 0, 1, 0, safeError)
+	}
+	task.Progress = taskstore.Advance(task.Progress, "translation-preflight", 0, len(task.Targets)+1, 0, safeError)
+	if err := s.writeTask(task); err != nil {
+		return Task{}, err
 	}
 	return task, nil
+}
+
+// LaunchPrepared starts a durable translation ID at most once in this service
+// process. run performs the authoritative stored-status check; avoiding a
+// second pre-launch read prevents a transient read failure immediately after a
+// successful Prepare write from stranding the task until process restart.
+func (s *Service) LaunchPrepared(taskID string) bool {
+	if !validTaskID(taskID) {
+		return false
+	}
+	return s.launch(taskID)
 }
 
 // activeTask prevents duplicate clicks, repeated publish requests, and client
 // retries from spending provider quota on identical in-flight work. Completed
 // tasks are deliberately excluded so an administrator can explicitly run the
 // same translation again after reviewing the result.
-func (s *Service) activeTask(entityKind, entityID, sourceLocale string, sourceRevision int, providerID string, overwriteManual bool, targets []string) (Task, bool, error) {
+func (s *Service) activeTask(post domain.Post, providerID string, overwriteManual bool, targets []string) (Task, bool, error) {
 	tasks, err := s.List()
 	if err != nil {
 		return Task{}, false, err
@@ -338,14 +417,27 @@ func (s *Service) activeTask(entityKind, entityID, sourceLocale string, sourceRe
 		if task.Status != "queued" && task.Status != "running" {
 			continue
 		}
-		if task.EntityKind != entityKind || task.EntityID != entityID || task.SourceLocale != sourceLocale || task.SourceRevision != sourceRevision || task.ProviderID != providerID || task.OverwriteManual != overwriteManual {
+		if task.EntityKind != post.Meta.Kind || task.EntityID != post.Meta.ID || task.SourceLocale != post.Meta.SourceLocale || task.SourceRevision != post.Meta.Locales[post.Meta.SourceLocale].Revision || task.ProviderID != providerID || task.OverwriteManual != overwriteManual {
 			continue
 		}
-		if sameTargets(task.Targets, targets) {
+		if sameTargets(task.Targets, targets) && taskMatchesSource(task, post) && taskMatchesCurrentTargets(task, post) {
 			return task, true, nil
 		}
 	}
 	return Task{}, false, nil
+}
+
+func taskMatchesCurrentTargets(task Task, post domain.Post) bool {
+	for _, target := range task.Targets {
+		localized, exists := post.Content[target.Locale]
+		// ResultContent is written before ApplyAITranslation. Accepting either
+		// identity keeps a partially committed active task reusable, while rejecting
+		// stale tasks whose revision numbers merely collide after backup restore.
+		if !targetMatchesExpected(target, localized, exists) && !targetMatchesResult(target, localized, exists) {
+			return false
+		}
+	}
+	return true
 }
 
 func sameTargets(existing []TargetTask, requested []string) bool {
@@ -563,6 +655,7 @@ func (s *Service) run(taskID string) {
 			// targets or the public rebuild from being attempted.
 			hasDurableMutation = true
 			var promoteErr error
+			notifyChange := false
 			s.withDurableContentMutation(func() {
 				if !s.generationCurrent(runGeneration) {
 					promoteErr = content.ErrSourceChanged
@@ -571,7 +664,11 @@ func (s *Service) run(taskID string) {
 				promoteErr = s.content.PromoteAITranslation(task.EntityKind, task.EntityID, task.Targets[index].Locale, task.SourceRevision)
 				// The AI head mutation is already durable in this recovery branch even
 				// if public promotion now fails, so its old schedule must still retire.
-				s.notifyContentChanged(task.EntityKind, task.EntityID, post.Meta.Revision)
+				notifyChange = true
+			}, func() {
+				if notifyChange {
+					s.notifyContentChanged(task.EntityKind, task.EntityID, post.Meta.Revision)
+				}
 			})
 			if promoteErr != nil {
 				failed = true
@@ -664,6 +761,7 @@ func (s *Service) run(taskID string) {
 				if applied {
 					translateErr = s.content.PromoteAITranslation(task.EntityKind, task.EntityID, task.Targets[index].Locale, task.SourceRevision)
 				}
+			}, func() {
 				if applied {
 					s.notifyContentChanged(task.EntityKind, task.EntityID, updated.Meta.Revision)
 				}

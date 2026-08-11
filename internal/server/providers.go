@@ -75,7 +75,7 @@ func (s *Server) writeProviderError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ai.ErrInvalidProvider):
 		s.writeError(w, http.StatusUnprocessableEntity, "provider_invalid", "The AI provider configuration is invalid.", nil)
 	case errors.Is(err, ai.ErrProviderFailed):
-		s.writeError(w, http.StatusBadGateway, "provider_connection_failed", err.Error(), nil)
+		s.writeError(w, http.StatusBadGateway, "provider_connection_failed", ai.SafeProviderErrorMessage(err), nil)
 	default:
 		s.logger.Error("AI provider operation failed", "error", err)
 		s.writeError(w, http.StatusInternalServerError, "provider_operation_failed", "The AI provider operation failed.", nil)

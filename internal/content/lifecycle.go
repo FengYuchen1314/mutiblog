@@ -27,11 +27,13 @@ type RevisionSummary struct {
 }
 
 func (s *Service) ListRevisions(kind, id string) ([]RevisionSummary, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	paths, err := lifecyclePaths(kind, id)
 	if err != nil {
 		return nil, err
 	}
-	current, err := s.getLifecycleContent(kind, id)
+	current, err := s.getLifecycleContentLocked(kind, id)
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +44,14 @@ func (s *Service) ListRevisions(kind, id string) ([]RevisionSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	activeReleaseSnapshot := ""
+	if root, rootErr := releaseRoot(kind, id); rootErr == nil {
+		var pointer releasePointer
+		if pointerErr := s.repository.ReadYAML(filepath.Join(root, "current.yaml"), &pointer); pointerErr == nil && pointer.SchemaVersion == domain.SchemaVersion && validRevisionID(pointer.HistorySnapshot) {
+			activeReleaseSnapshot = pointer.HistorySnapshot
+		}
+	}
+	hasExactReleaseSnapshot := activeReleaseSnapshot != ""
 	items := make([]RevisionSummary, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() || !validRevisionID(entry.Name()) {
@@ -63,18 +73,24 @@ func (s *Service) ListRevisions(kind, id string) ([]RevisionSummary, error) {
 				title = localized.Title
 			}
 		}
-		items = append(items, RevisionSummary{ID: entry.Name(), Revision: meta.Revision, CreatedAt: createdAt, Status: meta.Status, Title: title, IsBase: meta.Revision == current.Meta.BaseRevision, IsHead: meta.Revision == current.Meta.HeadRevision, IsRelease: meta.Revision == current.Meta.ReleaseRevision})
+		isRelease := meta.Revision == current.Meta.ReleaseRevision
+		if hasExactReleaseSnapshot {
+			isRelease = entry.Name() == activeReleaseSnapshot
+		}
+		items = append(items, RevisionSummary{ID: entry.Name(), Revision: meta.Revision, CreatedAt: createdAt, Status: meta.Status, Title: title, IsBase: meta.Revision == current.Meta.BaseRevision, IsHead: meta.Revision == current.Meta.HeadRevision, IsRelease: isRelease})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
 	return items, nil
 }
 
 func (s *Service) GetRevision(kind, id, revisionID string) (domain.Post, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	paths, err := lifecyclePaths(kind, id)
 	if err != nil || !validRevisionID(revisionID) {
 		return domain.Post{}, ErrNotFound
 	}
-	if _, err := s.getLifecycleContent(kind, id); err != nil {
+	if _, err := s.getLifecycleContentLocked(kind, id); err != nil {
 		return domain.Post{}, err
 	}
 	return s.readRevision(paths, id, revisionID)
@@ -87,7 +103,7 @@ func (s *Service) RestoreRevision(kind, id, revisionID string, expectedRevision 
 	if err != nil || !validRevisionID(revisionID) {
 		return domain.Post{}, ErrNotFound
 	}
-	current, err := s.getLifecycleContent(kind, id)
+	current, err := s.getLifecycleContentLocked(kind, id)
 	if err != nil {
 		return domain.Post{}, err
 	}
@@ -116,7 +132,7 @@ func (s *Service) RestoreRevision(kind, id, revisionID string, expectedRevision 
 	restored.Meta.BaseRevision = current.Meta.BaseRevision
 	restored.Meta.HeadRevision = restored.Meta.Revision
 	restored.Meta.ReleaseRevision = current.Meta.ReleaseRevision
-	if err := s.writeLifecycleContent(paths, restored); err != nil {
+	if err := s.writeLifecycleContent(paths, current, restored); err != nil {
 		return domain.Post{}, err
 	}
 	restored.Meta.HasUnpublishedChanges = restored.Meta.Status == domain.ContentStatusPublished
@@ -130,7 +146,7 @@ func (s *Service) ChangeStatus(kind, id, action string, expectedRevision int) (d
 	if err != nil {
 		return domain.Post{}, err
 	}
-	item, err := s.getLifecycleContent(kind, id)
+	item, err := s.getLifecycleContentLocked(kind, id)
 	if err != nil {
 		return domain.Post{}, err
 	}
@@ -180,7 +196,7 @@ func (s *Service) DeleteRecycled(kind, id string, expectedRevision int) error {
 	if err != nil {
 		return err
 	}
-	item, err := s.getLifecycleContent(kind, id)
+	item, err := s.getLifecycleContentLocked(kind, id)
 	if err != nil {
 		return err
 	}
@@ -237,11 +253,14 @@ func lifecyclePaths(kind, id string) (lifecycleLocation, error) {
 	}
 }
 
-func (s *Service) getLifecycleContent(kind, id string) (domain.Post, error) {
+// getLifecycleContentLocked expects the caller to hold s.mu for reading or
+// writing. Keeping this dispatch lock-free prevents writer-to-reader lock
+// recursion in lifecycle mutations.
+func (s *Service) getLifecycleContentLocked(kind, id string) (domain.Post, error) {
 	if strings.HasPrefix(strings.ToLower(kind), "page") {
-		return s.GetPage(id)
+		return s.getPageLocked(id)
 	}
-	return s.GetPost(id)
+	return s.getPostLocked(id)
 }
 
 func (s *Service) snapshotLifecycle(kind string, item domain.Post) error {
@@ -279,8 +298,8 @@ func (s *Service) readRevision(paths lifecycleLocation, id, revisionID string) (
 	return domain.Post{Meta: meta, Content: contents}, nil
 }
 
-func (s *Service) writeLifecycleContent(paths lifecycleLocation, item domain.Post) error {
-	for locale, localized := range item.Content {
+func (s *Service) writeLifecycleContent(paths lifecycleLocation, current, restored domain.Post) error {
+	for locale, localized := range restored.Content {
 		data, err := encodeMarkdown(localized)
 		if err != nil {
 			return err
@@ -289,7 +308,18 @@ func (s *Service) writeLifecycleContent(paths lifecycleLocation, item domain.Pos
 			return err
 		}
 	}
-	return s.repository.WriteYAML(filepath.Join(paths.content, "meta.yaml"), item.Meta, false)
+	if err := s.repository.WriteYAML(filepath.Join(paths.content, "meta.yaml"), restored.Meta, false); err != nil {
+		return err
+	}
+	for locale := range current.Meta.Locales {
+		if _, retained := restored.Meta.Locales[locale]; retained {
+			continue
+		}
+		if err := s.repository.RemoveFile(filepath.Join(paths.content, locale+".md")); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove locale %s after revision restore: %w", locale, err)
+		}
+	}
+	return nil
 }
 
 func validRevisionID(id string) bool {

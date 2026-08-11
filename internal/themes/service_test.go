@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,10 +14,27 @@ import (
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
 )
 
+func installThemeForTest(t *testing.T, service *Service, reader io.Reader) (View, error) {
+	t.Helper()
+	installation, err := service.BeginInstall(reader)
+	if err != nil {
+		return View{}, err
+	}
+	defer func() {
+		if err := installation.Rollback(); err != nil {
+			t.Errorf("rollback theme installation: %v", err)
+		}
+	}()
+	if err := installation.Commit(); err != nil && !errors.Is(err, ErrCleanupPending) {
+		return View{}, err
+	}
+	return installation.View, nil
+}
+
 func TestInstallActivateUpgradeAndUninstallTheme(t *testing.T) {
 	service, repository := themeFixture(t)
 
-	installed, err := service.Install(themeArchive(t, map[string]string{
+	installed, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
 		"theme.yaml":      "schemaVersion: 1\nid: midnight\nname: Midnight\nversion: 1.0.0\nengine: react-ssr\nserver: server.mjs\nassets: assets\nscreenshot: screenshot.webp\npostTemplates:\n  - id: gallery\n    name: Gallery\npageTemplates:\n  - id: landing\n    name: Landing\ncategoryTemplates:\n  - id: masonry\n    name: Masonry\n",
 		"server.mjs":      "export const css = 'body{}';\n",
 		"assets/app.js":   "console.log('theme');\n",
@@ -61,7 +79,7 @@ func TestInstallActivateUpgradeAndUninstallTheme(t *testing.T) {
 		t.Fatalf("active uninstall error = %v, want ErrActive", err)
 	}
 
-	upgraded, err := service.Install(themeArchive(t, map[string]string{
+	upgraded, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
 		"theme.yaml": "schemaVersion: 1\nid: midnight\nname: Midnight\nversion: 2.0.0\nengine: react-ssr\nserver: server.mjs\n",
 		"server.mjs": "export const css = 'body{color:white}';\n",
 	}))
@@ -108,7 +126,7 @@ func TestInstallRejectsUnsafeArchives(t *testing.T) {
 		{"theme.yaml": "schemaVersion: 1\nid: earth\nname: Shadow Earth\nversion: 1\nengine: react-ssr\nserver: server.mjs\n", "server.mjs": ""},
 	}
 	for index, files := range unsafe {
-		if _, err := service.Install(themeArchive(t, files)); !errors.Is(err, ErrInvalid) {
+		if _, err := installThemeForTest(t, service, themeArchive(t, files)); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("archive %d error = %v, want ErrInvalid", index, err)
 		}
 	}
@@ -119,7 +137,7 @@ func TestInstallRejectsUnsafeArchives(t *testing.T) {
 
 func TestListRejectsThemeWhoseManifestIdentityDoesNotMatchItsDirectory(t *testing.T) {
 	service, repository := themeFixture(t)
-	if _, err := service.Install(themeArchive(t, map[string]string{
+	if _, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
 		"theme.yaml": "schemaVersion: 1\nid: midnight\nname: Midnight\nversion: 1.0.0\nengine: react-ssr\nserver: server.mjs\n",
 		"server.mjs": "export const css = '';\n",
 	})); err != nil {
@@ -135,7 +153,7 @@ func TestListRejectsThemeWhoseManifestIdentityDoesNotMatchItsDirectory(t *testin
 
 func TestListRejectsThemeWhoseAssetsWereReplacedWithSymlink(t *testing.T) {
 	service, repository := themeFixture(t)
-	if _, err := service.Install(themeArchive(t, map[string]string{
+	if _, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
 		"theme.yaml":    "schemaVersion: 1\nid: midnight\nname: Midnight\nversion: 1.0.0\nengine: react-ssr\nserver: server.mjs\nassets: assets\n",
 		"server.mjs":    "export const css = 'body{}';\n",
 		"assets/app.js": "console.log('theme');\n",
@@ -153,7 +171,7 @@ func TestListRejectsThemeWhoseAssetsWereReplacedWithSymlink(t *testing.T) {
 
 func TestUninstallCanDeleteSavedSettings(t *testing.T) {
 	service, repository := themeFixture(t)
-	if _, err := service.Install(themeArchive(t, map[string]string{
+	if _, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
 		"theme.yaml": "schemaVersion: 1\nid: disposable\nname: Disposable\nversion: 1.0.0\nengine: react-ssr\nserver: server.mjs\n",
 		"server.mjs": "export const css = '';\n",
 	})); err != nil {
@@ -172,7 +190,7 @@ func TestUninstallCanDeleteSavedSettings(t *testing.T) {
 
 func TestRecoverInterruptedThemeUninstall(t *testing.T) {
 	service, repository := themeFixture(t)
-	if _, err := service.Install(themeArchive(t, map[string]string{
+	if _, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
 		"theme.yaml": "schemaVersion: 1\nid: interrupted\nname: Interrupted\nversion: 1.0.0\nengine: react-ssr\nserver: server.mjs\n",
 		"server.mjs": "export const css = '';\n",
 	})); err != nil {
@@ -202,7 +220,7 @@ func TestRecoverInterruptedThemeUninstall(t *testing.T) {
 
 func TestIncompatibleThemeCanBeInstalledButNotActivated(t *testing.T) {
 	service, _ := themeFixture(t)
-	installed, err := service.Install(themeArchive(t, map[string]string{
+	installed, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
 		"theme.yaml": "schemaVersion: 1\nid: future\nname: Future\nversion: 1.0.0\nrequires: '>=9.0.0'\nengine: react-ssr\nserver: server.mjs\n",
 		"server.mjs": "export const css = '';\n",
 	}))
@@ -294,7 +312,7 @@ func TestRecoverRollsBackUncommittedFreshThemeInstall(t *testing.T) {
 
 func TestRecoverRollsBackUncommittedThemeUpgrade(t *testing.T) {
 	service, repository := themeFixture(t)
-	if _, err := service.Install(themeArchive(t, map[string]string{
+	if _, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
 		"theme.yaml": "schemaVersion: 1\nid: midnight\nname: Midnight\nversion: 1.0.0\nengine: react-ssr\nserver: server.mjs\n",
 		"server.mjs": "export const version = 'old';\n",
 	})); err != nil {
@@ -326,7 +344,7 @@ func TestRecoverRollsBackUncommittedThemeUpgrade(t *testing.T) {
 
 func TestRecoverFinishesCommittedThemeUpgradeCleanup(t *testing.T) {
 	service, repository := themeFixture(t)
-	if _, err := service.Install(themeArchive(t, map[string]string{
+	if _, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
 		"theme.yaml": "schemaVersion: 1\nid: midnight\nname: Midnight\nversion: 1.0.0\nengine: react-ssr\nserver: server.mjs\n",
 		"server.mjs": "export const version = 'old';\n",
 	})); err != nil {

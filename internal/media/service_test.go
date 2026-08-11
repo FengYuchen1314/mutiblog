@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -212,6 +213,272 @@ func TestRecoverInterruptedMediaDeletion(t *testing.T) {
 	if _, err := os.Stat(partialStage); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("partial cleanup stage still exists: %v", err)
 	}
+}
+
+func TestCreateCleansAnOriginalWhoseWriteReturnedAfterCommit(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository)
+	writeErr := errors.New("original directory sync failed")
+	originalPath := ""
+	service.writeFile = func(relative string, data []byte, mode fs.FileMode) error {
+		originalPath = relative
+		if err := repository.WriteFile(relative, data, mode); err != nil {
+			return err
+		}
+		return writeErr
+	}
+
+	if _, err := service.Create("uncertain-original.png", bytes.NewReader(testMediaPNG(t))); !errors.Is(err, writeErr) {
+		t.Fatalf("Create() error = %v, want %v", err, writeErr)
+	}
+	if originalPath == "" {
+		t.Fatal("Create did not attempt to write the original")
+	}
+	if exists, err := repository.Exists(originalPath); err != nil || exists {
+		t.Fatalf("uncertain original exists = %v, %v", exists, err)
+	}
+	entries, err := repository.ReadDir(filepath.Join("media", "metadata"))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("metadata entries = %v, %v", entries, err)
+	}
+}
+
+func TestCreateReportsOriginalWriteAndCleanupFailures(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository)
+	writeErr := errors.New("original directory sync failed")
+	cleanupErr := errors.New("original cleanup failed")
+	originalPath := ""
+	service.writeFile = func(relative string, data []byte, mode fs.FileMode) error {
+		originalPath = relative
+		if err := repository.WriteFile(relative, data, mode); err != nil {
+			return err
+		}
+		return writeErr
+	}
+	service.removeFile = func(string) error { return cleanupErr }
+
+	_, err = service.Create("uncertain-original.png", bytes.NewReader(testMediaPNG(t)))
+	if !errors.Is(err, writeErr) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("Create() error = %v, want joined write and cleanup failures", err)
+	}
+	if exists, statErr := repository.Exists(originalPath); statErr != nil || !exists {
+		t.Fatalf("orphan original exists = %v, %v", exists, statErr)
+	}
+
+	service.removeFile = repository.RemoveFile
+	if count, err := service.Recover(); err != nil || count != 1 {
+		t.Fatalf("Recover() = %d, %v", count, err)
+	}
+	if exists, statErr := repository.Exists(originalPath); statErr != nil || exists {
+		t.Fatalf("recovered original exists = %v, %v", exists, statErr)
+	}
+}
+
+func TestCreateRollsBackMetadataBeforeOriginalAfterUncertainMetadataWrite(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository)
+	writeErr := errors.New("metadata directory sync failed")
+	originalPath := ""
+	metadataPath := ""
+	service.writeFile = func(relative string, data []byte, mode fs.FileMode) error {
+		originalPath = relative
+		return repository.WriteFile(relative, data, mode)
+	}
+	service.writeYAML = func(relative string, value any, secret bool) error {
+		metadataPath = relative
+		if err := repository.WriteYAML(relative, value, secret); err != nil {
+			return err
+		}
+		return writeErr
+	}
+
+	if _, err := service.Create("uncertain-metadata.png", bytes.NewReader(testMediaPNG(t))); !errors.Is(err, writeErr) {
+		t.Fatalf("Create() error = %v, want %v", err, writeErr)
+	}
+	for _, relative := range []string{metadataPath, originalPath} {
+		if exists, err := repository.Exists(relative); err != nil || exists {
+			t.Fatalf("rolled-back path %s exists = %v, %v", relative, exists, err)
+		}
+	}
+}
+
+func TestCreatePreservesOriginalWhenMetadataRollbackIsUncertain(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository)
+	writeErr := errors.New("metadata directory sync failed")
+	cleanupErr := errors.New("metadata cleanup sync failed")
+	originalPath := ""
+	metadataPath := ""
+	var writtenAsset domain.MediaAsset
+	service.writeFile = func(relative string, data []byte, mode fs.FileMode) error {
+		originalPath = relative
+		return repository.WriteFile(relative, data, mode)
+	}
+	service.writeYAML = func(relative string, value any, secret bool) error {
+		metadataPath = relative
+		writtenAsset = value.(domain.MediaAsset)
+		if err := repository.WriteYAML(relative, value, secret); err != nil {
+			return err
+		}
+		return writeErr
+	}
+	originalCleanupCalled := false
+	service.removeFile = func(relative string) error {
+		if relative == metadataPath {
+			return cleanupErr
+		}
+		if relative == originalPath {
+			originalCleanupCalled = true
+		}
+		return repository.RemoveFile(relative)
+	}
+
+	_, err = service.Create("preserved-pair.png", bytes.NewReader(testMediaPNG(t)))
+	if !errors.Is(err, writeErr) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("Create() error = %v, want joined metadata write and cleanup failures", err)
+	}
+	if originalCleanupCalled {
+		t.Fatal("Create removed the original while metadata rollback was uncertain")
+	}
+	for _, relative := range []string{metadataPath, originalPath} {
+		if exists, statErr := repository.Exists(relative); statErr != nil || !exists {
+			t.Fatalf("preserved path %s exists = %v, %v", relative, exists, statErr)
+		}
+	}
+
+	service.removeFile = repository.RemoveFile
+	if count, err := service.Recover(); err != nil || count != 0 {
+		t.Fatalf("Recover() preserved pair = %d, %v", count, err)
+	}
+	if _, err := service.Get(writtenAsset.ID); err != nil {
+		t.Fatalf("preserved asset unavailable: %v", err)
+	}
+}
+
+func TestCreateReportsMetadataFailureAndRetriesOrphanCleanup(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository)
+	metadataErr := errors.New("metadata write failed")
+	cleanupErr := errors.New("orphan cleanup failed")
+	originalPath := ""
+	removeCalls := make([]string, 0, 2)
+	service.writeFile = func(relative string, data []byte, mode fs.FileMode) error {
+		originalPath = relative
+		return repository.WriteFile(relative, data, mode)
+	}
+	service.writeYAML = func(string, any, bool) error { return metadataErr }
+	service.removeFile = func(relative string) error {
+		removeCalls = append(removeCalls, filepath.ToSlash(relative))
+		if strings.HasPrefix(filepath.ToSlash(relative), "media/originals/") {
+			return cleanupErr
+		}
+		return repository.RemoveFile(relative)
+	}
+
+	_, err = service.Create("orphan.png", bytes.NewReader(testMediaPNG(t)))
+	if !errors.Is(err, metadataErr) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("Create() error = %v, want joined metadata and cleanup failures", err)
+	}
+	if len(removeCalls) != 2 || !strings.HasPrefix(removeCalls[0], "media/metadata/") || !strings.HasPrefix(removeCalls[1], "media/originals/") {
+		t.Fatalf("rollback order = %v", removeCalls)
+	}
+	if exists, statErr := repository.Exists(originalPath); statErr != nil || !exists {
+		t.Fatalf("orphan original exists = %v, %v", exists, statErr)
+	}
+	if count, err := service.Recover(); count != 0 || !errors.Is(err, cleanupErr) {
+		t.Fatalf("Recover() with cleanup failure = %d, %v", count, err)
+	}
+
+	service.removeFile = repository.RemoveFile
+	if count, err := service.Recover(); err != nil || count != 1 {
+		t.Fatalf("Recover() retry = %d, %v", count, err)
+	}
+	if count, err := service.Recover(); err != nil || count != 0 {
+		t.Fatalf("second Recover() = %d, %v", count, err)
+	}
+}
+
+func TestRecoverRemovesOnlyCanonicalUntrackedOriginals(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository)
+	asset, err := service.Create("tracked.png", bytes.NewReader(testMediaPNG(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphanID := strings.Repeat("a", 32)
+	if orphanID == asset.ID {
+		orphanID = strings.Repeat("b", 32)
+	}
+	referencedID := strings.Repeat("c", 32)
+	invalidMonthID := strings.Repeat("d", 32)
+	orphanPath := filepath.Join("media", "originals", "1999", "12", orphanID+".png")
+	duplicatePath := filepath.Join("media", "originals", "2000", "01", asset.Filename)
+	referencedPath := filepath.Join("media", "originals", "2001", "02", referencedID+".png")
+	invalidMonthPath := filepath.Join("media", "originals", "2026", "99", invalidMonthID+".png")
+	unknownPath := filepath.Join("media", "originals", "operator-note.bin")
+	for _, relative := range []string{orphanPath, duplicatePath, referencedPath, invalidMonthPath, unknownPath} {
+		if err := repository.WriteFile(relative, []byte("untracked"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repository.WriteFile(
+		filepath.Join("content", "posts", "orphan-reference.md"),
+		[]byte("![preserved](/media/2001/02/"+referencedID+".png)"),
+		0o640,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if count, err := service.Recover(); err != nil || count != 2 {
+		t.Fatalf("Recover() = %d, %v", count, err)
+	}
+	if _, err := service.Get(asset.ID); err != nil {
+		t.Fatalf("tracked asset unavailable: %v", err)
+	}
+	for _, relative := range []string{orphanPath, duplicatePath} {
+		if exists, err := repository.Exists(relative); err != nil || exists {
+			t.Fatalf("orphan %s exists = %v, %v", relative, exists, err)
+		}
+	}
+	for _, relative := range []string{invalidMonthPath, unknownPath} {
+		if exists, err := repository.Exists(relative); err != nil || !exists {
+			t.Fatalf("unknown file %s preserved = %v, %v", relative, exists, err)
+		}
+	}
+	if exists, err := repository.Exists(referencedPath); err != nil || !exists {
+		t.Fatalf("referenced orphan preserved = %v, %v", exists, err)
+	}
+	if count, err := service.Recover(); err != nil || count != 0 {
+		t.Fatalf("second Recover() = %d, %v", count, err)
+	}
+}
+
+func testMediaPNG(t *testing.T) []byte {
+	t.Helper()
+	var data bytes.Buffer
+	if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	return data.Bytes()
 }
 
 type zeroReader struct{}

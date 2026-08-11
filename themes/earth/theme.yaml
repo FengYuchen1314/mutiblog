@@ -1,8 +1,0 @@
-schemaVersion: 1
-id: earth
-name: Earth
-version: 1.0.0
-engine: react-ssr
-server: dist/index.js
-settingsSchema: settings.schema.json
-settingsReload: rebuild

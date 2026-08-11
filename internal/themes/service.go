@@ -196,7 +196,7 @@ func (s *Service) List() ([]View, error) {
 		activeID = "earth"
 	}
 	items := []View{{
-		Manifest:   Manifest{SchemaVersion: 1, ID: "earth", Name: "Earth", Version: "1.0.0", Engine: "react-ssr", Server: "built-in", SettingsSchema: "settings.schema.json", SettingsReload: "rebuild"},
+		Manifest:   Manifest{SchemaVersion: 1, ID: "earth", Name: "Earth", Version: "1.0.0", Engine: "react-ssr", Server: "built-in", SettingsReload: "rebuild"},
 		Active:     activeID == "earth",
 		BuiltIn:    true,
 		Status:     "ready",
@@ -319,20 +319,6 @@ func validOptionalThemeDirectory(path string) (bool, error) {
 		return false, ErrInvalid
 	}
 	return true, nil
-}
-
-func (s *Service) Install(reader io.Reader) (View, error) {
-	installation, err := s.BeginInstall(reader)
-	if err != nil {
-		return View{}, err
-	}
-	if err := installation.Commit(); err != nil {
-		if errors.Is(err, ErrCleanupPending) {
-			return installation.View, nil
-		}
-		return View{}, err
-	}
-	return installation.View, nil
 }
 
 func (s *Service) BeginInstall(reader io.Reader) (*Installation, error) {

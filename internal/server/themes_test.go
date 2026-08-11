@@ -34,9 +34,26 @@ func (counter *countingThemePublisher) Build(context.Context) (publisher.BuildRe
 	return publisher.BuildReport{SchemaVersion: domain.SchemaVersion}, nil
 }
 
+func installThemeForTest(t *testing.T, service *themes.Service, reader io.Reader) (themes.View, error) {
+	t.Helper()
+	installation, err := service.BeginInstall(reader)
+	if err != nil {
+		return themes.View{}, err
+	}
+	defer func() {
+		if err := installation.Rollback(); err != nil {
+			t.Errorf("rollback theme installation: %v", err)
+		}
+	}()
+	if err := installation.Commit(); err != nil && !errors.Is(err, themes.ErrCleanupPending) {
+		return themes.View{}, err
+	}
+	return installation.View, nil
+}
+
 func TestActiveThemeUpgradeRollsBackPackageOnRenderFailure(t *testing.T) {
 	server, repository := themeServerFixture(t, failingThemePublisher{})
-	if _, err := server.themes.Install(serverThemeArchive(t, "midnight", "1.0.0")); err != nil {
+	if _, err := installThemeForTest(t, server.themes, serverThemeArchive(t, "midnight", "1.0.0")); err != nil {
 		t.Fatal(err)
 	}
 	if err := server.themes.Activate("midnight"); err != nil {
@@ -69,7 +86,7 @@ func TestActiveThemeUpgradeRollsBackPackageOnRenderFailure(t *testing.T) {
 
 func TestThemeActivationRollsBackConfigurationOnRenderFailure(t *testing.T) {
 	server, repository := themeServerFixture(t, failingThemePublisher{})
-	if _, err := server.themes.Install(serverThemeArchive(t, "midnight", "1.0.0")); err != nil {
+	if _, err := installThemeForTest(t, server.themes, serverThemeArchive(t, "midnight", "1.0.0")); err != nil {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/themes/midnight/activate", nil)
@@ -91,7 +108,7 @@ func TestThemeActivationRollsBackConfigurationOnRenderFailure(t *testing.T) {
 func TestThemeReloadBuildsOnlyTheActiveTheme(t *testing.T) {
 	publisher := &countingThemePublisher{}
 	server, _ := themeServerFixture(t, publisher)
-	if _, err := server.themes.Install(serverThemeArchive(t, "midnight", "1.0.0")); err != nil {
+	if _, err := installThemeForTest(t, server.themes, serverThemeArchive(t, "midnight", "1.0.0")); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"midnight", "earth"} {
@@ -115,7 +132,7 @@ func TestThemeScreenshotServesInstalledLocalImage(t *testing.T) {
 		"server.mjs":   "export const css = '';\n",
 		"preview.webp": "preview-data",
 	})
-	if _, err := server.themes.Install(archive); err != nil {
+	if _, err := installThemeForTest(t, server.themes, archive); err != nil {
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/themes/midnight/screenshot", nil)
@@ -129,7 +146,7 @@ func TestThemeScreenshotServesInstalledLocalImage(t *testing.T) {
 
 func TestActiveThemeUpgradeRejectsIncompatiblePackage(t *testing.T) {
 	server, _ := themeServerFixture(t, failingThemePublisher{})
-	if _, err := server.themes.Install(serverThemeArchive(t, "midnight", "1.0.0")); err != nil {
+	if _, err := installThemeForTest(t, server.themes, serverThemeArchive(t, "midnight", "1.0.0")); err != nil {
 		t.Fatal(err)
 	}
 	if err := server.themes.Activate("midnight"); err != nil {

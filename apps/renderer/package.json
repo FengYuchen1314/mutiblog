@@ -5,7 +5,7 @@
   "type": "module",
   "bin": { "mutiblog-render": "dist/cli.mjs" },
   "scripts": {
-    "build": "tsc -p tsconfig.json && esbuild src/cli.ts --bundle --platform=node --format=esm --outfile=dist/cli.mjs --banner:js=\"import { createRequire } from 'node:module';const require=createRequire(import.meta.url);\"",
+    "build": "rm -rf dist && pnpm run typecheck && esbuild src/cli.ts --bundle --platform=node --format=esm --outfile=dist/cli.mjs --banner:js=\"import { createRequire } from 'node:module';const require=createRequire(import.meta.url);\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run src"
   },

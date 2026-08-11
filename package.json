@@ -7,6 +7,9 @@
   "scripts": {
     "dev:console": "pnpm --filter @mutiblog/console dev",
     "build": "pnpm -r --if-present build",
+    "lint": "pnpm --filter @mutiblog/console lint",
+    "format": "pnpm --filter @mutiblog/console format",
+    "format:check": "pnpm --filter @mutiblog/console format:check",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test"
   }

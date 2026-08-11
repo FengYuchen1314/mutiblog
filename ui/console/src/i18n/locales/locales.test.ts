@@ -7,7 +7,9 @@ import zhCN from "./zh-CN";
 
 function keys(value: unknown, prefix = ""): string[] {
   if (!value || typeof value !== "object") return [prefix];
-  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) => keys(child, prefix ? `${prefix}.${key}` : key));
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+    keys(child, prefix ? `${prefix}.${key}` : key),
+  );
 }
 
 describe("console dictionaries", () => {
@@ -36,7 +38,7 @@ async function sourceFiles(root: string): Promise<string[]> {
   const result: string[] = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
-    if (entry.isDirectory()) result.push(...await sourceFiles(path));
+    if (entry.isDirectory()) result.push(...(await sourceFiles(path)));
     else if (/\.(?:ts|vue)$/.test(entry.name)) result.push(path);
   }
   return result;
@@ -44,6 +46,8 @@ async function sourceFiles(root: string): Promise<string[]> {
 
 function allowedNativeLanguageName(file: string, line: string) {
   if (file === "views/LocalesView.vue" && /^\s+(?:"(?:zh-CN|zh-TW)"|ja):/.test(line)) return true;
-  return (file === "views/SetupView.vue" || file === "views/SettingsView.vue")
-    && line.includes('<option value="zh-CN">简体中文</option>');
+  return (
+    (file === "views/SetupView.vue" || file === "views/SettingsView.vue") &&
+    line.includes('<option value="zh-CN">简体中文</option>')
+  );
 }

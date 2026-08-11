@@ -75,7 +75,7 @@ func TestAdminTaskAggregationIncludesEverySupportedKindAndRejectsUnknownHeaders(
 	seen := map[string]bool{}
 	for _, item := range items {
 		seen[item.Kind] = true
-		if item.Kind == "ScheduledPublish" && (item.BuildStatus != "failed" || item.BuildTaskID != buildID || item.TranslationStatus != "failed" || item.TranslationTaskID != "translation-example" || item.Outcome != "rebuild-failed") {
+		if item.Kind == "ScheduledPublish" && (item.BuildStatus != "failed" || item.BuildTaskID != buildID || item.TranslationStatus != "failed" || item.TranslationTaskID != "translation-example" || item.Outcome != "published-with-warning") {
 			t.Fatalf("scheduled child warning metadata was not preserved: %#v", item)
 		}
 	}

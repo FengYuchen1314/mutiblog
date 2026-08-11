@@ -33,13 +33,22 @@ async function submit() {
   <div class="auth-page">
     <div class="auth-panel login-panel">
       <div class="auth-brand"><span class="brand-mark">M</span><strong>MutiBlog</strong></div>
-      <div class="auth-heading"><h1>{{ t("login.title") }}</h1><p>{{ t("login.subtitle") }}</p></div>
+      <div class="auth-heading">
+        <h1>{{ t("login.title") }}</h1>
+        <p>{{ t("login.subtitle") }}</p>
+      </div>
       <div v-if="route.query.restored === '1'" class="form-success">{{ t("login.restored") }}</div>
       <div v-if="route.query.passwordChanged === '1'" class="form-success">{{ t("login.passwordChanged") }}</div>
       <div v-if="route.query.setupBuildFailed === '1'" class="form-alert">{{ t("login.setupBuildFailed") }}</div>
       <form class="form-stack" @submit.prevent="submit">
-        <label class="field"><span>{{ t("login.username") }}</span><input v-model="form.username" autofocus autocomplete="username" /></label>
-        <label class="field"><span>{{ t("login.password") }}</span><input v-model="form.password" type="password" autocomplete="current-password" /></label>
+        <label class="field"
+          ><span>{{ t("login.username") }}</span
+          ><input v-model="form.username" autofocus autocomplete="username"
+        /></label>
+        <label class="field"
+          ><span>{{ t("login.password") }}</span
+          ><input v-model="form.password" type="password" autocomplete="current-password"
+        /></label>
         <div v-if="error" class="form-alert">{{ error }}</div>
         <VButton type="secondary" block :loading="submitting" @click="submit">{{ t("login.submit") }}</VButton>
       </form>

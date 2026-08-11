@@ -28,7 +28,7 @@ type UpdatePostSettingsInput struct {
 func (s *Service) UpdatePostSettings(id string, input UpdatePostSettingsInput) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	post, err := s.GetPost(id)
+	post, err := s.getPostLocked(id)
 	if err != nil {
 		return domain.Post{}, err
 	}
@@ -85,7 +85,7 @@ func (s *Service) UpdatePostSettings(id string, input UpdatePostSettingsInput) (
 func (s *Service) UpdatePageSettings(id string, input UpdatePostSettingsInput) (domain.Post, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	page, err := s.GetPage(id)
+	page, err := s.getPageLocked(id)
 	if err != nil {
 		return domain.Post{}, err
 	}

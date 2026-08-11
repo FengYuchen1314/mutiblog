@@ -15,7 +15,7 @@ const error = ref("");
 const fields = ref<Record<string, string>>({});
 const form = reactive({
   siteTitle: "MutiBlog",
-	baseUrl: window.location.origin,
+  baseUrl: window.location.origin,
   sourceLocale: "zh-CN",
   adminLocale: "zh-CN",
   timezone: "Asia/Shanghai",
@@ -39,7 +39,9 @@ async function submit() {
   } catch (caught) {
     if (caught instanceof ApiError) {
       error.value = caught.message;
-	  fields.value = Object.fromEntries(Object.keys(caught.fields ?? {}).map((field) => [field, t("setupPage.invalidField")]));
+      fields.value = Object.fromEntries(
+        Object.keys(caught.fields ?? {}).map((field) => [field, t("setupPage.invalidField")]),
+      );
     } else {
       error.value = t("setupPage.unavailable");
     }
@@ -63,12 +65,12 @@ async function submit() {
           <input v-model="form.siteTitle" autocomplete="organization" />
           <small v-if="fields.siteTitle" class="field-error">{{ fields.siteTitle }}</small>
         </label>
-		<label class="field field--wide">
-		  <span>{{ t("setupPage.publicBaseUrl") }}</span>
-		  <input v-model="form.baseUrl" type="url" autocomplete="url" placeholder="https://blog.example.com" />
-		  <small>{{ t("setupPage.publicBaseUrlHelp") }}</small>
-		  <small v-if="fields.baseUrl" class="field-error">{{ fields.baseUrl }}</small>
-		</label>
+        <label class="field field--wide">
+          <span>{{ t("setupPage.publicBaseUrl") }}</span>
+          <input v-model="form.baseUrl" type="url" autocomplete="url" placeholder="https://blog.example.com" />
+          <small>{{ t("setupPage.publicBaseUrlHelp") }}</small>
+          <small v-if="fields.baseUrl" class="field-error">{{ fields.baseUrl }}</small>
+        </label>
         <label class="field">
           <span>{{ t("setupPage.sourceLocale") }}</span>
           <input v-model="form.sourceLocale" placeholder="zh-CN" />
@@ -87,7 +89,9 @@ async function submit() {
           <input v-model="form.timezone" placeholder="Asia/Shanghai" />
           <small v-if="fields.timezone" class="field-error">{{ fields.timezone }}</small>
         </label>
-        <div class="section-divider field--wide"><span>{{ t("setupPage.administrator") }}</span></div>
+        <div class="section-divider field--wide">
+          <span>{{ t("setupPage.administrator") }}</span>
+        </div>
         <label class="field">
           <span>{{ t("setupPage.username") }}</span>
           <input v-model="form.username" autocomplete="username" />
