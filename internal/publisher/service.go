@@ -66,13 +66,15 @@ type TaxonomyInput struct {
 }
 
 type ThemeInput struct {
-	ID                string                         `json:"id"`
-	ModulePath        string                         `json:"modulePath,omitempty"`
-	AssetsPath        string                         `json:"assetsPath,omitempty"`
-	Settings          map[string]any                 `json:"settings"`
-	PostTemplates     []themeservice.ContentTemplate `json:"postTemplates,omitempty"`
-	PageTemplates     []themeservice.ContentTemplate `json:"pageTemplates,omitempty"`
-	CategoryTemplates []themeservice.ContentTemplate `json:"categoryTemplates,omitempty"`
+	ID                  string                         `json:"id"`
+	ModulePath          string                         `json:"modulePath,omitempty"`
+	AssetsPath          string                         `json:"assetsPath,omitempty"`
+	Settings            map[string]any                 `json:"settings"`
+	LocalizedSettings   map[string]map[string]string   `json:"localizedSettings,omitempty"`
+	LocalizableSettings []string                       `json:"localizableSettings,omitempty"`
+	PostTemplates       []themeservice.ContentTemplate `json:"postTemplates,omitempty"`
+	PageTemplates       []themeservice.ContentTemplate `json:"pageTemplates,omitempty"`
+	CategoryTemplates   []themeservice.ContentTemplate `json:"categoryTemplates,omitempty"`
 }
 
 type BuildInput struct {
@@ -823,12 +825,29 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 		ModulePath:        themeRuntime.ModulePath,
 		AssetsPath:        themeRuntime.AssetsPath,
 		Settings:          themeRuntime.Settings,
+		LocalizedSettings: themeRuntime.LocalizedSettings,
 		PostTemplates:     themeRuntime.PostTemplates,
 		PageTemplates:     themeRuntime.PageTemplates,
 		CategoryTemplates: themeRuntime.CategoryTemplates,
 	}
+	localizableThemeSettings, err := themeService.LocalizableText(themeRuntime.ID)
+	if err != nil {
+		return BuildInput{}, err
+	}
+	for path := range localizableThemeSettings {
+		input.Theme.LocalizableSettings = append(input.Theme.LocalizableSettings, path)
+	}
+	sort.Strings(input.Theme.LocalizableSettings)
 	for _, locale := range locales.Enabled {
-		if locale.Enabled {
+		// A newly appended locale stays out of every public snapshot until its
+		// complete site-wide translation has been committed. Empty status is the
+		// backward-compatible representation written by older releases. Building
+		// is a private two-phase state: the renderer validates it as ready while
+		// public APIs continue to reject it until the atomic build succeeds.
+		if locale.Enabled && (locale.Status == "" || locale.Status == domain.LocaleStatusReady || locale.Status == domain.LocaleStatusBuilding) {
+			if locale.Status == domain.LocaleStatusBuilding {
+				locale.Status = domain.LocaleStatusReady
+			}
 			input.Locales = append(input.Locales, locale)
 		}
 	}

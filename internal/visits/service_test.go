@@ -139,6 +139,32 @@ func TestSelectLocalizedUsesChineseBeforeEntitySource(t *testing.T) {
 	}
 }
 
+func TestFailedLocaleIsNotPubliclyEnabled(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{Enabled: []domain.LocaleDefinition{
+		{Code: "zh-CN", Enabled: true, Status: domain.LocaleStatusReady},
+		{Code: "ja", Enabled: true, Status: domain.LocaleStatusFailed},
+	}}, false); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository, content.NewService(repository))
+	if _, _, err := service.enabledLocale("ja"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("failed locale enabledLocale() error = %v, want ErrInvalid", err)
+	}
+	if localized, ok := selectLocalized(domain.Post{
+		Meta:    domain.PostMeta{SourceLocale: "zh-CN"},
+		Content: map[string]domain.LocalizedMarkdown{"zh-CN": {Title: "不得回退"}},
+	}, "ja", domain.LocalesConfig{Enabled: []domain.LocaleDefinition{
+		{Code: "zh-CN", Enabled: true, Status: domain.LocaleStatusReady},
+		{Code: "ja", Enabled: true, Status: domain.LocaleStatusFailed},
+	}}); ok || localized.Title != "" {
+		t.Fatalf("failed locale fallback leaked = %#v, %v", localized, ok)
+	}
+}
+
 func TestVisitLimiterHasStrictBoundExpiresAndFailsClosed(t *testing.T) {
 	now := time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC)
 	service := &Service{recent: make(map[string]time.Time)}

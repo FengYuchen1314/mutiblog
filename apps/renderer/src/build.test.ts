@@ -22,6 +22,119 @@ describe("fallbackChain", () => {
   });
 });
 
+test("requires exact content and framework strings for ready locales", async () => {
+  const output = join("/tmp", `mutiblog-ready-locale-${crypto.randomUUID()}`);
+  outputs.push(output);
+  const input: BuildInput = {
+    schemaVersion: 1,
+    sourceLocale: "zh-CN",
+    locales: [
+      { code: "zh-CN", label: "简体中文", status: "ready" },
+      { code: "ja", label: "日本語", status: "ready" },
+    ],
+    site: {
+      locales: {
+        "zh-CN": { title: "中文站点" },
+        ja: { title: "日本語サイト" },
+      },
+    },
+    dictionaries: {
+      "zh-CN": { home: "首页", notFound: "页面不存在" },
+      ja: { home: "ホーム", notFound: "ページが見つかりません" },
+    },
+    theme: {
+      id: "earth",
+      settings: { layout: { heroKicker: "中文眉题" } },
+      localizableSettings: ["layout.heroKicker"],
+      localizedSettings: { ja: { "layout.heroKicker": "日本語の眉題" } },
+    },
+    posts: [
+      {
+        id: "exact-post",
+        status: "published",
+        locales: {
+          "zh-CN": {
+            title: "中文标题",
+            summary: "中文摘要",
+            markdown: "中文正文",
+          },
+          ja: {
+            title: "日本語のタイトル",
+            summary: "日本語の要約",
+            markdown: "日本語の本文",
+          },
+        },
+      },
+    ],
+  };
+
+  await buildSite(input, output);
+  const japanese = await readFile(join(output, "ja/index.html"), "utf8");
+  expect(japanese).toContain("日本語のタイトル");
+  expect(japanese).toContain("日本語の眉題");
+  expect(japanese).not.toContain("中文标题");
+  expect(japanese).not.toContain("中文眉题");
+
+  input.locales[1].status = "building";
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "non-ready locale cannot be rendered: ja",
+  );
+  input.locales[1].status = "ready";
+  delete input.posts[0].locales.ja.summary;
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale field is missing: exact-post.ja.summary",
+  );
+  input.posts[0].locales.ja.summary = "日本語の要約";
+  input.theme!.localizedSettings!.ja["stale.path"] = "古い設定";
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "localized theme setting keys do not match: ja",
+  );
+  delete input.theme!.localizedSettings!.ja["stale.path"];
+  delete input.posts[0].locales.ja;
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale is missing: exact-post.ja",
+  );
+});
+
+test("keeps a legacy entity origin available on the fixed ready source locale", async () => {
+  const output = join("/tmp", `mutiblog-legacy-source-${crypto.randomUUID()}`);
+  outputs.push(output);
+  const input: BuildInput = {
+    schemaVersion: 1,
+    sourceLocale: "zh-CN",
+    locales: [
+      { code: "zh-CN", label: "简体中文", status: "ready" },
+      { code: "en", label: "English" },
+    ],
+    site: { locales: { "zh-CN": { title: "固定源站点" } } },
+    dictionaries: {
+      "zh-CN": { notFound: "页面不存在", redirecting: "继续访问" },
+    },
+    posts: [
+      {
+        id: "legacy-origin",
+        sourceLocale: "en",
+        status: "published",
+        locales: { en: { title: "Legacy title", markdown: "Legacy body" } },
+      },
+    ],
+  };
+
+  const report = await buildSite(input, output);
+
+  expect(report.redirects).toContainEqual({
+    from: "/zh-CN/posts/legacy-origin/",
+    to: "/en/posts/legacy-origin/",
+    status: 302,
+  });
+  expect(await readFile(join(output, "zh-CN/index.html"), "utf8")).toContain(
+    "Legacy title",
+  );
+  expect(
+    await readFile(join(output, "en/posts/legacy-origin/index.html"), "utf8"),
+  ).toContain("Legacy body");
+});
+
 test("keeps an entity's original source locale after the site source changes", async () => {
   const output = join("/tmp", `mutiblog-source-switch-${crypto.randomUUID()}`);
   outputs.push(output);

@@ -72,6 +72,16 @@ type ApplyAITranslationInput struct {
 	Content                domain.LocalizedMarkdown
 }
 
+// ApplyAIReleaseTranslationInput is used only when a published entity has a
+// newer unpublished source head. In that case the current public release and
+// the future head need separate translations with independent CAS checks.
+type ApplyAIReleaseTranslationInput struct {
+	ExpectedReleaseRevision int
+	ExpectedSourceRevision  int
+	ExpectedTargetRevision  int
+	Content                 domain.LocalizedMarkdown
+}
+
 func NewService(repository *fsrepo.Repository) *Service {
 	return &Service{repository: repository}
 }

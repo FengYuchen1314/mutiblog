@@ -2,8 +2,10 @@ package taxonomy
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
+	"github.com/FengYuchen1314/mutiblog/internal/content"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
 )
@@ -93,5 +95,72 @@ func TestTaxonomyIdentityCannotCrossFilePaths(t *testing.T) {
 	}
 	if _, err := service.Get("Category", second.ID); err != nil {
 		t.Fatalf("second taxonomy was affected: %v", err)
+	}
+}
+
+func TestApplyAITranslationUsesSourceAndTargetLocaleRevisions(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	locales := domain.LocalesConfig{SchemaVersion: 1, SourceLocale: "zh-CN", Enabled: []domain.LocaleDefinition{{Code: "zh-CN", Enabled: true}, {Code: "en", Enabled: true}}}
+	if err := repository.WriteYAML("config/locales.yaml", locales, false); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository)
+	item, err := service.Create("Category", CreateInput{ID: "engineering", Name: "工程", Description: "工程文章"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err = service.ApplyAITranslation("Category", item.ID, "en", ApplyAITranslationInput{
+		ExpectedSourceRevision: 1,
+		ExpectedTargetRevision: 0,
+		Name:                   " Engineering ",
+		Description:            " Engineering posts ",
+		SEOTitle:               " Engineering archive ",
+		SEODescription:         " Posts about engineering ",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := item.Locales["en"]
+	if item.Revision != 2 || target.Name != "Engineering" || target.Description != "Engineering posts" || target.SEOTitle != "Engineering archive" || target.SEODescription != "Posts about engineering" {
+		t.Fatalf("AI taxonomy = %#v", item)
+	}
+	if target.Revision != 1 || target.State != "current" || target.Origin != domain.LocaleOriginAI || target.SourceRevision != item.Locales[item.SourceLocale].Revision {
+		t.Fatalf("AI taxonomy locale state = %#v", target)
+	}
+
+	before, err := service.Get("Category", item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicts := []struct {
+		name  string
+		input ApplyAITranslationInput
+		want  error
+	}{
+		{name: "source changed", input: ApplyAITranslationInput{ExpectedSourceRevision: 2, ExpectedTargetRevision: 1, Name: "Changed"}, want: content.ErrSourceChanged},
+		{name: "target changed", input: ApplyAITranslationInput{ExpectedSourceRevision: 1, ExpectedTargetRevision: 0, Name: "Changed"}, want: content.ErrTargetChanged},
+	}
+	for _, test := range conflicts {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := service.ApplyAITranslation("Category", item.ID, "en", test.input); !errors.Is(err, test.want) {
+				t.Fatalf("ApplyAITranslation() error = %v, want %v", err, test.want)
+			}
+			after, err := service.Get("Category", item.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("conflicting AI write changed taxonomy: before=%#v after=%#v", before, after)
+			}
+		})
+	}
+	if _, err := service.ApplyAITranslation("Category", item.ID, "zh-CN", ApplyAITranslationInput{ExpectedSourceRevision: 1, ExpectedTargetRevision: 1, Name: "工程"}); !errors.Is(err, content.ErrLocaleDisabled) {
+		t.Fatalf("source target error = %v, want ErrLocaleDisabled", err)
+	}
+	if _, err := service.ApplyAITranslation("Category", item.ID, "fr", ApplyAITranslationInput{ExpectedSourceRevision: 1, ExpectedTargetRevision: 0, Name: "Ingénierie"}); !errors.Is(err, content.ErrLocaleDisabled) {
+		t.Fatalf("disabled target error = %v, want ErrLocaleDisabled", err)
 	}
 }

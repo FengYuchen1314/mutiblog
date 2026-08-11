@@ -39,8 +39,6 @@ export default {
     invalid: "This time does not exist in {timezone}. Choose another time.",
     ambiguous: "This time occurs twice in {timezone} because of daylight saving time. Choose an unambiguous time.",
   },
-  dictionaryFallbackHelp:
-    "Empty values fall back to the site source locale ({source}), then to built-in Simplified Chinese.",
   search: "Search",
   administrator: "Administrator",
   logout: "Log out",
@@ -161,6 +159,7 @@ export default {
     locale_in_use: "This locale is the original source of existing content and cannot be disabled.",
     dictionaries_unavailable: "Framework dictionaries are unavailable.",
     dictionary_invalid: "The framework dictionary contains an unsupported key or value.",
+    dictionary_managed: "Framework dictionaries are managed by site-wide localization and cannot be edited directly.",
     dictionary_save_failed: "The framework dictionary could not be saved.",
   },
   login: {
@@ -232,39 +231,40 @@ export default {
     title: "Locales",
     siteLanguages: "Site languages",
     sourceHelp:
-      "The source locale applies to new content. Switching it never rewrites existing origins. Simplified Chinese remains enabled as the required fallback.",
+      "The source locale is fixed to Simplified Chinese. Added locales stay enabled permanently and cannot be deleted.",
     sourceLocale: "Source locale",
-    source: "Source",
-    builtIn: "Required fallback / built-in dictionary",
-    frameworkFallback: "Framework text falls back to the source locale",
+    sourceLocaleName: "Simplified Chinese",
+    sourceLocaleValue: "Simplified Chinese (zh-CN)",
+    source: "Fixed source",
     target: "Target locale",
-    dictionaryProgress: "Dictionary {translated}/{total}",
-    manageDictionary: "Edit dictionary",
-    dictionaryEditor: "Public framework dictionary · {locale}",
-    dictionaryHelp: "Empty values fall back to the site source locale ({source}), then to built-in Simplified Chinese.",
-    dictionaryMissing: "{count} framework strings currently use fallback.",
-    dictionarySaved: "The {locale} framework dictionary was saved and the public site rebuilt.",
-    dictionarySaveFailed: "Cannot save the framework dictionary",
-    enabled: "Enabled",
-    remove: "Remove",
+    permanent: "Permanent · cannot delete",
+    pendingSave: "Unsaved · permanent after save",
+    status: {
+      provisioning: "Translating",
+      building: "Publishing",
+      ready: "Published",
+      failed: "Translation incomplete",
+      legacy: "Published · translation upgrade pending",
+    },
+    saveAndTranslate: "Save and translate site",
     addTarget: "Add target locale",
-    addTargetHelp: "Any valid BCP 47 tag is supported, such as ja, pt-BR, or de.",
+    addTargetHelp:
+      "Any valid BCP 47 tag is supported, such as ja, pt-BR, or de. Once added, a locale cannot be disabled or deleted; " +
+      "saving translates and rebuilds the site automatically.",
     localeCode: "Locale code",
     displayName: "Display name",
     add: "Add",
-    fallback: "Content fallback",
-    fallbackHelp:
-      "Entity content, including list cards, tries Simplified Chinese, then that entity's immutable source locale. Site metadata such as the site title also ends with the current site source ({source}). Duplicate steps are skipped, and an entity detail fallback redirects with HTTP 302.",
-    requested: "Requested locale",
-    entitySource: "entity source",
-    saved: "Locale settings saved and the public site rebuilt.",
+    translationWorkflow: "Automatic whole-site translation",
+    translationWorkflowHelp:
+      "After you save a new locale, the system translates every post, page, site field, menu, and " +
+      "public UI string, then rebuilds the site automatically. There is no framework dictionary to maintain manually.",
+    saved:
+      "Locale settings saved. New locales are translated across the whole site and the public site is rebuilt automatically.",
     savedBuildFailed:
-      "Locale settings were saved, but the static build failed; the previous public release remains online.",
+      "Locale settings were saved, but automatic translation or the static build did not complete; the previous public release remains online.",
     loadFailed: "Cannot load locale settings",
     saveFailed: "Cannot save locale settings",
     addInvalid: "Enter a BCP 47 locale that has not already been added.",
-    switchConfirm:
-      "Switching the source locale affects only new content, the default site entry, and site-metadata fallback. Existing entities and their list cards keep each entity's original source locale. Continue?",
   },
   settingsPage: {
     title: "Settings",
@@ -607,7 +607,10 @@ export default {
     siteName: "Site name",
     publicBaseUrl: "Public site URL",
     publicBaseUrlHelp: "Used for canonical URLs, RSS, and the sitemap. Enter the full address that visitors use.",
-    sourceLocale: "Source locale (BCP 47)",
+    sourceLocale: "Source locale",
+    sourceLocaleValue: "Simplified Chinese (zh-CN)",
+    sourceLocaleHelp:
+      "The source locale is fixed to Simplified Chinese; other site locales are generated by automatic translation.",
     consoleLocale: "Console language",
     timezone: "Timezone",
     administrator: "Sole administrator",

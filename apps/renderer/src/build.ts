@@ -255,7 +255,7 @@ function makeContext(
     canonicalUrl: `${baseUrl ?? ""}/${locale}${currentPath}`,
     alternates,
     strings: dictionary(input, locale),
-    settings: input.theme?.settings,
+    settings: localizedThemeSettings(input, locale),
     navigation: makeNavigation(input, locale),
     menus: makeMenus(input, locale),
   };
@@ -365,6 +365,11 @@ function makeMenus(input: BuildInput, locale: string): ThemeMenu[] {
 type LocalizedSiteInput = BuildInput["site"]["locales"][string];
 
 function selectSite(input: BuildInput, requested: string): LocalizedSiteInput {
+  if (requiresExactLocale(input, requested)) {
+    const exact = input.site.locales[requested];
+    if (exact) return exact;
+    throw new Error(`site copy is missing for ${requested}`);
+  }
   const enabled = new Set(input.locales.map(({ code }) => code));
   // Site-owned data shares the Chinese safety fallback, then ends at the
   // current site source. This keeps an old English copy from silently winning
@@ -380,6 +385,18 @@ function siteFallbackChain(input: Pick<BuildInput, "sourceLocale">, requested: s
 }
 
 function selectPost<T>(input: BuildInput, locales: Record<string, T>, requested: string, sourceLocale = input.sourceLocale) {
+  if (requiresExactLocale(input, requested)) {
+    const exact = locales[requested];
+    if (exact) return { locale: requested, value: exact };
+    // Repositories created before the fixed Chinese-source policy retain each
+    // entity's immutable original source. The global source page may redirect
+    // to that legacy origin, but every ready target locale remains exact-only.
+    const legacySource =
+      requested === input.sourceLocale ? locales[sourceLocale] : undefined;
+    return legacySource
+      ? { locale: sourceLocale, value: legacySource }
+      : undefined;
+  }
   const enabled = new Set(input.locales.map(({ code }) => code));
   for (const locale of fallbackChain(input, requested, sourceLocale).filter((candidate) => enabled.has(candidate))) {
     if (locales[locale]) return { locale, value: locales[locale] };
@@ -425,7 +442,59 @@ function toThemePost(input: BuildInput, post: BuildInput["posts"][number], local
 
 function dictionary(input: BuildInput, locale: string) {
   const dictionaries = input.dictionaries ?? {};
-  return { ...(dictionaries["zh-CN"] ?? {}), ...(dictionaries[input.sourceLocale] ?? {}), ...(dictionaries[locale] ?? {}) };
+  if (requiresExactLocale(input, locale))
+    return { ...(dictionaries[locale] ?? {}) };
+  return {
+    ...(dictionaries["zh-CN"] ?? {}), ...(dictionaries[input.sourceLocale] ?? {}), ...(dictionaries[locale] ?? {}) };
+}
+
+function requiresExactLocale(
+  input: Pick<BuildInput, "locales">,
+  locale: string,
+): boolean {
+  return input.locales.some(
+    (definition) => definition.code === locale && definition.status === "ready",
+  );
+}
+
+function localizedThemeSettings(
+  input: BuildInput,
+  locale: string,
+): Record<string, unknown> | undefined {
+  const base = input.theme?.settings;
+  const localized = input.theme?.localizedSettings?.[locale];
+  if (!base || !localized || Object.keys(localized).length === 0) return base;
+  const result = JSON.parse(JSON.stringify(base)) as Record<string, unknown>;
+  for (const path of input.theme?.localizableSettings ?? []) {
+    const value = localized[path];
+    if (value === undefined) continue;
+    const segments = path.split(".");
+    let current: unknown = result;
+    for (let index = 0; index < segments.length - 1; index += 1) {
+      const segment = segments[index];
+      current = Array.isArray(current)
+        ? current[Number.parseInt(segment, 10)]
+        : typeof current === "object" && current !== null
+          ? (current as Record<string, unknown>)[segment]
+          : undefined;
+    }
+    const finalSegment = segments.at(-1)!;
+    if (Array.isArray(current)) {
+      const position = Number.parseInt(finalSegment, 10);
+      if (!Number.isInteger(position) || typeof current[position] !== "string")
+        throw new Error(`localized theme setting path is invalid: ${path}`);
+      current[position] = value;
+    } else if (
+      typeof current === "object" &&
+      current !== null &&
+      typeof (current as Record<string, unknown>)[finalSegment] === "string"
+    ) {
+      (current as Record<string, unknown>)[finalSegment] = value;
+    } else {
+      throw new Error(`localized theme setting path is invalid: ${path}`);
+    }
+  }
+  return result;
 }
 
 async function emit(root: string, relative: string, contents: string) {
@@ -445,6 +514,12 @@ function validateInput(input: BuildInput) {
     throw new Error(`invalid site timezone: ${input.timezone}`);
   }
   const enabledLocales = new Set(input.locales.map(({ code }) => code));
+  for (const definition of input.locales) {
+    if (definition.status !== undefined && definition.status !== "ready")
+      throw new Error(
+        `non-ready locale cannot be rendered: ${definition.code}`,
+      );
+  }
   const requireEntitySource = (item: { id: string; sourceLocale?: string; locales: Record<string, unknown> }, kind: string) => {
     if (item.sourceLocale && (!enabledLocales.has(item.sourceLocale) || !item.locales[item.sourceLocale])) throw new Error(`${kind} source locale is unavailable: ${item.id}`);
   };
@@ -468,6 +543,127 @@ function validateInput(input: BuildInput) {
 	}
 	for (const item of [...(input.linkGroups ?? []), ...(input.links ?? [])]) requireEntitySource(item, "link");
 	for (const item of input.menus ?? []) requireEntitySource(item, "menu");
+
+  const sourceDictionary = input.dictionaries?.[input.sourceLocale];
+  for (const locale of input.locales
+    .filter((definition) => definition.status === "ready")
+    .map(({ code }) => code)) {
+    const requireLocale = (
+      item: {
+        id: string;
+        sourceLocale?: string;
+        locales: Record<string, object>;
+      },
+      kind: string,
+      fields: string[],
+      sourceLocale = item.sourceLocale ?? input.sourceLocale,
+    ) => {
+      const target = item.locales[locale] as
+        Record<string, unknown> | undefined;
+      if (!target) {
+        if (
+          locale === input.sourceLocale &&
+          sourceLocale !== locale &&
+          item.locales[sourceLocale]
+        )
+          return;
+        throw new Error(`${kind} locale is missing: ${item.id}.${locale}`);
+      }
+      const source = item.locales[sourceLocale] as
+        Record<string, unknown> | undefined;
+      if (!source)
+        throw new Error(
+          `${kind} source locale is missing: ${item.id}.${sourceLocale}`,
+        );
+      for (const field of fields) {
+        const sourceValue = source[field];
+        const targetValue = target[field];
+        if (
+          typeof sourceValue === "string" &&
+          sourceValue.trim() &&
+          (typeof targetValue !== "string" || !targetValue.trim())
+        ) {
+          throw new Error(
+            `${kind} locale field is missing: ${item.id}.${locale}.${field}`,
+          );
+        }
+      }
+    };
+    const siteCopy = input.site.locales[locale];
+    if (!siteCopy || !siteCopy.title?.trim())
+      throw new Error(`site copy is missing for ${locale}`);
+    const sourceSiteCopy = input.site.locales[input.sourceLocale];
+    for (const field of ["subtitle", "description"] as const) {
+      if (sourceSiteCopy?.[field]?.trim() && !siteCopy[field]?.trim())
+        throw new Error(`site copy field is missing: ${locale}.${field}`);
+    }
+    const localeDictionary = input.dictionaries?.[locale];
+    if (!sourceDictionary || !localeDictionary)
+      throw new Error(`framework dictionary is missing for ${locale}`);
+    for (const key of Object.keys(sourceDictionary)) {
+      if (!localeDictionary[key]?.trim())
+        throw new Error(
+          `framework dictionary value is missing: ${locale}.${key}`,
+        );
+    }
+    if (Object.keys(localeDictionary).some((key) => !(key in sourceDictionary)))
+      throw new Error(
+        `framework dictionary contains an unknown key for ${locale}`,
+      );
+    for (const post of input.posts)
+      requireLocale(post, "post", [
+        "title",
+        "summary",
+        "seoTitle",
+        "seoDescription",
+        "markdown",
+      ]);
+    for (const page of input.pages ?? [])
+      requireLocale(page, "page", [
+        "title",
+        "summary",
+        "seoTitle",
+        "seoDescription",
+        "markdown",
+      ]);
+    for (const item of [...(input.categories ?? []), ...(input.tags ?? [])])
+      requireLocale(item, "taxonomy", [
+        "name",
+        "description",
+        "seoTitle",
+        "seoDescription",
+      ]);
+    for (const item of [...(input.linkGroups ?? []), ...(input.links ?? [])])
+      requireLocale(item, "link", ["name", "description"]);
+    for (const menu of input.menus ?? []) {
+      requireLocale(menu, "menu", ["label"]);
+      for (const item of menu.items)
+        requireLocale(
+          item,
+          `menu item ${menu.id}`,
+          ["label"],
+          menu.sourceLocale ?? input.sourceLocale,
+        );
+    }
+    if (locale !== input.sourceLocale) {
+      const requiredPaths = input.theme?.localizableSettings ?? [];
+      const localizedPaths = Object.keys(
+        input.theme?.localizedSettings?.[locale] ?? {},
+      );
+      if (
+        localizedPaths.length !== requiredPaths.length ||
+        localizedPaths.some((path) => !requiredPaths.includes(path))
+      ) {
+        throw new Error(`localized theme setting keys do not match: ${locale}`);
+      }
+      for (const path of requiredPaths) {
+        if (!input.theme?.localizedSettings?.[locale]?.[path]?.trim())
+          throw new Error(
+            `localized theme setting is missing: ${locale}.${path}`,
+          );
+      }
+    }
+  }
 }
 
 function siteTimezone(input: Pick<BuildInput, "timezone">): string {

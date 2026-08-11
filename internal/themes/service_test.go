@@ -180,11 +180,16 @@ func TestUninstallCanDeleteSavedSettings(t *testing.T) {
 	if err := repository.WriteYAML(settingsPath("disposable"), map[string]any{"color": "blue"}, false); err != nil {
 		t.Fatal(err)
 	}
+	if err := repository.WriteYAML(localizedSettingsPath("disposable"), map[string]map[string]string{"fr": {"footer.title": "Titre"}}, false); err != nil {
+		t.Fatal(err)
+	}
 	if err := service.UninstallWithSettings("disposable", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.ReadFile(settingsPath("disposable")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("saved settings still exist: %v", err)
+	for _, relative := range []string{settingsPath("disposable"), localizedSettingsPath("disposable")} {
+		if _, err := repository.ReadFile(relative); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("saved settings still exist at %s: %v", relative, err)
+		}
 	}
 }
 
@@ -199,6 +204,9 @@ func TestRecoverInterruptedThemeUninstall(t *testing.T) {
 	if err := repository.WriteYAML(settingsPath("interrupted"), map[string]any{"color": "blue"}, false); err != nil {
 		t.Fatal(err)
 	}
+	if err := repository.WriteYAML(localizedSettingsPath("interrupted"), map[string]map[string]string{"fr": {"footer.title": "Titre"}}, false); err != nil {
+		t.Fatal(err)
+	}
 	if err := repository.WriteFile(deleteSettingsMarkerPath("interrupted"), []byte("pending\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +219,7 @@ func TestRecoverInterruptedThemeUninstall(t *testing.T) {
 	if err != nil || count != 2 {
 		t.Fatalf("Recover uninstall = %d, %v", count, err)
 	}
-	for _, relative := range []string{settingsPath("interrupted"), deleteSettingsMarkerPath("interrupted")} {
+	for _, relative := range []string{settingsPath("interrupted"), localizedSettingsPath("interrupted"), deleteSettingsMarkerPath("interrupted")} {
 		if _, err := repository.ReadFile(relative); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("recovered uninstall left %s: %v", relative, err)
 		}
@@ -427,6 +435,129 @@ func TestEarthSettingsUseDefaultsValidateAndReset(t *testing.T) {
 	}
 	if reset.Values["style"].(map[string]any)["accentColor"] != "#4ccba0" {
 		t.Fatalf("reset settings = %#v", reset.Values)
+	}
+}
+
+func TestEarthLocalizableSettingsAreExtractedValidatedAndLoaded(t *testing.T) {
+	service, repository := themeFixture(t)
+	_, err := service.SaveSettings("earth", map[string]any{
+		"global": map[string]any{"brandSymbol": "B"},
+		"layout": map[string]any{"heroKicker": "Earth stories"},
+		"sidebar": map[string]any{"socialLinks": []any{
+			map[string]any{"name": "Community", "url": "https://example.com/community", "kind": "link"},
+			map[string]any{"name": "", "url": "https://example.com/unnamed", "kind": "link"},
+		}},
+		"footer": map[string]any{
+			"title":     "Stay curious",
+			"slogan":    "Stories from everywhere",
+			"copyright": "All rights reserved",
+			"socialLinks": []any{
+				map[string]any{"name": "Follow us", "url": "https://example.com/follow", "kind": "link"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	source, err := service.LocalizableText("earth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"layout.heroKicker":          "Earth stories",
+		"sidebar.socialLinks.0.name": "Community",
+		"footer.title":               "Stay curious",
+		"footer.slogan":              "Stories from everywhere",
+		"footer.copyright":           "All rights reserved",
+		"footer.socialLinks.0.name":  "Follow us",
+	}
+	if len(source) != len(want) {
+		t.Fatalf("localizable settings = %#v, want %#v", source, want)
+	}
+	for path, expected := range want {
+		if source[path] != expected {
+			t.Errorf("localizable setting %q = %q, want %q", path, source[path], expected)
+		}
+	}
+	if _, exists := source["global.brandSymbol"]; exists {
+		t.Fatalf("brand symbol must not be localizable: %#v", source)
+	}
+	if _, exists := source["sidebar.socialLinks.1.name"]; exists {
+		t.Fatalf("empty social-link name must not be localizable: %#v", source)
+	}
+
+	translations := make(map[string]string, len(source))
+	for path, value := range source {
+		translations[path] = "Translated " + value
+	}
+	clone := func(values map[string]string) map[string]string {
+		copy := make(map[string]string, len(values))
+		for path, value := range values {
+			copy[path] = value
+		}
+		return copy
+	}
+	missing := clone(translations)
+	delete(missing, "footer.title")
+	if err := service.WriteLocalizedText("earth", "en-US", missing); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("missing localized setting error = %v, want ErrInvalid", err)
+	}
+	extra := clone(translations)
+	extra["footer.unknown"] = "Unexpected"
+	if err := service.WriteLocalizedText("earth", "en-US", extra); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("extra localized setting error = %v, want ErrInvalid", err)
+	}
+	blank := clone(translations)
+	blank["footer.title"] = "   "
+	if err := service.WriteLocalizedText("earth", "en-US", blank); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("blank localized setting error = %v, want ErrInvalid", err)
+	}
+	if err := service.WriteLocalizedText("earth", "not a locale", translations); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid locale error = %v, want ErrInvalid", err)
+	}
+	if err := service.WriteLocalizedText("earth", "zh-CN", translations); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("source locale write error = %v, want ErrInvalid", err)
+	}
+	if err := service.WriteLocalizedText("earth", "en-us", translations); err != nil {
+		t.Fatal(err)
+	}
+
+	var stored map[string]map[string]string
+	if err := repository.ReadYAML(localizedSettingsPath("earth"), &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored["en-US"]["footer.title"] != translations["footer.title"] {
+		t.Fatalf("stored localized settings = %#v", stored)
+	}
+	runtime, err := service.RuntimeFor("earth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.LocalizedSettings["en-US"]["layout.heroKicker"] != translations["layout.heroKicker"] {
+		t.Fatalf("runtime localized settings = %#v", runtime.LocalizedSettings)
+	}
+}
+
+func TestCustomThemeWithoutLocalizableContractIsNotLocalized(t *testing.T) {
+	service, _ := themeFixture(t)
+	if _, err := installThemeForTest(t, service, themeArchive(t, map[string]string{
+		"theme.yaml": "schemaVersion: 1\nid: plain\nname: Plain\nversion: 1.0.0\nengine: react-ssr\n" +
+			"server: server.mjs\nsettingsSchema: settings.schema.json\n",
+		"server.mjs":           "export const css = '';\n",
+		"settings.schema.json": `{"type":"object","properties":{"headline":{"type":"string","default":"Custom headline"}}}`,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	values, err := service.LocalizableText("plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("custom theme without x-localizable contract returned %#v", values)
+	}
+	if err := service.WriteLocalizedText("plain", "en", map[string]string{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("custom theme localized write error = %v, want ErrInvalid", err)
 	}
 }
 

@@ -431,6 +431,18 @@ func (s *Service) readRelease(kind, id string) (domain.Post, error) {
 // public snapshot. It never promotes unrelated head edits made while the task
 // was running.
 func (s *Service) PromoteAITranslation(kind, id, locale string, sourceRevision int) error {
+	return s.promoteTranslation(kind, id, locale, sourceRevision, false)
+}
+
+// PromoteCurrentTranslation is the site-wide localization recovery variant:
+// it may preserve a current manual repair whose source revision still matches.
+// Standalone AI tasks continue to use PromoteAITranslation and cannot claim a
+// concurrently supplied manual value as their own result.
+func (s *Service) PromoteCurrentTranslation(kind, id, locale string, sourceRevision int) error {
+	return s.promoteTranslation(kind, id, locale, sourceRevision, true)
+}
+
+func (s *Service) promoteTranslation(kind, id, locale string, sourceRevision int, allowManual bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	head, err := s.getLifecycleContentLocked(kind, id)
@@ -438,7 +450,8 @@ func (s *Service) PromoteAITranslation(kind, id, locale string, sourceRevision i
 		return err
 	}
 	state, ok := head.Meta.Locales[locale]
-	if !ok || state.Origin != domain.LocaleOriginAI || state.State != "current" || state.SourceRevision != sourceRevision {
+	validOrigin := state.Origin == domain.LocaleOriginAI || (allowManual && state.Origin == domain.LocaleOriginManual)
+	if !ok || !validOrigin || state.State != "current" || state.SourceRevision != sourceRevision {
 		return ErrSourceChanged
 	}
 	if head.Meta.Status != domain.ContentStatusPublished {
@@ -480,6 +493,95 @@ func (s *Service) PromoteAITranslation(kind, id, locale string, sourceRevision i
 	}
 	head.Meta.ReleaseRevision = released.Meta.Revision
 	paths, err := lifecyclePaths(kind, id)
+	if err != nil {
+		return err
+	}
+	return s.repository.WriteYAML(filepath.Join(paths.content, "meta.yaml"), head.Meta, false)
+}
+
+// ApplyAIReleaseTranslation adds a target locale to the immutable public
+// release when its source snapshot is older than the unpublished head. It does
+// not copy the old translation onto that newer head; callers translate the
+// head separately so a later publish cannot release stale target text.
+func (s *Service) ApplyAIReleaseTranslation(kind, id, locale string, input ApplyAIReleaseTranslationInput) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	descriptor := postContent
+	if strings.EqualFold(kind, pageContent.kind) || strings.EqualFold(kind, pageContent.plural) {
+		descriptor = pageContent
+	} else if !strings.EqualFold(kind, postContent.kind) && !strings.EqualFold(kind, postContent.plural) {
+		return ErrNotFound
+	}
+	locale, err := s.normalizeEnabledLocale(locale)
+	if err != nil {
+		return err
+	}
+	head, err := s.getContentLocked(descriptor, id)
+	if err != nil {
+		return err
+	}
+	if head.Meta.Status != domain.ContentStatusPublished {
+		return ErrInvalidStatus
+	}
+	released, err := s.readRelease(descriptor.kind, id)
+	if err != nil {
+		return err
+	}
+	if released.Meta.Revision != input.ExpectedReleaseRevision {
+		return ErrSourceChanged
+	}
+	if locale == released.Meta.SourceLocale {
+		return ErrLocaleDisabled
+	}
+	sourceState, exists := released.Meta.Locales[released.Meta.SourceLocale]
+	if !exists || sourceState.Revision != input.ExpectedSourceRevision {
+		return ErrSourceChanged
+	}
+	headSourceState, headSourceExists := head.Meta.Locales[head.Meta.SourceLocale]
+	headSourceContent, headContentExists := head.Content[head.Meta.SourceLocale]
+	releaseSourceContent, releaseContentExists := released.Content[released.Meta.SourceLocale]
+	if !headSourceExists || !headContentExists || !releaseContentExists {
+		return ErrSourceChanged
+	}
+	if head.Meta.SourceLocale != released.Meta.SourceLocale || (headSourceState.Revision == sourceState.Revision && headSourceContent == releaseSourceContent) {
+		// The ordinary Apply + Promote path owns a release that still follows its
+		// head source. This method must never synthesize a second competing release.
+		return ErrSourceChanged
+	}
+	target := released.Meta.Locales[locale]
+	if target.Revision != input.ExpectedTargetRevision {
+		return ErrTargetChanged
+	}
+	localized := input.Content
+	localized.Title = strings.TrimSpace(localized.Title)
+	localized.Summary = strings.TrimSpace(localized.Summary)
+	localized.SEOTitle = strings.TrimSpace(localized.SEOTitle)
+	localized.SEODescription = strings.TrimSpace(localized.SEODescription)
+	if localized.Title == "" || (strings.TrimSpace(releaseSourceContent.Markdown) != "" && strings.TrimSpace(localized.Markdown) == "") {
+		return errors.New("complete translated release content is required")
+	}
+	if released.Meta.Revision+1 >= head.Meta.HeadRevision {
+		if err := s.snapshotContent(descriptor, head); err != nil {
+			return err
+		}
+		advanceHead(&head.Meta)
+		head.Meta.UpdatedAt = time.Now().UTC()
+	}
+	target.Revision++
+	target.State = "current"
+	target.Origin = domain.LocaleOriginAI
+	target.SourceRevision = sourceState.Revision
+	released.Meta.Locales[locale] = target
+	released.Content[locale] = localized
+	advanceHead(&released.Meta)
+	released.Meta.ReleaseRevision = released.Meta.Revision
+	released.Meta.UpdatedAt = time.Now().UTC()
+	if err := s.writeRelease(descriptor.kind, released); err != nil {
+		return err
+	}
+	head.Meta.ReleaseRevision = released.Meta.Revision
+	head.Meta.HasUnpublishedChanges = head.Meta.HeadRevision != head.Meta.ReleaseRevision
+	paths, err := lifecyclePaths(descriptor.kind, id)
 	if err != nil {
 		return err
 	}

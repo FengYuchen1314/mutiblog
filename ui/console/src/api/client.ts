@@ -62,7 +62,12 @@ export interface Post {
 
 export interface LocalesConfig {
   sourceLocale: string;
-  enabled: Array<{ code: string; label: string; enabled: boolean }>;
+  enabled: Array<{
+    code: string;
+    label: string;
+    enabled: boolean;
+    status?: "provisioning" | "building" | "ready" | "failed";
+  }>;
   fallback: string[];
 }
 
@@ -509,14 +514,19 @@ export const api = {
     }>(`/api/v1/admin/index/search?q=${encodeURIComponent(query)}&limit=${limit}`),
   locales: () => request<LocalesConfig>("/api/v1/admin/locales"),
   updateLocales: (csrfToken: string, enabled: LocalesConfig["enabled"], sourceLocale: string, taskId?: string) =>
-    request<{ locales: LocalesConfig; build: { status: "succeeded" | "failed"; report?: StaticBuildReport } }>(
-      "/api/v1/admin/locales",
-      {
-        method: "PUT",
-        headers: trackedMutationHeaders(csrfToken, taskId),
-        body: JSON.stringify({ enabled, sourceLocale }),
-      },
-    ),
+    request<{
+      locales: LocalesConfig;
+      localization?: {
+        status: "succeeded" | "partial" | "failed";
+        reports: Array<Record<string, string | number>>;
+        failedLocales: string[];
+      };
+      build: { status: "succeeded" | "failed"; report?: StaticBuildReport };
+    }>("/api/v1/admin/locales", {
+      method: "PUT",
+      headers: trackedMutationHeaders(csrfToken, taskId),
+      body: JSON.stringify({ enabled, sourceLocale }),
+    }),
   dictionaries: () => request<{ items: FrameworkDictionary[] }>("/api/v1/admin/dictionaries"),
   updateDictionary: (csrfToken: string, locale: string, values: Record<string, string>, taskId?: string) =>
     request<FrameworkDictionary>(`/api/v1/admin/dictionaries/${encodeURIComponent(locale)}`, {

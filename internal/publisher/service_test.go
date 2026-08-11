@@ -686,6 +686,32 @@ func TestTaxonomySnapshotPreservesLocalizedSEO(t *testing.T) {
 	}
 }
 
+func TestSnapshotExcludesUntranslatedLocalesAndRendersBuildingLocaleAsReady(t *testing.T) {
+	repository, contentService := publisherFixture(t)
+	locales := domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  "zh-CN",
+		Enabled: []domain.LocaleDefinition{
+			{Code: "zh-CN", Label: "简体中文", Enabled: true, Status: domain.LocaleStatusReady},
+			{Code: "ja", Label: "日本語", Enabled: true, Status: domain.LocaleStatusProvisioning},
+			{Code: "fr", Label: "Français", Enabled: true, Status: domain.LocaleStatusFailed},
+			{Code: "de", Label: "Deutsch", Enabled: true, Status: domain.LocaleStatusBuilding},
+		},
+		Fallback: []string{"zh-CN"},
+	}
+	if err := repository.WriteYAML("config/locales.yaml", locales, false); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository, contentService, &fakeRenderer{})
+	input, err := service.snapshot("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(input.Locales) != 2 || input.Locales[0].Code != "de" || input.Locales[0].Status != domain.LocaleStatusReady || input.Locales[1].Code != "zh-CN" {
+		t.Fatalf("public snapshot locales = %#v", input.Locales)
+	}
+}
+
 func publisherFixture(t *testing.T) (*fsrepo.Repository, *content.Service) {
 	t.Helper()
 	repository, err := fsrepo.Open(t.TempDir())

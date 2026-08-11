@@ -32,7 +32,39 @@ describe("console dictionaries", () => {
     }
     expect(violations).toEqual([]);
   });
+
+  test("keeps the setup source locale read-only and submits zh-CN", async () => {
+    const source = await viewSource("SetupView.vue");
+
+    expect(source).toContain('const SOURCE_LOCALE = "zh-CN";');
+    expect(source).toContain("sourceLocale: SOURCE_LOCALE,");
+    expect(source).toMatch(/api\.setup\(\{ \.\.\.form, sourceLocale: SOURCE_LOCALE \}/);
+    expect(source).toContain('readonly aria-readonly="true"');
+    expect(source).not.toContain('v-model="form.sourceLocale"');
+  });
+
+  test("keeps added locales permanent and delegates whole-site translation to the backend", async () => {
+    const source = await viewSource("LocalesView.vue");
+
+    expect(source).toContain("api.updateLocales(csrfToken, enabled, SOURCE_LOCALE, taskId)");
+    expect(source).toContain("{ ...entry, enabled: true }");
+    expect(source).toContain('"localesPage.permanent"');
+    expect(source).toContain('"localesPage.pendingSave"');
+    expect(source).toContain('t("localesPage.saveAndTranslate")');
+    expect(source).toContain('t("localesPage.translationWorkflowHelp")');
+    expect(source).not.toContain("window.confirm");
+    expect(source).not.toContain("removeLocale");
+    expect(source).not.toContain('v-model="sourceLocale"');
+    expect(source).not.toContain('v-model="entry.enabled"');
+    expect(source).not.toContain("api.dictionaries");
+    expect(source).not.toContain("api.updateDictionary");
+  });
 });
+
+async function viewSource(name: string) {
+  const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+  return readFile(join(sourceRoot, "views", name), "utf8");
+}
 
 async function sourceFiles(root: string): Promise<string[]> {
   const result: string[] = [];

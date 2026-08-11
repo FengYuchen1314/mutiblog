@@ -382,7 +382,7 @@ func (s *Service) normalizeEnabledLocale(raw string) (string, error) {
 		return "", err
 	}
 	for _, locale := range config.Enabled {
-		if locale.Enabled && locale.Code == normalized {
+		if locale.Enabled && (locale.Status == "" || locale.Status == domain.LocaleStatusReady) && locale.Code == normalized {
 			return normalized, nil
 		}
 	}

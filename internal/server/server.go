@@ -29,6 +29,7 @@ import (
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/links"
 	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
+	"github.com/FengYuchen1314/mutiblog/internal/localization"
 	"github.com/FengYuchen1314/mutiblog/internal/media"
 	"github.com/FengYuchen1314/mutiblog/internal/menus"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
@@ -64,6 +65,10 @@ type SitePublisher interface {
 	Build(context.Context) (publisher.BuildReport, error)
 }
 
+type localeProvisioner interface {
+	Provision(context.Context, string) (localization.Report, error)
+}
+
 // backupTaskStarter narrows the backup task-start checkpoint used by the
 // asynchronous runners. The concrete backup service remains responsible for
 // all other task lifecycle operations; keeping this seam small lets callers
@@ -86,6 +91,7 @@ type Server struct {
 	audit              *audit.Service
 	publisher          SitePublisher
 	translator         *translation.Service
+	localeProvisioner  localeProvisioner
 	scheduler          *scheduled.Service
 	taxonomies         *taxonomy.Service
 	comments           *comments.Service
@@ -195,6 +201,7 @@ func New(options Options) (*Server, error) {
 		return nil, fmt.Errorf("initialize published content releases: %w", err)
 	}
 	server.translator = translation.NewService(options.Repository, server.content, server.ai, server.publisher)
+	server.localeProvisioner = localization.NewService(options.Repository, server.content, server.translator)
 	projectionService, err := projection.Open(options.Repository, server.content, options.Logger)
 	if err != nil {
 		server.translator.Close()
@@ -550,7 +557,8 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePublic(w http.ResponseWriter, r *http.Request) {
 	current := filepath.Join(s.repository.Root(), "generated", "current")
-	if s.isThemePreviewHost(r) {
+	isPreview := s.isThemePreviewHost(r)
+	if isPreview {
 		cookie, err := r.Cookie(previewCookieName)
 		if err != nil {
 			http.NotFound(w, r)
@@ -572,23 +580,38 @@ func (s *Server) handlePublic(w http.ResponseWriter, r *http.Request) {
 		current = root
 		w.Header().Set("Cache-Control", "private, no-store")
 	}
-	s.serveStaticRoot(w, r, current)
+	s.serveStaticRootWithLocaleVisibility(w, r, current, !isPreview)
 }
 
 func (s *Server) serveStaticRoot(w http.ResponseWriter, r *http.Request, current string) {
-	if strings.Trim(r.URL.Path, "/") == "" {
-		w.Header().Add("Vary", "Accept-Language")
-		w.Header().Set("Cache-Control", "no-cache")
-	}
-	if target, ok := s.publicRedirect(current, r); ok {
-		http.Redirect(w, r, target, http.StatusFound)
-		return
-	}
+	s.serveStaticRootWithLocaleVisibility(w, r, current, true)
+}
+
+func (s *Server) serveStaticRootWithLocaleVisibility(w http.ResponseWriter, r *http.Request, current string, enforceVisibility bool) {
 	// Repeat the anchored clean at the public boundary instead of depending on
 	// ServeMux or a reverse proxy to canonicalize encoded dot segments.
 	clean := strings.TrimPrefix(filepath.Clean(string(filepath.Separator)+r.URL.Path), string(filepath.Separator))
 	if clean == "." || clean == "" {
 		clean = "index.html"
+	}
+	var localeConfig *domain.LocalesConfig
+	if enforceVisibility {
+		localeConfig = s.readPublicLocaleConfig()
+		if pathTargetsExplicitlyHiddenLocale(clean, localeConfig) {
+			// The locale can become ready without changing this URL, so prevent an
+			// intermediary from retaining the temporary lifecycle 404.
+			w.Header().Set("Cache-Control", "no-cache")
+			http.NotFound(w, r)
+			return
+		}
+	}
+	if strings.Trim(r.URL.Path, "/") == "" {
+		w.Header().Add("Vary", "Accept-Language")
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	if target, ok := s.publicRedirectWithLocaleVisibility(current, r, localeConfig, enforceVisibility); ok {
+		http.Redirect(w, r, target, http.StatusFound)
+		return
 	}
 	requested := filepath.Join(current, clean)
 	if info, err := os.Stat(requested); err == nil && !info.IsDir() {
@@ -605,7 +628,7 @@ func (s *Server) serveStaticRoot(w http.ResponseWriter, r *http.Request, current
 		s.serveFile(w, r, filepath.Join(requested, "index.html"))
 		return
 	}
-	if notFound := s.localizedNotFound(current, clean); notFound != "" {
+	if notFound := s.localizedNotFoundWithLocaleVisibility(current, clean, localeConfig, enforceVisibility); notFound != "" {
 		if w.Header().Get("Cache-Control") == "" {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
@@ -660,14 +683,23 @@ func (s *Server) isThemePreviewHost(r *http.Request) bool {
 }
 
 func (s *Server) localizedNotFound(current, clean string) string {
+	return s.localizedNotFoundWithLocaleVisibility(current, clean, s.readPublicLocaleConfig(), true)
+}
+
+func (s *Server) localizedNotFoundWithLocaleVisibility(current, clean string, config *domain.LocalesConfig, enforceVisibility bool) string {
 	requestedLocale := strings.SplitN(clean, "/", 2)[0]
 	candidates := []string{requestedLocale}
 	available, hasReleaseReport := activeReleaseLocales(current)
+	if enforceVisibility {
+		available = filterExplicitlyHiddenLocales(available, config)
+	}
 	sourceLocale := releaseRootLocale(current, available)
 	if sourceLocale == "" && !hasReleaseReport {
-		var locales domain.LocalesConfig
-		if err := s.repository.ReadYAML("config/locales.yaml", &locales); err == nil {
-			sourceLocale = locales.SourceLocale
+		if config == nil {
+			config = s.readPublicLocaleConfig()
+		}
+		if config != nil {
+			sourceLocale = config.SourceLocale
 		}
 	}
 	if requestedLocale != localeconfig.DefaultFallback {
@@ -680,6 +712,9 @@ func (s *Server) localizedNotFound(current, clean string) string {
 		if locale == "" || locale == "." || strings.ContainsAny(locale, `/\\`) {
 			continue
 		}
+		if enforceVisibility && localeIsExplicitlyHidden(locale, config) {
+			continue
+		}
 		path := filepath.Join(current, locale, "404.html")
 		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
 			return path
@@ -689,8 +724,12 @@ func (s *Server) localizedNotFound(current, clean string) string {
 }
 
 func (s *Server) publicRedirect(current string, r *http.Request) (string, bool) {
+	return s.publicRedirectWithLocaleVisibility(current, r, s.readPublicLocaleConfig(), true)
+}
+
+func (s *Server) publicRedirectWithLocaleVisibility(current string, r *http.Request, config *domain.LocalesConfig, enforceVisibility bool) (string, bool) {
 	if strings.Trim(r.URL.Path, "/") == "" {
-		if target, ok := s.negotiatedRootTarget(current, r.Header.Get("Accept-Language")); ok {
+		if target, ok := s.negotiatedRootTargetWithLocaleVisibility(current, r.Header.Get("Accept-Language"), config, enforceVisibility); ok {
 			return target, true
 		}
 	}
@@ -713,6 +752,9 @@ func (s *Server) publicRedirect(current string, r *http.Request) (string, bool) 
 			from = "/"
 		}
 		if from == want && redirect.Status == http.StatusFound && strings.HasPrefix(redirect.To, "/") && !strings.HasPrefix(redirect.To, "//") {
+			if enforceVisibility && redirectTargetsExplicitlyHiddenLocale(redirect.To, config) {
+				continue
+			}
 			return redirect.To, true
 		}
 	}
@@ -720,14 +762,23 @@ func (s *Server) publicRedirect(current string, r *http.Request) (string, bool) 
 }
 
 func (s *Server) negotiatedRootTarget(current, acceptLanguage string) (string, bool) {
+	return s.negotiatedRootTargetWithLocaleVisibility(current, acceptLanguage, s.readPublicLocaleConfig(), true)
+}
+
+func (s *Server) negotiatedRootTargetWithLocaleVisibility(current, acceptLanguage string, config *domain.LocalesConfig, enforceVisibility bool) (string, bool) {
 	available, hasReleaseReport := activeReleaseLocales(current)
+	if enforceVisibility {
+		available = filterExplicitlyHiddenLocales(available, config)
+	}
 	if len(available) == 0 && !hasReleaseReport {
-		var config domain.LocalesConfig
-		if err := s.repository.ReadYAML("config/locales.yaml", &config); err != nil {
+		if config == nil {
+			config = s.readPublicLocaleConfig()
+		}
+		if config == nil {
 			return "", false
 		}
 		for _, locale := range config.Enabled {
-			if locale.Enabled {
+			if localeDefinitionIsPublic(locale) {
 				available = append(available, locale.Code)
 			}
 		}
@@ -771,6 +822,62 @@ func (s *Server) negotiatedRootTarget(current, acceptLanguage string) (string, b
 		}
 	}
 	return "/" + codes[index] + "/", true
+}
+
+func (s *Server) readPublicLocaleConfig() *domain.LocalesConfig {
+	if s.repository == nil {
+		return nil
+	}
+	var config domain.LocalesConfig
+	if err := s.repository.ReadYAML("config/locales.yaml", &config); err != nil {
+		return nil
+	}
+	return &config
+}
+
+func localeDefinitionIsPublic(definition domain.LocaleDefinition) bool {
+	status := strings.TrimSpace(definition.Status)
+	return definition.Enabled && (status == "" || status == domain.LocaleStatusReady)
+}
+
+func localeIsExplicitlyHidden(locale string, config *domain.LocalesConfig) bool {
+	if config == nil {
+		return false
+	}
+	for _, definition := range config.Enabled {
+		if definition.Code == locale {
+			status := strings.TrimSpace(definition.Status)
+			return !definition.Enabled || (status != "" && status != domain.LocaleStatusReady)
+		}
+	}
+	return false
+}
+
+func filterExplicitlyHiddenLocales(locales []string, config *domain.LocalesConfig) []string {
+	if config == nil {
+		return locales
+	}
+	filtered := make([]string, 0, len(locales))
+	for _, locale := range locales {
+		if !localeIsExplicitlyHidden(locale, config) {
+			filtered = append(filtered, locale)
+		}
+	}
+	return filtered
+}
+
+func pathTargetsExplicitlyHiddenLocale(clean string, config *domain.LocalesConfig) bool {
+	locale := strings.SplitN(clean, "/", 2)[0]
+	return localeIsExplicitlyHidden(locale, config)
+}
+
+func redirectTargetsExplicitlyHiddenLocale(target string, config *domain.LocalesConfig) bool {
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return false
+	}
+	clean := strings.TrimPrefix(filepath.Clean(string(filepath.Separator)+parsed.Path), string(filepath.Separator))
+	return pathTargetsExplicitlyHiddenLocale(clean, config)
 }
 
 func activeReleaseLocales(current string) ([]string, bool) {

@@ -29,7 +29,15 @@ type LocaleDefinition struct {
 	Code    string `yaml:"code" json:"code"`
 	Label   string `yaml:"label" json:"label"`
 	Enabled bool   `yaml:"enabled" json:"enabled"`
+	Status  string `yaml:"status,omitempty" json:"status,omitempty"`
 }
+
+const (
+	LocaleStatusProvisioning = "provisioning"
+	LocaleStatusBuilding     = "building"
+	LocaleStatusReady        = "ready"
+	LocaleStatusFailed       = "failed"
+)
 
 type LocalesConfig struct {
 	SchemaVersion int                `yaml:"schemaVersion" json:"schemaVersion"`

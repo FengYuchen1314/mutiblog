@@ -10,13 +10,14 @@ import { useSessionStore } from "@/stores/session";
 const router = useRouter();
 const session = useSessionStore();
 const { t } = useI18n();
+const SOURCE_LOCALE = "zh-CN";
 const submitting = ref(false);
 const error = ref("");
 const fields = ref<Record<string, string>>({});
 const form = reactive({
   siteTitle: "MutiBlog",
   baseUrl: window.location.origin,
-  sourceLocale: "zh-CN",
+  sourceLocale: SOURCE_LOCALE,
   adminLocale: "zh-CN",
   timezone: "Asia/Shanghai",
   username: "admin",
@@ -28,7 +29,7 @@ async function submit() {
   error.value = "";
   fields.value = {};
   try {
-    const result = await api.setup({ ...form }, createStaticBuildTaskId());
+    const result = await api.setup({ ...form, sourceLocale: SOURCE_LOCALE }, createStaticBuildTaskId());
     session.establish(result.session);
     markSetupComplete();
     if (result.build.status === "failed" && !result.build.taskId) {
@@ -73,7 +74,8 @@ async function submit() {
         </label>
         <label class="field">
           <span>{{ t("setupPage.sourceLocale") }}</span>
-          <input v-model="form.sourceLocale" placeholder="zh-CN" />
+          <input :value="t('setupPage.sourceLocaleValue')" readonly aria-readonly="true" />
+          <small>{{ t("setupPage.sourceLocaleHelp") }}</small>
           <small v-if="fields.sourceLocale" class="field-error">{{ fields.sourceLocale }}</small>
         </label>
         <label class="field">
