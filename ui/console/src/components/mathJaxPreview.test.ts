@@ -34,8 +34,7 @@ describe("editor MathJax safety", () => {
 
   test("isolates an invalid formula so later markers still render", async () => {
     const preview = document.createElement("article");
-    preview.innerHTML =
-      '<span data-math-preview="inline">bad</span><span data-math-preview="inline">2+2</span>';
+    preview.innerHTML = '<span data-math-preview="inline">bad</span><span data-math-preview="inline">2+2</span>';
 
     await convertPreviewMathMarkers(preview, {
       async tex2svgPromise(source) {

@@ -47,9 +47,7 @@ describe("editor Markdown mathematics", () => {
   });
 
   test("does not swallow later Markdown while a display formula is unfinished", () => {
-    const output = createPreviewMarkdownRenderer().render(
-      "Before\n\n$$\\frac{1}{2}\n\n## Still visible\n\nAfter",
-    );
+    const output = createPreviewMarkdownRenderer().render("Before\n\n$$\\frac{1}{2}\n\n## Still visible\n\nAfter");
 
     expect(output).not.toContain("data-math-preview");
     expect(output).toContain("$$\\frac{1}{2}");
