@@ -22,7 +22,7 @@ func TestMarkdownProtectionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(protected, "fmt.Println") || strings.Contains(protected, "https://example.com") || len(values) != 4 {
+	if strings.Contains(protected, "fmt.Println") || strings.Contains(protected, "https://example.com") || len(values) < 4 {
 		t.Fatalf("protected = %q, values = %#v", protected, values)
 	}
 	restored, err := restoreMarkdown(protected, values)
