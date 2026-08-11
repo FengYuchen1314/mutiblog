@@ -33,6 +33,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: bash -n deploy/*.sh && bash deploy/update-test.sh
       - run: go test ./...
       - run: pnpm typecheck
       - run: pnpm test

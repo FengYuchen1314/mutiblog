@@ -36,6 +36,18 @@ func TestMarkdownProtectionPreservesMeaningfulOuterWhitespace(t *testing.T) {
 	}
 }
 
+func TestMarkdownProtectionPreservesFencedBlockWithoutFinalNewline(t *testing.T) {
+	source := "before\n\n```go\nfmt.Println(\"hello\")\n```"
+	protected, values, err := protectMarkdown(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := restoreMarkdown(protected, values)
+	if err != nil || restored != source {
+		t.Fatalf("restored = %q, err = %v", restored, err)
+	}
+}
+
 func TestSegmentMarkdownRespectsLimit(t *testing.T) {
 	chunks := segmentMarkdown(strings.Repeat("段落内容", 120)+"\n\n"+strings.Repeat("second ", 80), 100)
 	if len(chunks) < 2 {
@@ -55,16 +67,37 @@ func TestSegmentMarkdownPreservesParagraphBoundariesAndProtectedTokens(t *testin
 	if len(parts) < 2 {
 		t.Fatalf("parts = %#v", parts)
 	}
-	rebuilt := strings.Builder{}
+	var rebuilt strings.Builder
 	for _, part := range parts {
 		if strings.Contains(part.Text, "MUTIBLOG_PROTECTED") && !strings.Contains(part.Text, token) {
 			t.Fatalf("protected token was split: %#v", parts)
 		}
-		rebuilt.WriteString(strings.TrimSpace(part.Text))
+		rebuilt.WriteString(part.Text)
 		rebuilt.WriteString(part.Separator)
 	}
-	if strings.Count(rebuilt.String(), token) != 1 || !strings.Contains(rebuilt.String(), "\n\nsecond paragraph") {
+	if rebuilt.String() != source || strings.Count(rebuilt.String(), token) != 1 {
 		t.Fatalf("rebuilt Markdown = %q", rebuilt.String())
+	}
+}
+
+func TestSegmentMarkdownPreservesEveryBoundaryByte(t *testing.T) {
+	tests := []string{
+		"alpha beta gamma delta",
+		"alpha  \nbeta\tgamma",
+		"alpha   beta",
+		"\t\tindented content followed by words",
+		"first\n\nsecond\n\nthird",
+	}
+	for _, source := range tests {
+		parts := segmentMarkdownParts(source, 9)
+		var rebuilt strings.Builder
+		for _, part := range parts {
+			rebuilt.WriteString(part.Text)
+			rebuilt.WriteString(part.Separator)
+		}
+		if rebuilt.String() != source {
+			t.Fatalf("source = %q, rebuilt = %q, parts = %#v", source, rebuilt.String(), parts)
+		}
 	}
 }
 
