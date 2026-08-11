@@ -8,7 +8,11 @@ trap 'rm -f "${test_log}" "${test_lock}"' EXIT
 docker() {
   case "${1:-} ${2:-}" in
     "inspect --format")
-      printf '%s\n' 'sha256:same'
+      if [[ "$*" == *'.State.Health'* ]]; then
+        printf '%s\n' 'healthy'
+      else
+        printf '%s\n' 'sha256:same'
+      fi
       ;;
     "image inspect")
       printf '%s\n' 'sha256:same'
