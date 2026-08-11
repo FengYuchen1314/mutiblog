@@ -294,7 +294,7 @@ func TestRootLocaleNegotiationUsesOnlyTheActiveRelease(t *testing.T) {
 		SchemaVersion: domain.SchemaVersion,
 		SourceLocale:  "fr",
 		Enabled: []domain.LocaleDefinition{
-			{Code: "zh-CN", Enabled: false},
+			{Code: "zh-CN", Enabled: true, Status: domain.LocaleStatusReady},
 			{Code: "en", Enabled: true},
 			{Code: "fr", Enabled: true},
 		},
