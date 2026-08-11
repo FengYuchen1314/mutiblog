@@ -130,7 +130,10 @@ test("rejects a published legacy-source item missing the fixed site-source local
   const input: BuildInput = {
     schemaVersion: 1,
     sourceLocale: "zh-CN",
-    locales: [{ code: "zh-CN", label: "简体中文", status: "ready" }],
+    locales: [
+      { code: "zh-CN", label: "简体中文", status: "ready" },
+      { code: "en", label: "English", status: "ready" },
+    ],
     site: { locales: { "zh-CN": { title: "固定中文源站点" } } },
     dictionaries: { "zh-CN": { notFound: "页面不存在" } },
     posts: [{
