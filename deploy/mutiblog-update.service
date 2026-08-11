@@ -1,0 +1,14 @@
+[Unit]
+Description=Pull and safely deploy the latest MutiBlog container
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/mutiblog/deploy.env
+ExecStart=/opt/mutiblog/deployment/update.sh
+# Pulling a multi-architecture image plus the candidate and rollback health
+# gates can legitimately exceed three minutes on a small VPS. Keep systemd
+# from killing the updater before its own rollback path has completed.
+TimeoutStartSec=15min
+Nice=10

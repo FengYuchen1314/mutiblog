@@ -11,6 +11,11 @@
   },
   "dependencies": {
     "@halo-dev/components": "2.25.0",
+    "@mutiblog/markdown": "workspace:*",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.8",
+    "codemirror": "^6.0.2",
     "@iconify/vue": "^5.0.0",
     "@tanstack/vue-query": "^5.87.1",
     "@vueuse/core": "^12.8.2",

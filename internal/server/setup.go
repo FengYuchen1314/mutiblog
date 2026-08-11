@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"regexp"
 	"strings"
@@ -73,6 +75,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		AdminLocale:   request.AdminLocale,
 		Timezone:      request.Timezone,
 		ActiveTheme:   "earth",
+		IDStrategy:    "uuid",
 		Locales: map[string]domain.LocalizedSite{
 			request.SourceLocale: {Title: strings.TrimSpace(request.SiteTitle)},
 		},
@@ -94,7 +97,14 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-	secrets := domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}}
+	commentKey := make([]byte, 32)
+	if _, err := rand.Read(commentKey); err != nil {
+		s.writeError(w, http.StatusInternalServerError, "secret_generation_failed", "Cannot initialize comment privacy protection.", nil)
+		return
+	}
+	secrets := domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}, CommentHMACKey: hex.EncodeToString(commentKey)}
+	providers := domain.AIProvidersConfig{SchemaVersion: domain.SchemaVersion, Providers: []domain.AIProviderConfig{}}
+	comments := domain.CommentsConfig{SchemaVersion: domain.SchemaVersion, Moderation: "pending", PageSize: 20, MaxLength: 2000}
 
 	for _, write := range []struct {
 		path   string
@@ -102,6 +112,8 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		secret bool
 	}{
 		{"config/secrets.yaml", secrets, true},
+		{"config/providers.yaml", providers, false},
+		{"config/comments.yaml", comments, false},
 		{"config/locales.yaml", locales, false},
 		{"config/site.yaml", site, false},
 		{"config/admin.yaml", admin, true},
@@ -116,11 +128,21 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "setup_write_failed", "Cannot finalize the initial configuration.", nil)
 		return
 	}
+	s.recordSecurityEvent(r, "setup", "succeeded", request.Username)
+	build := map[string]any{"status": "succeeded"}
+	if report, err := s.publisher.Build(r.Context()); err != nil {
+		s.logger.Error("initial static build after setup failed; administrator can retry from tools", "error", err)
+		w.Header().Set("X-MutiBlog-Static-Build", "failed")
+		build = map[string]any{"status": "failed"}
+	} else {
+		build["report"] = report
+	}
 
 	s.writeJSON(w, http.StatusCreated, map[string]any{
 		"initialized":  true,
 		"sourceLocale": request.SourceLocale,
 		"adminLocale":  request.AdminLocale,
+		"build":        build,
 	})
 }
 
@@ -132,8 +154,9 @@ func validateSetup(request *setupRequest) map[string]string {
 	if _, err := language.Parse(request.SourceLocale); err != nil || strings.TrimSpace(request.SourceLocale) == "" {
 		fields["sourceLocale"] = "Source locale must be a valid BCP 47 language tag."
 	}
-	if _, err := language.Parse(request.AdminLocale); err != nil || strings.TrimSpace(request.AdminLocale) == "" {
-		fields["adminLocale"] = "Admin locale must be a valid BCP 47 language tag."
+	adminTag, err := language.Parse(request.AdminLocale)
+	if err != nil || strings.TrimSpace(request.AdminLocale) == "" || (adminTag.String() != "en" && adminTag.String() != "zh-CN") {
+		fields["adminLocale"] = "Admin locale must be one of the installed console languages."
 	}
 	if _, err := time.LoadLocation(request.Timezone); err != nil || strings.TrimSpace(request.Timezone) == "" {
 		fields["timezone"] = "Timezone must be a valid IANA timezone."

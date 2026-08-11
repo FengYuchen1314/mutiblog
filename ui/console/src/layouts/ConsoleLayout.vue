@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 import { Icon } from "@iconify/vue";
 import { useSessionStore } from "@/stores/session";
+import { AUTH_EXPIRED_EVENT, PUBLICATION_FAILED_EVENT } from "@/api/client";
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const session = useSessionStore();
 const mobileOpen = ref(false);
+const publicationWarning = ref(false);
 
 const groups = computed(() => [
   {
@@ -21,6 +23,8 @@ const groups = computed(() => [
     items: [
       { to: "/posts", label: t("navigation.posts"), icon: "ri:article-line" },
       { to: "/pages", label: t("navigation.pages"), icon: "ri:file-list-3-line" },
+      { to: "/categories", label: t("navigation.categories"), icon: "ri:folder-2-line" },
+      { to: "/tags", label: t("navigation.tags"), icon: "ri:price-tag-3-line" },
       { to: "/comments", label: t("navigation.comments"), icon: "ri:chat-3-line" },
       { to: "/attachments", label: t("navigation.attachments"), icon: "ri:attachment-2" },
       { to: "/links", label: t("navigation.links"), icon: "ri:links-line" },
@@ -56,6 +60,34 @@ async function logout() {
   await session.logout();
   await router.push({ name: "login" });
 }
+
+function openSearch(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    void router.push("/tools");
+  }
+}
+
+function handleAuthExpired() {
+  if (!session.session) return;
+  session.expire();
+  void router.replace({ name: "login", query: { redirect: route.fullPath } });
+}
+
+function handlePublicationFailed() {
+  publicationWarning.value = true;
+}
+
+onMounted(() => {
+  window.addEventListener("keydown", openSearch);
+  window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  window.addEventListener(PUBLICATION_FAILED_EVENT, handlePublicationFailed);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", openSearch);
+  window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+  window.removeEventListener(PUBLICATION_FAILED_EVENT, handlePublicationFailed);
+});
 </script>
 
 <template>
@@ -70,11 +102,11 @@ async function logout() {
         <Icon icon="ri:external-link-line" />
         {{ t("visitSite") }}
       </a>
-      <button class="global-search" type="button">
+      <RouterLink class="global-search" to="/tools">
         <Icon icon="ri:search-line" />
         <span>{{ t("search") }}</span>
         <kbd>⌘ K</kbd>
-      </button>
+      </RouterLink>
       <nav class="sidebar-nav">
         <section v-for="group in groups" :key="group.label || 'root'" class="nav-group">
           <div v-if="group.label" class="nav-label">{{ group.label }}</div>
@@ -82,7 +114,7 @@ async function logout() {
             v-for="item in group.items"
             :key="item.to"
             class="nav-item"
-            :class="{ 'nav-item--active': route.path === item.to }"
+			:class="{ 'nav-item--active': route.path === item.to || (item.to === '/theme' && route.path === '/themes') }"
             :to="item.to"
             @click="mobileOpen = false"
           >
@@ -95,18 +127,25 @@ async function logout() {
         <div class="profile-avatar">{{ session.session?.username.slice(0, 1).toUpperCase() }}</div>
         <div class="profile-copy">
           <strong>{{ session.session?.username }}</strong>
-          <span>Administrator</span>
+          <span>{{ t("administrator") }}</span>
         </div>
-        <button class="icon-button" type="button" title="Logout" @click="logout">
+        <button class="icon-button" type="button" :title="t('logout')" @click="logout">
           <Icon icon="ri:logout-box-r-line" />
         </button>
       </div>
     </aside>
     <main class="console-main">
+      <div v-if="publicationWarning" class="global-warning"><span>{{ t("common.publicationFailed") }}</span><button type="button" @click="publicationWarning = false">{{ t("common.dismiss") }}</button></div>
       <button class="mobile-menu" type="button" @click="mobileOpen = true">
         <Icon icon="ri:menu-line" />
       </button>
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <!-- Editor routes share one component. Keying by path prevents a
+             post draft, page draft, or another entity ID from reusing the
+             previous editor instance and its in-memory Markdown. Query-only
+             list filters still retain their component state. -->
+        <component :is="Component" :key="route.path" />
+      </RouterView>
     </main>
   </div>
 </template>

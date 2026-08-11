@@ -1,0 +1,12 @@
+schemaVersion: 1
+id: minimal-theme
+name: Minimal Theme
+version: 1.0.0
+engine: react-ssr
+server: server.mjs
+assets: assets
+settingsSchema: settings.schema.json
+settingsReload: rebuild
+pageTemplates:
+  - id: landing
+    name: Landing page

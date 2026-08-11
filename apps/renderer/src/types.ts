@@ -12,23 +12,56 @@ export interface LocaleInput {
 export interface LocalizedPostInput {
   title: string;
   summary?: string;
+  seoTitle?: string;
+  seoDescription?: string;
   markdown: string;
 }
 
 export interface PostInput {
   id: string;
+  sourceLocale?: string;
   status: "published" | string;
+  template?: string;
   cover?: string;
   publishedAt?: string;
+  categories?: string[];
+  tags?: string[];
+  commentPolicy?: "open" | "closed";
   locales: Record<string, LocalizedPostInput>;
 }
+
+export interface LocalizedTaxonomyInput {
+  name: string;
+  description?: string;
+  seoTitle?: string;
+  seoDescription?: string;
+}
+export interface TaxonomyInput { id: string; sourceLocale?: string; parentId?: string; locales: Record<string, LocalizedTaxonomyInput>; }
+export interface LocalizedLinkInput { name: string; description?: string; }
+export interface LinkGroupInput { id: string; sourceLocale?: string; order: number; locales: Record<string, LocalizedLinkInput>; }
+export interface LinkInput { id: string; sourceLocale?: string; groupId: string; url: string; logo?: string; order: number; locales: Record<string, LocalizedLinkInput>; }
+export interface LocalizedMenuInput { label: string; }
+export interface MenuItemInput { id: string; parentId?: string; targetKind: "internal" | "external"; url: string; openInNew: boolean; order: number; locales: Record<string, LocalizedMenuInput>; }
+export interface MenuInput { id: string; sourceLocale?: string; locales: Record<string, LocalizedMenuInput>; items: MenuItemInput[]; }
+export interface ContentTemplateInput { id: string; name: string; }
+export interface ThemeInput { id: string; modulePath?: string; assetsPath?: string; settings?: Record<string, unknown>; postTemplates?: ContentTemplateInput[]; pageTemplates?: ContentTemplateInput[]; }
 
 export interface BuildInput {
   schemaVersion: 1;
   sourceLocale: string;
+  baseUrl?: string;
+  primaryMenu?: string;
   locales: LocaleInput[];
   site: { locales: Record<string, LocalizedSiteInput> };
   posts: PostInput[];
+  pages?: PostInput[];
+  categories?: TaxonomyInput[];
+  tags?: TaxonomyInput[];
+  linkGroups?: LinkGroupInput[];
+  links?: LinkInput[];
+  menus?: MenuInput[];
+  dictionaries?: Record<string, Record<string, string>>;
+  theme?: ThemeInput;
   fallback?: string[];
   generatedAt?: string;
 }
