@@ -99,7 +99,13 @@ func rendererPermissionArgs(rendererCLI, inputPath, outputPath string) ([]string
 			seen[path] = true
 		}
 	}
-	arguments = append(arguments, "--allow-fs-write="+outputPath)
+	// Node only expands an existing directory permission to its descendants.
+	// The renderer output deliberately does not exist when the permission model
+	// starts, so grant both the directory entry (rm/mkdir) and its future tree.
+	arguments = append(arguments,
+		"--allow-fs-write="+outputPath,
+		"--allow-fs-write="+outputPath+string(filepath.Separator)+"*",
+	)
 	return arguments, nil
 }
 

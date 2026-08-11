@@ -1,7 +1,9 @@
 package publisher
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,7 +30,7 @@ func TestRendererPermissionArgsConfineCustomTheme(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(arguments, "\n")
-	for _, expected := range []string{"--max-old-space-size=256", "--permission", "--allow-fs-read=" + inputPath, "--allow-fs-read=" + filepath.Join(themeRoot, "server.mjs"), "--allow-fs-read=" + filepath.Join(themeRoot, "assets"), "--allow-fs-write=" + outputPath} {
+	for _, expected := range []string{"--max-old-space-size=256", "--permission", "--allow-fs-read=" + inputPath, "--allow-fs-read=" + filepath.Join(themeRoot, "server.mjs"), "--allow-fs-read=" + filepath.Join(themeRoot, "assets"), "--allow-fs-write=" + outputPath, "--allow-fs-write=" + outputPath + string(filepath.Separator) + "*"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("renderer permissions missing %q:\n%s", expected, joined)
 		}
@@ -37,6 +39,43 @@ func TestRendererPermissionArgsConfineCustomTheme(t *testing.T) {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("renderer permissions contain %q:\n%s", forbidden, joined)
 		}
+	}
+}
+
+func TestCommandRendererCanCreateMissingOutputTreeUnderNodePermissionModel(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node.js is not installed")
+	}
+	root := t.TempDir()
+	staging := filepath.Join(root, "generated", "staging")
+	if err := os.MkdirAll(staging, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	inputPath := filepath.Join(staging, "build.input.json")
+	if err := os.WriteFile(inputPath, []byte(`{"theme":{"id":"earth"}}`), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	rendererCLI := filepath.Join(root, "renderer.mjs")
+	program := `
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+const output = process.argv[process.argv.indexOf("--output") + 1];
+await rm(output, { recursive: true, force: true });
+await mkdir(output, { recursive: true });
+await writeFile(join(output, "index.html"), "ok", "utf8");
+process.stdout.write("{}\n");
+`
+	if err := os.WriteFile(rendererCLI, []byte(program), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(staging, "missing-output")
+	if _, err := (CommandRenderer{NodeBinary: node, RendererCLI: rendererCLI}).Render(context.Background(), inputPath, outputPath); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(outputPath, "index.html"))
+	if err != nil || string(data) != "ok" {
+		t.Fatalf("rendered output = %q, %v", data, err)
 	}
 }
 
