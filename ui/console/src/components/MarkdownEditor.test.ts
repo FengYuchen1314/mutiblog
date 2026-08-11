@@ -107,8 +107,8 @@ describe("MarkdownEditor read-only mode", () => {
     (wrapper.vm as unknown as { insertAtCursor: (value: string) => void }).insertAtCursor("\nmanual edit");
     await wrapper.get(".markdown-tools button").trigger("click");
     const preventDefault = vi.fn();
-    expect(editorHandlers.value?.paste({ preventDefault } as ClipboardEvent)).toBe(true);
-    expect(editorHandlers.value?.drop({ preventDefault } as DragEvent)).toBe(true);
+    expect(editorHandlers.value?.paste({ preventDefault } as unknown as ClipboardEvent)).toBe(true);
+    expect(editorHandlers.value?.drop({ preventDefault } as unknown as DragEvent)).toBe(true);
 
     expect(editorDispatch).not.toHaveBeenCalled();
     expect(preventDefault).toHaveBeenCalledTimes(2);
