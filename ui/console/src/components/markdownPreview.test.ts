@@ -6,12 +6,11 @@ describe("editor Markdown mathematics", () => {
     const output = createPreviewMarkdownRenderer().render(
       "Euler: $e^{i\\pi}+1=0$.\n\n$$\\int_0^1 x^2\\,dx=\\frac{1}{3}$$",
     );
+    const endOfParagraph = createPreviewMarkdownRenderer().render("At end: $x$");
 
     expect(output).toContain('data-math-preview="inline">e^{i\\pi}+1=0</span>');
     expect(output).toContain('class="math-display" data-math-preview="display">\\int_0^1 x^2\\,dx=\\frac{1}{3}');
-    expect(createPreviewMarkdownRenderer().render("At end: $x$")).toContain(
-      'data-math-preview="inline">x</span>',
-    );
+    expect(endOfParagraph).toContain('data-math-preview="inline">x</span>');
   });
 
   test("keeps currency, escaped dollars, and code spans out of the MathJax markers", () => {
