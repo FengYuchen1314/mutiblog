@@ -9,7 +9,7 @@ dist/
 coverage/
 *.log
 *.test
-mutiblog
+/mutiblog
 data/
 tmp/
 ui/console/dist/
