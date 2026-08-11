@@ -183,9 +183,6 @@ func protectFencedBlocks(markdown string, add func(string) string) string {
 		}
 		block := strings.Join(lines[start:index], "")
 		output.WriteString(add(block))
-		if !strings.HasSuffix(block, "\n") {
-			output.WriteByte('\n')
-		}
 	}
 	return output.String()
 }
@@ -218,14 +215,11 @@ func segmentMarkdownParts(markdown string, maxRunes int) []markdownChunk {
 	chunks := make([]markdownChunk, 0, len(paragraphs))
 	for paragraphIndex, paragraph := range paragraphs {
 		parts := splitMarkdownParagraph(paragraph, maxRunes)
-		for index, part := range parts {
-			separator := ""
-			if index < len(parts)-1 {
-				separator = paragraphSplitSeparator(part, parts[index+1])
-			} else if paragraphIndex < len(paragraphs)-1 {
-				separator = "\n\n"
+		for index := range parts {
+			if index == len(parts)-1 && paragraphIndex < len(paragraphs)-1 {
+				parts[index].Separator += "\n\n"
 			}
-			chunks = append(chunks, markdownChunk{Text: part, Separator: separator})
+			chunks = append(chunks, parts[index])
 		}
 	}
 	return coalesceMarkdownChunks(chunks, maxRunes)
@@ -250,21 +244,40 @@ func coalesceMarkdownChunks(chunks []markdownChunk, maxRunes int) []markdownChun
 	return result
 }
 
-func splitMarkdownParagraph(paragraph string, maxRunes int) []string {
+func splitMarkdownParagraph(paragraph string, maxRunes int) []markdownChunk {
 	runes := []rune(paragraph)
 	if len(runes) <= maxRunes {
-		return []string{paragraph}
+		return []markdownChunk{{Text: paragraph}}
 	}
-	parts := make([]string, 0, (len(runes)+maxRunes-1)/maxRunes)
+	parts := make([]markdownChunk, 0, (len(runes)+maxRunes-1)/maxRunes)
 	for len(runes) > maxRunes {
 		cut := preferredMarkdownCut(runes, maxRunes)
-		parts = append(parts, string(runes[:cut]))
-		runes = runes[cut:]
+		separatorStart, separatorEnd := cut, cut
+		for separatorStart > 0 && isMarkdownBoundaryWhitespace(runes[separatorStart-1]) {
+			separatorStart--
+		}
+		for separatorEnd < len(runes) && isMarkdownBoundaryWhitespace(runes[separatorEnd]) {
+			separatorEnd++
+		}
+		// A paragraph made entirely of whitespace still has to make progress and
+		// preserve every rune. Keep an exact hard split in that case.
+		if separatorStart == 0 {
+			separatorStart, separatorEnd = cut, cut
+		}
+		parts = append(parts, markdownChunk{
+			Text:      string(runes[:separatorStart]),
+			Separator: string(runes[separatorStart:separatorEnd]),
+		})
+		runes = runes[separatorEnd:]
 	}
 	if len(runes) > 0 {
-		parts = append(parts, string(runes))
+		parts = append(parts, markdownChunk{Text: string(runes)})
 	}
 	return parts
+}
+
+func isMarkdownBoundaryWhitespace(value rune) bool {
+	return value == ' ' || value == '\t' || value == '\n' || value == '\r'
 }
 
 func preferredMarkdownCut(runes []rune, maxRunes int) int {
@@ -276,16 +289,10 @@ func preferredMarkdownCut(runes []rune, maxRunes int) int {
 			break
 		}
 	}
-	prefix := string(runes[:cut])
-	if match := protectedTokenPattern.FindStringIndex(prefix); match != nil && match[1] == len(prefix) {
-		return cut
-	}
-	windowStart := max(0, cut-64)
-	windowEnd := min(len(runes), cut+64)
-	window := string(runes[windowStart:windowEnd])
-	for _, match := range protectedTokenPattern.FindAllStringIndex(window, -1) {
-		start := windowStart + utf8.RuneCountInString(window[:match[0]])
-		end := windowStart + utf8.RuneCountInString(window[:match[1]])
+	content := string(runes)
+	for _, match := range protectedTokenPattern.FindAllStringIndex(content, -1) {
+		start := utf8.RuneCountInString(content[:match[0]])
+		end := utf8.RuneCountInString(content[:match[1]])
 		if start < cut && cut < end {
 			if start > 0 {
 				return start
@@ -294,16 +301,6 @@ func preferredMarkdownCut(runes []rune, maxRunes int) int {
 		}
 	}
 	return cut
-}
-
-func paragraphSplitSeparator(left, right string) string {
-	if strings.HasSuffix(left, "\n") || strings.HasPrefix(right, "\n") {
-		return "\n"
-	}
-	if strings.HasSuffix(left, " ") || strings.HasSuffix(left, "\t") || strings.HasPrefix(right, " ") || strings.HasPrefix(right, "\t") {
-		return " "
-	}
-	return ""
 }
 
 func segmentMarkdown(markdown string, maxRunes int) []string {

@@ -6,6 +6,14 @@
 
 ## 2026-08-11 当前结论
 
+### 首次正式镜像发布与安全回滚
+
+- PR #1 已 squash 合并为 `main` 提交 `07286919a657d1dd0e74f6be0f7f06acc5083864`；GitHub Actions CI #16 与 Publish container #1 的 Go、TypeScript、前端、候选容器、多架构推送、SBOM 和 provenance 门禁全部通过。
+- VPS 原有 `mutiblog-update.timer` 处于 disabled/inactive，应用仍运行六小时前的 `mutiblog:staging`。部署文件先按提交号备份，再与仓库哈希逐项对齐；定时器已设为 enable，但在本轮人工更新成功前不启动周期触发。
+- 首次拉取正式 `latest` 后，候选容器以正确提交版本启动，但既有站点的启动静态重建失败：Node 权限模型只得到尚不存在的输出目录本身，没有得到其未来子树权限，报错 `Use --allow-fs-write to manage permissions`。
+- 更新器没有接受该候选，自动恢复 `mutiblog:rollback`；旧容器恢复健康，上一成功 release 与公网文章未被替换。这为 A23 的失败不替换当前健康镜像提供了一次真实 VPS 证据。
+- 修复保持 Node 权限模型开启，只增加精确的 `<output>/*` 子树写权限；同时把“初始化数据卷后重启并完成静态重建”加入分支 CI 与发布工作流的容器冒烟，避免未初始化健康检查漏掉相同问题。修复镜像尚待 CI、重新发布和 VPS 公网复测。
+
 ### 公网只读回归（本轮）
 
 - `https://mutiblog.nl.chrono-well.top/` 可从公网访问，并按规则跳转到 `/zh-CN/`；静态首页、导航、中英文入口和已发布文章均可读取。

@@ -14,11 +14,12 @@ rollback_attempts="${MUTIBLOG_ROLLBACK_ATTEMPTS:-30}"
 
 ensure_caddy() {
   local selected_image="$1"
-  local running
-  running="$(docker inspect --format '{{.State.Running}}' mutiblog-caddy 2>/dev/null || true)"
-  if [[ "${running}" != "true" ]]; then
-    MUTIBLOG_IMAGE="${selected_image}" docker compose -f "${compose_file}" up -d --pull missing caddy
-  fi
+  # Reconcile even an already-running container. The deployment directory can
+  # replace an older Compose project whose Caddy container still bind-mounts a
+  # stale Caddyfile from another working directory. Compose leaves an
+  # unchanged container alone and recreates one whose production definition
+  # differs; --no-deps keeps the proven application candidate untouched.
+  MUTIBLOG_IMAGE="${selected_image}" docker compose -f "${compose_file}" up -d --pull missing --no-deps caddy
   # Deployment files change independently from the application image. A
   # running Caddy container does not automatically reload a changed
   # bind-mounted Caddyfile, so validate and apply it before the public gate.
