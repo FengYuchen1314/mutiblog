@@ -697,10 +697,25 @@ func TestSetupLoginSessionAndLogout(t *testing.T) {
 	}
 
 	response = requestJSON(t, client, http.MethodPost, testServer.URL+"/api/v1/admin/posts/hello-world/publish", map[string]int{"revision": configuredPost.Meta.Revision}, map[string]string{"X-CSRF-Token": csrf})
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("publish post status = %d, body = %s", response.StatusCode, readBody(t, response))
 	}
+	var publishResult struct {
+		Build struct {
+			Status string `json:"status"`
+		} `json:"build"`
+		Translation struct {
+			Status string `json:"status"`
+			TaskID string `json:"taskId"`
+		} `json:"translation"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&publishResult); err != nil {
+		t.Fatal(err)
+	}
 	response.Body.Close()
+	if response.Header.Get("X-MutiBlog-Static-Build") != "blocked" || publishResult.Build.Status != "blocked" || publishResult.Translation.Status != "not-configured" || publishResult.Translation.TaskID == "" {
+		t.Fatalf("publish post result = %#v, build header = %q", publishResult, response.Header.Get("X-MutiBlog-Static-Build"))
+	}
 
 	var imageData bytes.Buffer
 	canvas := image.NewRGBA(image.Rect(0, 0, 2, 2))

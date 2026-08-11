@@ -41,14 +41,26 @@ func (translator *countingTranslator) Prepare(input translation.StartInput) (tra
 	translator.prepareCalls.Add(1)
 	task := translation.Task{ID: "translation-scheduled-test", Status: "queued"}
 	translator.mu.Lock()
+	defer translator.mu.Unlock()
 	translator.input = input
-	translator.mu.Unlock()
-	if translator.err == nil {
-		translator.mu.Lock()
+	switch {
+	case translator.err == nil:
 		translator.task = task
-		translator.mu.Unlock()
+		return task, true, nil
+	case errors.Is(translator.err, ai.ErrKeyMissing):
+		task.Status = "failed"
+		task.Error = "provider-key-missing"
+		translator.task = task
+		return task, false, translator.err
+	case errors.Is(translator.err, ai.ErrProviderNotFound), errors.Is(translator.err, ai.ErrInvalidProvider):
+		task.Status = "failed"
+		task.Error = "provider-unavailable"
+		translator.task = task
+		return task, false, translator.err
+	default:
+		translator.task = translation.Task{}
+		return translation.Task{}, false, translator.err
 	}
-	return task, true, translator.err
 }
 
 func (translator *countingTranslator) LaunchPrepared(string) bool {
@@ -196,7 +208,7 @@ func TestCheckpointFailureAfterPublicationStillRunsChildrenAndPersistsTerminalSt
 	}
 
 	task = waitForTerminal(t, service, task.ID)
-	if task.Status != "succeeded" || task.Progress.Percent != 100 || task.BuildStatus != "deferred" || task.BuildTaskID != "" || task.TranslationStatus != "queued" || task.TranslationTaskID == "" || rebuilder.calls.Load() != 0 || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 1 || committedCheckpointFailures.Load() != taskCheckpointWriteAttempts || terminalAttempts.Load() != taskCheckpointWriteAttempts+1 {
+	if task.Status != "succeeded" || task.Progress.Percent != 100 || task.BuildStatus != "deferred" || task.BuildTaskID != "" || task.TranslationStatus != "queued" || task.TranslationTaskID == "" || rebuilder.calls.Load() != 0 || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 1 || committedCheckpointFailures.Load() != taskCheckpointWriteAttempts+1 || terminalAttempts.Load() != taskCheckpointWriteAttempts+1 {
 		t.Fatalf("task = %#v, rebuilds = %d, translation prepares = %d, launches = %d, committed checkpoint failures = %d, terminal attempts = %d", task, rebuilder.calls.Load(), translator.prepareCalls.Load(), translator.launchCalls.Load(), committedCheckpointFailures.Load(), terminalAttempts.Load())
 	}
 	published, err := contentService.GetPost(post.Meta.ID)
@@ -863,12 +875,13 @@ func TestScheduledTranslationOwnsBuildAndCompletesParentWithoutSourceBuild(t *te
 
 func TestTranslationPreparationWarningsCompletePublishedParentWithExplicitOutcome(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		err    error
-		status string
+		name       string
+		err        error
+		status     string
+		childError string
 	}{
 		{name: "queue-failed", err: errors.New("translation queue unavailable"), status: "failed"},
-		{name: "provider-not-configured", err: ai.ErrKeyMissing, status: "not-configured"},
+		{name: "provider-not-configured", err: ai.ErrKeyMissing, status: "not-configured", childError: "provider-key-missing"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repository, contentService, post := scheduledFixture(t, "Post")
@@ -885,11 +898,18 @@ func TestTranslationPreparationWarningsCompletePublishedParentWithExplicitOutcom
 			service.cancelTimer(task.ID)
 			service.run(context.Background(), task.ID)
 			task, err = service.Get(task.ID)
-			if err != nil || task.Status != "succeeded" || task.Error != "" || task.Progress.Percent != 100 || task.BuildStatus != "blocked" || task.BuildTaskID != "" || task.TranslationStatus != test.status || task.Outcome != "published-with-warning" || rebuilder.calls.Load() != 0 || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 0 {
+			hasChildReceipt := task.TranslationTaskID != ""
+			if err != nil || task.Status != "succeeded" || task.Error != "" || task.Progress.Percent != 100 || task.BuildStatus != "blocked" || task.BuildTaskID != "" || task.TranslationStatus != test.status || hasChildReceipt != (test.childError != "") || task.Outcome != "published-with-warning" || rebuilder.calls.Load() != 0 || translator.prepareCalls.Load() != 1 || translator.launchCalls.Load() != 0 {
 				t.Fatalf("published task with translation warning = %#v, %v, builds = %d, translation prepares = %d, launches = %d", task, err, rebuilder.calls.Load(), translator.prepareCalls.Load(), translator.launchCalls.Load())
 			}
+			if test.childError != "" {
+				child, childErr := translator.Get(task.TranslationTaskID)
+				if childErr != nil || child.Status != "failed" || child.Error != test.childError {
+					t.Fatalf("durable translation preflight receipt = %#v, %v", child, childErr)
+				}
+			}
 			var stored Task
-			if err := repository.ReadYAML(filepath.Join("state", "tasks", task.ID+".yaml"), &stored); err != nil || stored.TranslationStatus != test.status || stored.Outcome != "published-with-warning" {
+			if err := repository.ReadYAML(filepath.Join("state", "tasks", task.ID+".yaml"), &stored); err != nil || stored.TranslationStatus != test.status || (stored.TranslationTaskID != "") != (test.childError != "") || stored.Outcome != "published-with-warning" {
 				t.Fatalf("stored published task warning = %#v, %v", stored, err)
 			}
 		})

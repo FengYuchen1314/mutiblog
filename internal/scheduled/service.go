@@ -492,8 +492,14 @@ func (s *Service) reflectPublishedChildState(task *Task) {
 				task.TranslationStatus = "failed"
 			} else {
 				switch translationTask.Status {
-				case "queued", "running", "succeeded", "failed", "needs-review":
+				case "queued", "running", "succeeded", "needs-review":
 					task.TranslationStatus = translationTask.Status
+				case "failed":
+					if translationTask.Error == "provider-key-missing" || translationTask.Error == "provider-unavailable" {
+						task.TranslationStatus = "not-configured"
+					} else {
+						task.TranslationStatus = "failed"
+					}
 				default:
 					task.TranslationStatus = "failed"
 				}
