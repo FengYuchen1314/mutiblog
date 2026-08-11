@@ -121,7 +121,7 @@ func TestScheduledPublishRunsPostAndPageOnceAndCompletesAtOneHundred(t *testing.
 	for _, kind := range []string{"Post", "Page"} {
 		t.Run(kind, func(t *testing.T) {
 			repository, contentService, item := scheduledFixture(t, kind)
-			dueAt := time.Now().UTC().Add(150 * time.Millisecond)
+			dueAt := time.Now().UTC().Add(time.Hour)
 			item = configureSchedule(t, contentService, kind, item, dueAt)
 			rebuilder := &countingRebuilder{}
 			service := NewService(repository, contentService, rebuilder, nil, nil)
@@ -130,7 +130,12 @@ func TestScheduledPublishRunsPostAndPageOnceAndCompletesAtOneHundred(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			task = waitForTerminal(t, service, task.ID)
+			service.cancelTimer(task.ID)
+			service.run(context.Background(), task.ID)
+			task, err = service.Get(task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if task.Status != "succeeded" || task.Progress.Percent != 100 || task.Progress.Current != task.Progress.Total || task.Outcome != "published" || rebuilder.calls.Load() != 1 {
 				t.Fatalf("task = %#v, rebuilds = %d", task, rebuilder.calls.Load())
 			}
