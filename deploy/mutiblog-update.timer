@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for a published MutiBlog container
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+RandomizedDelaySec=20s
+Persistent=true
+Unit=mutiblog-update.service
+
+[Install]
+WantedBy=timers.target

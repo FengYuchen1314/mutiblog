@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Earth settings",
+  "x-i18n": { "en": "Earth settings", "zh-CN": "Earth 设置" },
+  "type": "object",
+  "properties": {
+    "layout": {
+      "title": "Layout",
+      "x-i18n": { "en": "Layout", "zh-CN": "布局" },
+      "type": "object",
+      "properties": {
+        "postListLayout": { "title": "Post list", "x-i18n": { "en": "Post list", "zh-CN": "文章列表" }, "type": "string", "enum": ["grid-2", "single"], "x-enum-i18n": { "en": { "grid-2": "Two-column grid", "single": "Single column" }, "zh-CN": { "grid-2": "双列网格", "single": "单列" } }, "default": "grid-2" },
+        "showHero": { "title": "Show homepage hero", "x-i18n": { "en": "Show homepage hero", "zh-CN": "显示首页横幅" }, "type": "boolean", "default": true },
+        "showSidebar": { "title": "Show sidebar", "x-i18n": { "en": "Show sidebar", "zh-CN": "显示侧栏" }, "type": "boolean", "default": true }
+      }
+    },
+    "style": {
+      "title": "Style",
+      "x-i18n": { "en": "Style", "zh-CN": "样式" },
+      "type": "object",
+      "properties": {
+        "accentColor": { "title": "Accent color", "x-i18n": { "en": "Accent color", "zh-CN": "强调色" }, "type": "string", "format": "color", "default": "#4ccba0" },
+        "defaultColorScheme": { "title": "Default color scheme", "x-i18n": { "en": "Default color scheme", "zh-CN": "默认颜色模式" }, "type": "string", "enum": ["system", "light", "dark"], "x-enum-i18n": { "en": { "system": "Follow system", "light": "Light", "dark": "Dark" }, "zh-CN": { "system": "跟随系统", "light": "浅色", "dark": "深色" } }, "default": "system" }
+      }
+    },
+    "footer": {
+      "title": "Footer",
+      "x-i18n": { "en": "Footer", "zh-CN": "页脚" },
+      "type": "object",
+      "properties": {
+        "showPoweredBy": { "title": "Show Powered by", "x-i18n": { "en": "Show Powered by", "zh-CN": "显示 Powered by" }, "type": "boolean", "default": true },
+        "copyright": { "title": "Copyright text", "x-i18n": { "en": "Copyright text", "zh-CN": "版权文字" }, "type": "string", "default": "" }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+services:
+  mutiblog:
+    image: ghcr.io/fengyuchen1314/mutiblog:latest
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - mutiblog-data:/var/lib/mutiblog
+
+volumes:
+  mutiblog-data:

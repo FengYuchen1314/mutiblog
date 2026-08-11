@@ -1,0 +1,37 @@
+{
+  "name": "@mutiblog/console",
+  "private": true,
+  "version": "0.1.0-dev",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vue-tsc --noEmit && vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@halo-dev/components": "2.25.0",
+    "@mutiblog/markdown": "workspace:*",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.8",
+    "codemirror": "^6.0.2",
+    "@iconify/vue": "^5.0.0",
+    "@tanstack/vue-query": "^5.87.1",
+    "@vueuse/core": "^12.8.2",
+    "pinia": "^3.0.4",
+    "vue": "^3.5.27",
+    "vue-i18n": "^11.2.8",
+    "vue-router": "^5.0.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.5",
+    "@types/node": "^24.11.0",
+    "@vue/test-utils": "^2.4.6",
+    "jsdom": "^27.2.0",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.13",
+    "vue-tsc": "^3.2.4"
+  }
+}

@@ -15,4 +15,29 @@ The product direction is:
 
 The previous implementation is archived on the `old` branch and is not a reference for this rewrite.
 
-License: AGPL-3.0 (license text will be added with the new project scaffold).
+## Current foundation
+
+- Go core service with atomic YAML storage, setup, Argon2id login, sessions, CSRF, health checks, and static serving;
+- Vue 3 console using the MIT-licensed Halo component package;
+- React SSR build CLI with a first Earth-style multilingual theme;
+- product research, architecture, file contracts, API map, and acceptance matrix under `docs/`;
+- local, Docker, and GitHub Actions build paths.
+
+## Local development
+
+Requirements: Go 1.25+, Node 24+, and pnpm 11+.
+
+```bash
+pnpm install
+pnpm build
+go test ./...
+go run ./cmd/mutiblog
+```
+
+The service listens on `http://127.0.0.1:8080` by default. The console is available at `/console/`; persistent files are written under `./data` unless `MUTIBLOG_DATA_DIR` is set.
+
+Read [PROJECT_SPEC.md](PROJECT_SPEC.md) before changing product behavior. The previous implementation is archived only; code or design from the `old` branch must not be reused.
+
+## License
+
+MutiBlog is licensed under [AGPL-3.0](LICENSE). Third-party components retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
