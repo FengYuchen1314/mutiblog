@@ -573,12 +573,15 @@ func (s *Server) negotiatedRootTarget(current, acceptLanguage string) (string, b
 	}
 	index := 0
 	if strings.TrimSpace(acceptLanguage) != "" {
-		_, matched, confidence := language.MatchStrings(language.NewMatcher(tags), acceptLanguage)
-		// Do not route an unrelated language to the matcher's merely closest
-		// script or family. Only exact/base-region matches override the source
-		// locale fallback.
-		if confidence >= language.High && matched >= 0 && matched < len(codes) {
-			index = matched
+		accepted, _, err := language.ParseAcceptLanguage(acceptLanguage)
+		if err == nil && len(accepted) > 0 {
+			_, matched, confidence := language.NewMatcher(tags).Match(accepted...)
+			// Do not route an unrelated language to the matcher's merely closest
+			// script or family. Only exact/base-region matches override the source
+			// locale fallback.
+			if confidence >= language.High && matched >= 0 && matched < len(codes) {
+				index = matched
+			}
 		}
 	}
 	return "/" + codes[index] + "/", true
