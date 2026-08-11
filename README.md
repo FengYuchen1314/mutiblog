@@ -40,20 +40,36 @@ cd ~/mutiblog
 
 ```yaml
 services:
+  prepare-data:
+    image: ghcr.io/fengyuchen1314/mutiblog:latest
+    pull_policy: always
+    user: "0:0"
+    entrypoint: ["chown", "-R", "1000:1000", "/var/lib/mutiblog"]
+    volumes:
+      - ./data:/var/lib/mutiblog
+
   mutiblog:
     image: ghcr.io/fengyuchen1314/mutiblog:latest
     pull_policy: always
+    depends_on:
+      prepare-data:
+        condition: service_completed_successfully
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - mutiblog-data:/var/lib/mutiblog
-
-volumes:
-  mutiblog-data:
+      - ./data:/var/lib/mutiblog
 ```
 
 该文件只使用 GitHub 预构建镜像，不包含 `build`，因此不会在本机编译 MutiBlog。
+
+`prepare-data` 会在首次启动时创建并修正 `./data` 的权限，随后由 `mutiblog` 以非 root 用户运行。配置和全部站点数据都会保存在当前部署目录中：
+
+```text
+mutiblog/
+├── compose.yaml
+└── data/
+```
 
 默认直接开放服务器的 `8080` 端口。如需使用其他端口，只修改冒号左侧的数字，例如使用 `9000`：
 
@@ -71,7 +87,7 @@ docker compose up -d
 Docker Compose 会自动完成以下操作：
 
 1. 从 `ghcr.io` 拉取适合当前服务器架构的最新镜像；
-2. 创建持久化数据卷；
+2. 在当前目录创建 `data` 数据目录并设置正确权限；
 3. 创建并启动 MutiBlog 容器；
 4. 配置容器随 Docker 自动重启。
 
@@ -119,9 +135,7 @@ docker compose restart mutiblog
 docker compose down
 ```
 
-部署目录中只需要保存 `compose.yaml`。站点数据由 Docker 存放在与该 Compose 项目关联的 `mutiblog-data` 卷中。
-
-`docker compose down` 不会删除数据卷；不要在未备份数据时执行 `docker compose down -v`。
+`docker compose down` 只会停止并移除容器，不会删除部署目录中的 `data`。不要在未备份时手动删除该目录。
 
 ## 许可证
 
