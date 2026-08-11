@@ -20,11 +20,14 @@ test("renders inline and display mathematics as self-contained SVG", () => {
 });
 
 test("keeps currency and code literal while retaining numeric inline mathematics", () => {
-  const output = renderMarkdown("The range is $20,000 to $30,000. Valid math is $2+2$. Use `$x$` in documentation.");
+  const output = renderMarkdown(
+    "The range is $20,000 to $30,000. Valid math is $2+2$ and $2 + 2$. Use `$x$` in documentation.",
+  );
 
-  expect(output.match(/class="MathJax"/g)?.length).toBe(1);
+  expect(output.match(/class="MathJax"/g)?.length).toBe(2);
   expect(output).toContain("The range is $20,000 to $30,000.");
   expect(output).toContain("<code>$x$</code>");
+  expect(renderMarkdown("End math is $2 + 2$")).toContain('class="MathJax"');
 });
 
 test("removes active attributes from generated math markup", () => {

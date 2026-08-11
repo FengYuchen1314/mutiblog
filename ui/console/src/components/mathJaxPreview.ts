@@ -52,16 +52,46 @@ async function convertPreviewMath(preview: HTMLElement) {
   const markers = Array.from(preview.querySelectorAll<HTMLElement>("[data-math-preview]"));
   if (markers.length === 0) return;
 
-  const mathJax = await loadMathJax();
+  let mathJax: BrowserMathJax;
+  try {
+    mathJax = await loadMathJax();
+  } catch (error) {
+    for (const marker of markers) markPreviewError(preview, marker);
+    throw error;
+  }
+  await convertPreviewMathMarkers(preview, mathJax, markers);
+}
+
+/**
+ * Converts each marker independently. A malformed formula must not prevent
+ * valid formulae later in the article from rendering.
+ */
+export async function convertPreviewMathMarkers(
+  preview: HTMLElement,
+  mathJax: Pick<BrowserMathJax, "tex2svgPromise">,
+  markers = Array.from(preview.querySelectorAll<HTMLElement>("[data-math-preview]")),
+) {
   for (const marker of markers) {
     if (!preview.contains(marker)) continue;
-    const output = await mathJax.tex2svgPromise(marker.textContent ?? "", {
-      display: marker.dataset.mathPreview === "display",
-    });
-    if (!preview.contains(marker)) continue;
-    sanitizeMathJaxOutput(output);
-    marker.replaceWith(output);
+    try {
+      const output = await mathJax.tex2svgPromise(marker.textContent ?? "", {
+        display: marker.dataset.mathPreview === "display",
+      });
+      if (!preview.contains(marker)) continue;
+      sanitizeMathJaxOutput(output);
+      marker.replaceWith(output);
+    } catch {
+      markPreviewError(preview, marker);
+    }
   }
+}
+
+function markPreviewError(preview: HTMLElement, marker: HTMLElement) {
+  if (!preview.contains(marker)) return;
+  const source = marker.textContent ?? "";
+  marker.textContent = marker.dataset.mathPreview === "display" ? `$$\n${source}\n$$` : `$${source}$`;
+  marker.removeAttribute("data-math-preview");
+  marker.setAttribute("data-math-preview-error", "true");
 }
 
 function loadMathJax(): Promise<BrowserMathJax> {
@@ -73,7 +103,11 @@ function loadMathJax(): Promise<BrowserMathJax> {
 
   loader = new Promise<BrowserMathJax>((resolve, reject) => {
     window.MathJax = editorMathJaxConfiguration as unknown as BrowserMathJax;
-    const script = (document.getElementById(scriptId) as HTMLScriptElement | null) ?? document.createElement("script");
+    // A previous failed request leaves a connected script whose load/error
+    // event has already fired. Reusing it would leave every future preview
+    // waiting forever, so each retry receives a fresh element.
+    document.getElementById(scriptId)?.remove();
+    const script = document.createElement("script");
     script.id = scriptId;
     script.async = true;
     script.src = mathJaxScriptUrl;
@@ -97,6 +131,8 @@ function loadMathJax(): Promise<BrowserMathJax> {
     if (!script.isConnected) document.head.append(script);
   }).catch((error) => {
     loader = undefined;
+    document.getElementById(scriptId)?.remove();
+    if (window.MathJax && !window.MathJax.tex2svgPromise) window.MathJax = undefined;
     throw error;
   });
   return loader;

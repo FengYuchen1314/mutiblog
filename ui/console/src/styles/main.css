@@ -864,6 +864,15 @@ a {
 .markdown-preview mjx-container > svg {
   max-width: none;
 }
+.markdown-preview [data-math-preview-error="true"] {
+  border-radius: 0.3rem;
+  background: #fff1f2;
+  box-decoration-break: clone;
+  color: #be123c;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  padding: 0.08rem 0.3rem;
+  -webkit-box-decoration-break: clone;
+}
 
 .attachment-grid {
   display: grid;

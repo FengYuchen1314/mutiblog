@@ -34,11 +34,27 @@ export function createPreviewMarkdownRenderer() {
 
 function canUseDelimiter(state: StateInline, position: number) {
   const previous = position > 0 ? state.src.charCodeAt(position - 1) : -1;
-  const next = position + 1 <= state.posMax ? state.src.charCodeAt(position + 1) : -1;
+  const next = position + 1 < state.posMax ? state.src.charCodeAt(position + 1) : -1;
   return {
     canOpen: next !== 32 && next !== 9,
     canClose: previous !== 32 && previous !== 9 && (next < 48 || next > 57),
   };
+}
+
+function findUnescapedDollar(source: string, start: number) {
+  let match = start;
+  while ((match = source.indexOf("$", match)) !== -1) {
+    let previous = match - 1;
+    while (source[previous] === "\\") previous -= 1;
+    if ((match - previous) % 2 === 1) return match;
+    match += 1;
+  }
+  return -1;
+}
+
+function hasClosingMathDelimiter(state: StateInline, position: number) {
+  const match = findUnescapedDollar(state.src, position + 1);
+  return match > position + 1 && match < state.posMax && canUseDelimiter(state, match).canClose;
 }
 
 function mathInline(state: StateInline, silent: boolean) {
@@ -52,13 +68,7 @@ function mathInline(state: StateInline, silent: boolean) {
   }
 
   const start = state.pos + 1;
-  let match = start;
-  while ((match = state.src.indexOf("$", match)) !== -1) {
-    let previous = match - 1;
-    while (state.src[previous] === "\\") previous -= 1;
-    if ((match - previous) % 2 === 1) break;
-    match += 1;
-  }
+  const match = findUnescapedDollar(state.src, start);
 
   if (match === -1) {
     if (!silent) state.pending += "$";
@@ -127,6 +137,11 @@ function mathBlock(state: StateBlock, start: number, end: number, silent: boolea
     }
   }
 
+  // An unfinished display formula is common while the author is typing. Do
+  // not consume every following paragraph as TeX; leave the delimiter as
+  // ordinary Markdown until a matching closing pair exists.
+  if (!found) return false;
+
   const content =
     (firstLine && firstLine.trim() ? `${firstLine}\n` : "") +
     state.getLines(start + 1, next, state.tShift[start], true) +
@@ -146,6 +161,10 @@ function currencyInline(state: StateInline, silent: boolean) {
   if (state.src[state.pos] !== "$") return false;
   const amount = currencyAmount.exec(state.src.slice(state.pos));
   if (!amount) return false;
+  // Numeric mathematics may begin like a price. When the same inline span has
+  // a valid closing delimiter, let the math rule handle `$2 + 2$` instead of
+  // claiming `$2` as currency.
+  if (hasClosingMathDelimiter(state, state.pos)) return false;
   if (!silent) state.pending += amount[0];
   state.pos += amount[0].length;
   return true;

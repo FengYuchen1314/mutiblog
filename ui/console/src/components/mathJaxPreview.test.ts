@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 
 import { describe, expect, test } from "vitest";
-import { editorMathJaxConfiguration, sanitizeMathJaxOutput } from "./mathJaxPreview";
+import {
+  convertPreviewMathMarkers,
+  editorMathJaxConfiguration,
+  sanitizeMathJaxOutput,
+} from "./mathJaxPreview";
 
 describe("editor MathJax safety", () => {
   test("disables dynamic TeX package loading for untrusted Markdown", () => {
@@ -25,5 +29,24 @@ describe("editor MathJax safety", () => {
     expect(output.querySelector("[href]")).toBeNull();
     expect(output.querySelector("[xlink\\:href]")).toBeNull();
     expect(output.querySelector("svg")?.getAttribute("style")).toBeNull();
+  });
+
+  test("isolates an invalid formula so later markers still render", async () => {
+    const preview = document.createElement("article");
+    preview.innerHTML =
+      '<span data-math-preview="inline">bad</span><span data-math-preview="inline">2+2</span>';
+
+    await convertPreviewMathMarkers(preview, {
+      async tex2svgPromise(source) {
+        if (source === "bad") throw new Error("invalid formula");
+        const output = document.createElement("mjx-container");
+        output.textContent = source;
+        return output;
+      },
+    });
+
+    expect(preview.querySelector('[data-math-preview-error="true"]')?.textContent).toBe("$bad$");
+    expect(preview.querySelector("[data-math-preview]")).toBeNull();
+    expect(preview.querySelector("mjx-container")?.textContent).toBe("2+2");
   });
 });
