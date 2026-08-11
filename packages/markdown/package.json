@@ -1,0 +1,28 @@
+{
+  "name": "@mutiblog/markdown",
+  "private": true,
+  "version": "0.1.0-dev",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "source": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0",
+    "markdown-it-mathjax3": "5.2.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.13"
+  }
+}

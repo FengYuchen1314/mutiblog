@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Minimal settings",
+  "type": "object",
+  "properties": {
+    "appearance": {
+      "title": "Appearance",
+      "type": "object",
+      "properties": {
+        "accent": { "title": "Accent", "type": "string", "format": "color", "default": "#7c3aed" }
+      }
+    }
+  }
+}

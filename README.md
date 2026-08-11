@@ -25,7 +25,7 @@ The previous implementation is archived on the `old` branch and is not a referen
 
 ## Local development
 
-Requirements: Go 1.25+, Node 24+, and pnpm 11+.
+Requirements: Go 1.25+, Node 26+, and pnpm 11+. Node 26 is a security boundary for custom-theme rendering because earlier Permission Model versions do not deny network access.
 
 ```bash
 pnpm install

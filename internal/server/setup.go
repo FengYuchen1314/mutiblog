@@ -1,6 +1,10 @@
 package server
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -8,6 +12,9 @@ import (
 
 	"github.com/FengYuchen1314/mutiblog/internal/auth"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
+	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
+	"github.com/FengYuchen1314/mutiblog/internal/publisher"
+	"github.com/FengYuchen1314/mutiblog/internal/taskstore"
 	"golang.org/x/text/language"
 )
 
@@ -15,6 +22,7 @@ var usernamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{2,31}$`)
 
 type setupRequest struct {
 	SiteTitle    string `json:"siteTitle"`
+	BaseURL      string `json:"baseUrl"`
 	SourceLocale string `json:"sourceLocale"`
 	AdminLocale  string `json:"adminLocale"`
 	Timezone     string `json:"timezone"`
@@ -55,9 +63,15 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusUnprocessableEntity, "validation_failed", "Some setup fields are invalid.", fields)
 		return
 	}
+	buildRequest, err := s.initialSetupBuildRequest(r.Context())
+	if err != nil {
+		s.writeError(w, http.StatusUnprocessableEntity, "validation_failed", "The initial static build task ID is invalid.", map[string]string{"taskId": "Use a valid generated task ID."})
+		return
+	}
 
 	sourceTag, _ := language.Parse(request.SourceLocale)
 	adminTag, _ := language.Parse(request.AdminLocale)
+	baseURL, _ := normalizeBaseURL(request.BaseURL)
 	request.SourceLocale = sourceTag.String()
 	request.AdminLocale = adminTag.String()
 	now := time.Now().UTC()
@@ -72,7 +86,9 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		SourceLocale:  request.SourceLocale,
 		AdminLocale:   request.AdminLocale,
 		Timezone:      request.Timezone,
+		BaseURL:       baseURL,
 		ActiveTheme:   "earth",
+		IDStrategy:    "uuid",
 		Locales: map[string]domain.LocalizedSite{
 			request.SourceLocale: {Title: strings.TrimSpace(request.SiteTitle)},
 		},
@@ -83,10 +99,11 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		SchemaVersion: domain.SchemaVersion,
 		SourceLocale:  request.SourceLocale,
 		Enabled: []domain.LocaleDefinition{{
-			Code: request.SourceLocale, Label: request.SourceLocale, Enabled: true,
+			Code: request.SourceLocale, Label: defaultLocaleLabel(request.SourceLocale), Enabled: true,
 		}},
-		Fallback: []string{"en", "zh-CN"},
+		Fallback: localeconfig.FixedFallbackOrder(),
 	}
+	localeconfig.Normalize(&locales)
 	admin := domain.AdminConfig{
 		SchemaVersion: domain.SchemaVersion,
 		Username:      request.Username,
@@ -94,7 +111,27 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-	secrets := domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}}
+	commentKey := make([]byte, 32)
+	if _, err := rand.Read(commentKey); err != nil {
+		s.writeError(w, http.StatusInternalServerError, "secret_generation_failed", "Cannot initialize comment privacy protection.", nil)
+		return
+	}
+	secrets := domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}, CommentHMACKey: hex.EncodeToString(commentKey)}
+	providers := domain.AIProvidersConfig{
+		SchemaVersion:   domain.SchemaVersion,
+		DefaultProvider: "qwen-free",
+		Providers: []domain.AIProviderConfig{{
+			ID:              "qwen-free",
+			Name:            "Qwen Free (OpenRouter)",
+			Kind:            "openai-compatible",
+			BaseURL:         "https://openrouter.ai/api/v1",
+			Model:           "qwen/qwen3-32b:free",
+			Enabled:         true,
+			TimeoutSeconds:  45,
+			MaxOutputTokens: 8192,
+		}},
+	}
+	comments := domain.CommentsConfig{SchemaVersion: domain.SchemaVersion, Moderation: "pending", PageSize: 20, MaxLength: 2000}
 
 	for _, write := range []struct {
 		path   string
@@ -102,6 +139,8 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		secret bool
 	}{
 		{"config/secrets.yaml", secrets, true},
+		{"config/providers.yaml", providers, false},
+		{"config/comments.yaml", comments, false},
 		{"config/locales.yaml", locales, false},
 		{"config/site.yaml", site, false},
 		{"config/admin.yaml", admin, true},
@@ -116,12 +155,115 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "setup_write_failed", "Cannot finalize the initial configuration.", nil)
 		return
 	}
+	token, session, err := s.sessions.Create(admin.Username)
+	if err != nil {
+		s.logger.Error("create initial administrator session failed", "error", err)
+		s.writeError(w, http.StatusInternalServerError, "session_failed", "Cannot create the initial administrator session.", nil)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
+		Expires:  session.ExpiresAt,
+		MaxAge:   int(time.Until(session.ExpiresAt).Seconds()),
+	})
+	s.recordSecurityEvent(r, "setup", "succeeded", request.Username)
+	build := map[string]any{"status": "failed"}
+	preparedBuildContext, durableTask, prepareErr := s.prepareInitialStaticBuild(buildRequest)
+	switch {
+	case prepareErr != nil:
+		s.logger.Error("prepare initial static build task failed; administrator can retry from tools", "task", buildRequest.TaskID, "error", prepareErr)
+		w.Header().Set("X-MutiBlog-Static-Build", "failed")
+	case durableTask:
+		if !s.launchInitialStaticBuild(preparedBuildContext, buildRequest.TaskID) {
+			s.logger.Error("initial static build task could not start because the server is stopping", "task", buildRequest.TaskID)
+			w.Header().Set("X-MutiBlog-Static-Build", "failed")
+			break
+		}
+		s.initialBuildQueued = true
+		build = map[string]any{"status": "queued", "taskId": buildRequest.TaskID}
+	default:
+		// Test and extension publishers are allowed to expose only the compact
+		// synchronous SitePublisher contract. Preserve a usable setup path for
+		// them while the production publisher always takes the durable branch.
+		report, buildErr := s.publisher.Build(publisher.WithBuildRequest(r.Context(), buildRequest))
+		if buildErr != nil {
+			s.logger.Error("initial static build after setup failed; administrator can retry from tools", "error", buildErr)
+			w.Header().Set("X-MutiBlog-Static-Build", "failed")
+			break
+		}
+		build = map[string]any{"status": "succeeded", "report": report}
+	}
 
 	s.writeJSON(w, http.StatusCreated, map[string]any{
 		"initialized":  true,
 		"sourceLocale": request.SourceLocale,
 		"adminLocale":  request.AdminLocale,
+		"session": map[string]any{
+			"username": admin.Username, "csrfToken": session.CSRFToken, "expiresAt": session.ExpiresAt, "adminLocale": request.AdminLocale,
+		},
+		"build": build,
 	})
+}
+
+func (s *Server) initialSetupBuildRequest(ctx context.Context) (publisher.BuildRequest, error) {
+	request := publisher.BuildRequestFromContext(ctx)
+	if request.TaskID == "" {
+		var err error
+		request.TaskID, err = publisher.NewBuildTaskID()
+		if err != nil {
+			return publisher.BuildRequest{}, err
+		}
+	}
+	if !taskstore.ValidStaticBuildID(request.TaskID) {
+		return publisher.BuildRequest{}, errors.New("initial static build task ID is invalid")
+	}
+	exists, err := s.repository.Exists("state/tasks/" + request.TaskID + ".yaml")
+	if err != nil {
+		return publisher.BuildRequest{}, err
+	}
+	if exists {
+		return publisher.BuildRequest{}, errors.New("initial static build task ID already exists")
+	}
+	request.Operation = "initial-setup"
+	request.SubjectKind = ""
+	request.SubjectID = ""
+	return request, nil
+}
+
+func (s *Server) prepareInitialStaticBuild(request publisher.BuildRequest) (context.Context, bool, error) {
+	contextWithRequest := publisher.WithBuildRequest(s.lifecycle, request)
+	tracked, ok := s.publisher.(*trackedSitePublisher)
+	if !ok {
+		return contextWithRequest, false, nil
+	}
+	return tracked.prepareBuild(contextWithRequest)
+}
+
+func (s *Server) launchInitialStaticBuild(buildContext context.Context, taskID string) bool {
+	return s.launchBackground(func(_ context.Context) {
+		s.mutationGate.RLock()
+		defer s.mutationGate.RUnlock()
+		s.themeGate.RLock()
+		defer s.themeGate.RUnlock()
+		if _, err := s.publisher.Build(buildContext); err != nil {
+			s.logger.Error("initial static build failed; previous public release remains active", "task", taskID, "error", err)
+		}
+	})
+}
+
+func defaultLocaleLabel(locale string) string {
+	if locale == "en" {
+		return "English"
+	}
+	if locale == localeconfig.DefaultFallback {
+		return localeconfig.DefaultFallbackLabel
+	}
+	return locale
 }
 
 func validateSetup(request *setupRequest) map[string]string {
@@ -129,11 +271,15 @@ func validateSetup(request *setupRequest) map[string]string {
 	if title := strings.TrimSpace(request.SiteTitle); title == "" || len([]rune(title)) > 80 {
 		fields["siteTitle"] = "Site title must contain 1 to 80 characters."
 	}
+	if baseURL, err := normalizeBaseURL(request.BaseURL); err != nil || baseURL == "" {
+		fields["baseUrl"] = "Public base URL must be an absolute HTTP or HTTPS origin."
+	}
 	if _, err := language.Parse(request.SourceLocale); err != nil || strings.TrimSpace(request.SourceLocale) == "" {
 		fields["sourceLocale"] = "Source locale must be a valid BCP 47 language tag."
 	}
-	if _, err := language.Parse(request.AdminLocale); err != nil || strings.TrimSpace(request.AdminLocale) == "" {
-		fields["adminLocale"] = "Admin locale must be a valid BCP 47 language tag."
+	adminTag, err := language.Parse(request.AdminLocale)
+	if err != nil || strings.TrimSpace(request.AdminLocale) == "" || (adminTag.String() != "en" && adminTag.String() != "zh-CN") {
+		fields["adminLocale"] = "Admin locale must be one of the installed console languages."
 	}
 	if _, err := time.LoadLocation(request.Timezone); err != nil || strings.TrimSpace(request.Timezone) == "" {
 		fields["timezone"] = "Timezone must be a valid IANA timezone."

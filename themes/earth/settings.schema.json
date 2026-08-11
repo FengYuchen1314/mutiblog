@@ -1,31 +1,127 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Earth settings",
+  "x-i18n": { "en": "Earth settings", "zh-CN": "Earth 设置" },
   "type": "object",
   "properties": {
-    "layout": {
-      "title": "布局",
+    "global": {
+      "title": "Global and header",
+      "x-i18n": { "en": "Global and header", "zh-CN": "全局与页头" },
       "type": "object",
       "properties": {
-        "postListLayout": { "type": "string", "enum": ["grid-3", "grid-2", "single"], "default": "grid-2" },
-        "showHero": { "type": "boolean", "default": true },
-        "showSidebar": { "type": "boolean", "default": true }
+        "sticky": { "title": "Sticky header", "x-i18n": { "en": "Sticky header", "zh-CN": "固定页头" }, "type": "boolean", "default": true },
+        "logoType": { "title": "Header logo type", "x-i18n": { "en": "Header logo type", "zh-CN": "页头 Logo 类型" }, "type": "string", "enum": ["text", "symbol", "image"], "x-enum-i18n": { "en": { "text": "Site title", "symbol": "Symbol and title", "image": "Image" }, "zh-CN": { "text": "站点标题", "symbol": "标识与标题", "image": "图片" } }, "default": "symbol" },
+        "logoImage": { "title": "Header logo image", "x-i18n": { "en": "Header logo image", "zh-CN": "页头 Logo 图片" }, "type": "string", "format": "media", "maxLength": 500, "default": "" },
+        "showScrollButton": { "title": "Show scroll-to-top button", "x-i18n": { "en": "Show scroll-to-top button", "zh-CN": "显示返回顶部按钮" }, "type": "boolean", "default": true },
+        "showBrandSymbol": { "title": "Show brand symbol", "x-i18n": { "en": "Show brand symbol", "zh-CN": "显示品牌标识" }, "type": "boolean", "default": true },
+        "brandSymbol": { "title": "Brand symbol text", "x-i18n": { "en": "Brand symbol text", "zh-CN": "品牌标识文字" }, "type": "string", "maxLength": 3, "default": "M" },
+        "showSearch": { "title": "Show search", "x-i18n": { "en": "Show search", "zh-CN": "显示搜索入口" }, "type": "boolean", "default": true },
+        "showLanguageSwitcher": { "title": "Show language switcher", "x-i18n": { "en": "Show language switcher", "zh-CN": "显示语言切换" }, "type": "boolean", "default": true },
+        "showColorSchemeToggle": { "title": "Show color scheme toggle", "x-i18n": { "en": "Show color scheme toggle", "zh-CN": "显示明暗切换" }, "type": "boolean", "default": true }
+      }
+    },
+    "layout": {
+      "title": "Layout and homepage",
+      "x-i18n": { "en": "Layout and homepage", "zh-CN": "布局与首页" },
+      "type": "object",
+      "properties": {
+        "showHero": { "title": "Show homepage hero", "x-i18n": { "en": "Show homepage hero", "zh-CN": "显示首页横幅" }, "type": "boolean", "default": true },
+        "headerWidget": { "title": "Homepage header module", "x-i18n": { "en": "Homepage header module", "zh-CN": "首页顶部模块" }, "type": "string", "enum": ["none", "latest-post", "latest-post-grid", "site-title"], "x-enum-i18n": { "en": { "none": "None", "latest-post": "Latest post", "latest-post-grid": "Latest five posts", "site-title": "Site title" }, "zh-CN": { "none": "无", "latest-post": "最新一篇文章", "latest-post-grid": "最新五篇文章", "site-title": "站点标题" } }, "default": "site-title" },
+        "headerBackgroundType": { "title": "Homepage header background", "x-i18n": { "en": "Homepage header background", "zh-CN": "首页顶部背景" }, "type": "string", "enum": ["gradient", "image"], "x-enum-i18n": { "en": { "gradient": "Color or CSS gradient", "image": "Image" }, "zh-CN": { "gradient": "颜色或 CSS 渐变", "image": "图片" } }, "default": "image" },
+        "headerBackground": { "title": "Header color or gradient", "x-i18n": { "en": "Header color or gradient", "zh-CN": "顶部颜色或渐变" }, "type": "string", "maxLength": 300, "default": "linear-gradient(145deg, #0e1731, #202d52)" },
+        "headerBackgroundImage": { "title": "Header background image", "x-i18n": { "en": "Header background image", "zh-CN": "顶部背景图片" }, "type": "string", "format": "media", "maxLength": 500, "default": "" },
+        "headerTitleColor": { "title": "Header title color", "x-i18n": { "en": "Header title color", "zh-CN": "顶部标题颜色" }, "type": "string", "format": "color", "default": "#ffffff" },
+        "contentHeader": { "title": "Show content cover header", "x-i18n": { "en": "Show content cover header", "zh-CN": "显示文章页面顶部封面" }, "type": "boolean", "default": true },
+        "heroKicker": { "title": "Hero eyebrow text", "x-i18n": { "en": "Hero eyebrow text", "zh-CN": "横幅眉题文字" }, "type": "string", "maxLength": 40, "default": "MutiBlog" },
+        "heroHeight": { "title": "Hero height", "x-i18n": { "en": "Hero height", "zh-CN": "横幅高度" }, "type": "string", "enum": ["compact", "standard", "tall"], "x-enum-i18n": { "en": { "compact": "Compact", "standard": "Standard", "tall": "Tall" }, "zh-CN": { "compact": "紧凑", "standard": "标准", "tall": "高" } }, "default": "standard" },
+        "postListLayout": { "title": "Post list", "x-i18n": { "en": "Post list", "zh-CN": "文章列表" }, "type": "string", "enum": ["grid-3", "grid-2", "single"], "x-enum-i18n": { "en": { "grid-3": "Three-column grid", "grid-2": "Two-column grid", "single": "Single column" }, "zh-CN": { "grid-3": "三列网格", "grid-2": "双列网格", "single": "单列" } }, "default": "grid-3" },
+        "showSidebar": { "title": "Show sidebar", "x-i18n": { "en": "Show sidebar", "zh-CN": "显示侧栏" }, "type": "boolean", "default": true },
+        "showPostCovers": { "title": "Show post covers", "x-i18n": { "en": "Show post covers", "zh-CN": "显示文章封面" }, "type": "boolean", "default": true },
+        "coverRatio": { "title": "Cover ratio", "x-i18n": { "en": "Cover ratio", "zh-CN": "封面比例" }, "type": "string", "enum": ["wide", "landscape", "square"], "x-enum-i18n": { "en": { "wide": "Wide 21:9", "landscape": "Landscape 16:9", "square": "Square" }, "zh-CN": { "wide": "宽幅 21:9", "landscape": "横向 16:9", "square": "方形" } }, "default": "landscape" },
+        "showPostSummaries": { "title": "Show post summaries", "x-i18n": { "en": "Show post summaries", "zh-CN": "显示文章摘要" }, "type": "boolean", "default": true },
+        "showCategories": { "title": "Show categories", "x-i18n": { "en": "Show categories", "zh-CN": "显示分类" }, "type": "boolean", "default": true },
+        "showPublishedAt": { "title": "Show publish date", "x-i18n": { "en": "Show publish date", "zh-CN": "显示发布日期" }, "type": "boolean", "default": true }
+      }
+    },
+    "post": {
+      "title": "Post and page",
+      "x-i18n": { "en": "Post and page", "zh-CN": "文章与页面" },
+      "type": "object",
+      "properties": {
+        "contentWidth": { "title": "Content width", "x-i18n": { "en": "Content width", "zh-CN": "正文宽度" }, "type": "string", "enum": ["narrow", "standard", "wide"], "x-enum-i18n": { "en": { "narrow": "Narrow", "standard": "Standard", "wide": "Wide" }, "zh-CN": { "narrow": "窄", "standard": "标准", "wide": "宽" } }, "default": "standard" },
+        "contentFont": { "title": "Content font", "x-i18n": { "en": "Content font", "zh-CN": "正文字体" }, "type": "string", "enum": ["serif", "sans"], "x-enum-i18n": { "en": { "serif": "Serif", "sans": "Sans serif" }, "zh-CN": { "serif": "衬线体", "sans": "无衬线体" } }, "default": "serif" },
+        "contentStyle": { "title": "Markdown content style", "x-i18n": { "en": "Markdown content style", "zh-CN": "Markdown 正文风格" }, "type": "string", "enum": ["github", "tailwind", "typography"], "x-enum-i18n": { "en": { "github": "GitHub", "tailwind": "Tailwind Typography", "typography": "Editorial typography (legacy)" }, "zh-CN": { "github": "GitHub 风格", "tailwind": "Tailwind Typography", "typography": "排版增强（兼容）" } }, "default": "github" },
+        "titlePosition": { "title": "Title position", "x-i18n": { "en": "Title position", "zh-CN": "标题位置" }, "type": "string", "enum": ["content", "cover"], "x-enum-i18n": { "en": { "content": "In content", "cover": "On cover" }, "zh-CN": { "content": "正文中", "cover": "封面上" } }, "default": "content" },
+        "coverHeight": { "title": "Content cover height", "x-i18n": { "en": "Content cover height (CSS length)", "zh-CN": "内容封面高度（CSS 长度）" }, "type": "string", "maxLength": 40, "default": "24rem" },
+        "showUpvoteButton": { "title": "Show upvote button", "x-i18n": { "en": "Show upvote button", "zh-CN": "显示点赞按钮" }, "type": "boolean", "default": true },
+        "showShareButton": { "title": "Show share actions", "x-i18n": { "en": "Show share actions", "zh-CN": "显示分享入口" }, "type": "boolean", "default": true },
+        "shareItems": { "title": "Share platforms", "x-i18n": { "en": "Share platforms", "zh-CN": "分享平台" }, "type": "array", "maxItems": 10, "default": ["wechat", "x", "telegram", "facebook", "qq", "qzone", "weibo", "douban", "native"], "items": { "type": "string", "enum": ["wechat", "x", "telegram", "facebook", "qq", "qzone", "weibo", "douban", "native", "email"], "x-enum-i18n": { "en": { "wechat": "WeChat", "x": "X", "telegram": "Telegram", "facebook": "Facebook", "qq": "QQ", "qzone": "Qzone", "weibo": "Weibo", "douban": "Douban", "native": "System share", "email": "Email" }, "zh-CN": { "wechat": "微信", "x": "X", "telegram": "Telegram", "facebook": "Facebook", "qq": "QQ", "qzone": "QQ 空间", "weibo": "微博", "douban": "豆瓣", "native": "系统分享", "email": "邮件" } } } },
+        "showCover": { "title": "Show cover", "x-i18n": { "en": "Show cover", "zh-CN": "显示封面" }, "type": "boolean", "default": true },
+        "showSummary": { "title": "Show summary", "x-i18n": { "en": "Show summary", "zh-CN": "显示摘要" }, "type": "boolean", "default": true },
+        "showCategories": { "title": "Show categories", "x-i18n": { "en": "Show categories", "zh-CN": "显示分类" }, "type": "boolean", "default": true },
+        "showTags": { "title": "Show tags after content", "x-i18n": { "en": "Show tags after content", "zh-CN": "正文后显示标签" }, "type": "boolean", "default": true },
+        "showPublishedAt": { "title": "Show publish date", "x-i18n": { "en": "Show publish date", "zh-CN": "显示发布日期" }, "type": "boolean", "default": true }
       }
     },
     "style": {
-      "title": "样式",
+      "title": "Style",
+      "x-i18n": { "en": "Style", "zh-CN": "样式" },
       "type": "object",
       "properties": {
-        "accentColor": { "type": "string", "format": "color", "default": "#4ccba0" },
-        "defaultColorScheme": { "type": "string", "enum": ["system", "light", "dark"], "default": "system" }
+        "accentColor": { "title": "Accent color", "x-i18n": { "en": "Accent color", "zh-CN": "强调色" }, "type": "string", "format": "color", "default": "#4ccba0" },
+        "defaultColorScheme": { "title": "Default color scheme", "x-i18n": { "en": "Default color scheme", "zh-CN": "默认颜色模式" }, "type": "string", "enum": ["system", "light", "dark"], "x-enum-i18n": { "en": { "system": "Follow system", "light": "Light", "dark": "Dark" }, "zh-CN": { "system": "跟随系统", "light": "浅色", "dark": "深色" } }, "default": "system" },
+        "cardRadius": { "title": "Card corners", "x-i18n": { "en": "Card corners", "zh-CN": "卡片圆角" }, "type": "string", "enum": ["square", "soft", "round"], "x-enum-i18n": { "en": { "square": "Square", "soft": "Soft", "round": "Round" }, "zh-CN": { "square": "直角", "soft": "柔和", "round": "大圆角" } }, "default": "soft" },
+        "cardShadow": { "title": "Card shadow", "x-i18n": { "en": "Card shadow", "zh-CN": "卡片阴影" }, "type": "string", "enum": ["none", "subtle", "floating"], "x-enum-i18n": { "en": { "none": "None", "subtle": "Subtle", "floating": "Floating" }, "zh-CN": { "none": "无", "subtle": "轻微", "floating": "悬浮" } }, "default": "subtle" },
+        "bodyFont": { "title": "Interface font", "x-i18n": { "en": "Interface font", "zh-CN": "界面字体" }, "type": "string", "enum": ["system", "humanist", "serif"], "x-enum-i18n": { "en": { "system": "System", "humanist": "Humanist", "serif": "Serif" }, "zh-CN": { "system": "系统字体", "humanist": "人文无衬线", "serif": "衬线体" } }, "default": "system" },
+        "showCardBorder": { "title": "Show card borders", "x-i18n": { "en": "Show card borders", "zh-CN": "显示卡片边框" }, "type": "boolean", "default": true }
+      }
+    },
+    "comments": {
+      "title": "Comments",
+      "x-i18n": { "en": "Comments", "zh-CN": "评论" },
+      "type": "object",
+      "properties": {
+        "showSection": { "title": "Show comment section", "x-i18n": { "en": "Show comment section", "zh-CN": "显示评论区" }, "type": "boolean", "default": true },
+        "showAvatars": { "title": "Show generated avatars", "x-i18n": { "en": "Show generated avatars", "zh-CN": "显示文字头像" }, "type": "boolean", "default": true },
+        "showEmailField": { "title": "Show email field", "x-i18n": { "en": "Show email field", "zh-CN": "显示邮箱字段" }, "type": "boolean", "default": true },
+        "showWebsiteField": { "title": "Show website field", "x-i18n": { "en": "Show website field", "zh-CN": "显示网站字段" }, "type": "boolean", "default": true },
+        "formLayout": { "title": "Form layout", "x-i18n": { "en": "Form layout", "zh-CN": "表单布局" }, "type": "string", "enum": ["stacked", "two-column"], "x-enum-i18n": { "en": { "stacked": "Stacked", "two-column": "Two columns" }, "zh-CN": { "stacked": "单列", "two-column": "双列" } }, "default": "two-column" },
+        "showTimestamps": { "title": "Show comment timestamps", "x-i18n": { "en": "Show comment timestamps", "zh-CN": "显示评论时间" }, "type": "boolean", "default": true }
+      }
+    },
+    "sidebar": {
+      "title": "Sidebar",
+      "x-i18n": { "en": "Sidebar", "zh-CN": "侧栏" },
+      "type": "object",
+      "properties": {
+        "widgets": { "title": "Sidebar widgets", "x-i18n": { "en": "Sidebar widgets", "zh-CN": "侧栏组件" }, "type": "array", "maxItems": 8, "default": ["popular-posts", "categories", "tags"], "items": { "type": "string", "enum": ["profile", "popular-posts", "recent-posts", "categories", "tags", "languages"], "x-enum-i18n": { "en": { "profile": "Site profile", "popular-posts": "Popular posts", "recent-posts": "Recent posts (legacy)", "categories": "Categories", "tags": "Tags", "languages": "Languages" }, "zh-CN": { "profile": "站点资料", "popular-posts": "热门文章", "recent-posts": "最新文章（兼容）", "categories": "文章分类", "tags": "文章标签", "languages": "语言" } } } },
+        "profileLogo": { "title": "Profile logo", "x-i18n": { "en": "Profile logo", "zh-CN": "站点资料 Logo" }, "type": "string", "format": "media", "maxLength": 500, "default": "" },
+        "socialLinks": { "title": "Profile social links", "x-i18n": { "en": "Profile social links", "zh-CN": "站点资料社交链接" }, "type": "array", "maxItems": 20, "default": [], "items": { "type": "object", "properties": { "icon": { "title": "Icon", "x-i18n": { "en": "Icon", "zh-CN": "图标" }, "type": "string", "enum": ["link", "mail", "github", "rss", "wechat", "telegram", "qq", "qzone", "weibo", "zhihu", "bilibili", "instagram", "linkedin", "x", "facebook", "youtube", "douban"], "default": "link" }, "name": { "title": "Name", "x-i18n": { "en": "Name", "zh-CN": "名称" }, "type": "string", "maxLength": 80, "default": "" }, "url": { "title": "URL", "x-i18n": { "en": "URL", "zh-CN": "链接" }, "type": "string", "maxLength": 500, "default": "" }, "kind": { "title": "Link type", "x-i18n": { "en": "Link type", "zh-CN": "链接类型" }, "type": "string", "enum": ["link", "image"], "x-enum-i18n": { "en": { "link": "Open link", "image": "Open image" }, "zh-CN": { "link": "跳转链接", "image": "查看图片" } }, "default": "link" } } } },
+        "position": { "title": "Sidebar position", "x-i18n": { "en": "Sidebar position", "zh-CN": "侧栏位置" }, "type": "string", "enum": ["right", "left"], "x-enum-i18n": { "en": { "right": "Right", "left": "Left" }, "zh-CN": { "right": "右侧", "left": "左侧" } }, "default": "right" },
+        "sticky": { "title": "Sticky sidebar", "x-i18n": { "en": "Sticky sidebar", "zh-CN": "固定侧栏" }, "type": "boolean", "default": false },
+        "profileStyle": { "title": "Profile style", "x-i18n": { "en": "Profile style", "zh-CN": "简介样式" }, "type": "string", "enum": ["card", "plain"], "x-enum-i18n": { "en": { "card": "Card", "plain": "Plain" }, "zh-CN": { "card": "卡片", "plain": "简洁" } }, "default": "card" },
+        "showAbout": { "title": "Show site introduction", "x-i18n": { "en": "Show site introduction", "zh-CN": "显示站点简介" }, "type": "boolean", "default": true },
+        "showLanguages": { "title": "Show language links", "x-i18n": { "en": "Show language links", "zh-CN": "显示语言链接" }, "type": "boolean", "default": true }
       }
     },
     "footer": {
-      "title": "页脚",
+      "title": "Footer",
+      "x-i18n": { "en": "Footer", "zh-CN": "页脚" },
       "type": "object",
       "properties": {
-        "showPoweredBy": { "type": "boolean", "default": true },
-        "copyright": { "type": "string", "default": "" }
+        "showFooter": { "title": "Show footer", "x-i18n": { "en": "Show footer", "zh-CN": "显示页脚" }, "type": "boolean", "default": true },
+        "style": { "title": "Footer style", "x-i18n": { "en": "Footer style", "zh-CN": "页脚风格" }, "type": "string", "enum": ["style-1", "style-2"], "x-enum-i18n": { "en": { "style-1": "Logo and one menu", "style-2": "Centered with menu groups" }, "zh-CN": { "style-1": "Logo 与单菜单", "style-2": "居中与菜单组" } }, "default": "style-1" },
+        "layout": { "title": "Footer layout", "x-i18n": { "en": "Footer layout", "zh-CN": "页脚布局" }, "type": "string", "enum": ["split", "centered"], "x-enum-i18n": { "en": { "split": "Split", "centered": "Centered" }, "zh-CN": { "split": "两端", "centered": "居中" } }, "default": "split" },
+        "logo": { "title": "Footer logo", "x-i18n": { "en": "Footer logo", "zh-CN": "页脚 Logo" }, "type": "string", "format": "media", "maxLength": 500, "default": "" },
+        "title": { "title": "Footer title", "x-i18n": { "en": "Footer title", "zh-CN": "页脚标题" }, "type": "string", "maxLength": 120, "default": "" },
+        "slogan": { "title": "Footer slogan", "x-i18n": { "en": "Footer slogan", "zh-CN": "页脚标语" }, "type": "string", "format": "textarea", "maxLength": 300, "default": "" },
+        "rightMenu": { "title": "Style 1 menu ID", "x-i18n": { "en": "Style 1 menu ID", "zh-CN": "风格一菜单 ID" }, "type": "string", "maxLength": 120, "default": "" },
+        "menuIds": { "title": "Footer menu IDs", "x-i18n": { "en": "Footer menu IDs", "zh-CN": "页脚菜单 ID" }, "type": "array", "maxItems": 6, "default": [], "items": { "type": "string", "maxLength": 120 } },
+        "socialLinks": { "title": "Footer social links", "x-i18n": { "en": "Footer social links", "zh-CN": "页脚社交链接" }, "type": "array", "maxItems": 20, "default": [], "items": { "type": "object", "properties": { "icon": { "title": "Icon", "x-i18n": { "en": "Icon", "zh-CN": "图标" }, "type": "string", "enum": ["link", "mail", "github", "rss", "wechat", "telegram", "qq", "qzone", "weibo", "zhihu", "bilibili", "instagram", "linkedin", "x", "facebook", "youtube", "douban"], "default": "link" }, "name": { "title": "Name", "x-i18n": { "en": "Name", "zh-CN": "名称" }, "type": "string", "maxLength": 80, "default": "" }, "url": { "title": "URL", "x-i18n": { "en": "URL", "zh-CN": "链接" }, "type": "string", "maxLength": 500, "default": "" }, "kind": { "title": "Link type", "x-i18n": { "en": "Link type", "zh-CN": "链接类型" }, "type": "string", "enum": ["link", "image"], "x-enum-i18n": { "en": { "link": "Open link", "image": "Open image" }, "zh-CN": { "link": "跳转链接", "image": "查看图片" } }, "default": "link" } } } },
+        "showSiteDescription": { "title": "Show site description", "x-i18n": { "en": "Show site description", "zh-CN": "显示站点描述" }, "type": "boolean", "default": true },
+        "showPoweredBy": { "title": "Show Powered by", "x-i18n": { "en": "Show Powered by", "zh-CN": "显示 Powered by" }, "type": "boolean", "default": true },
+        "showTopBorder": { "title": "Show top border", "x-i18n": { "en": "Show top border", "zh-CN": "显示顶部边框" }, "type": "boolean", "default": true },
+        "copyright": { "title": "Custom copyright text", "x-i18n": { "en": "Custom copyright text", "zh-CN": "自定义版权文字" }, "type": "string", "format": "textarea", "maxLength": 1000, "default": "" }
       }
     }
   }

@@ -3,8 +3,14 @@
   "private": true,
   "version": "0.1.0-dev",
   "type": "module",
-  "exports": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.tsx",
+      "source": "./src/index.tsx",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./src/index.tsx",
   "files": ["dist", "theme.yaml", "settings.schema.json"],
   "scripts": {
     "build": "tsc -p tsconfig.json",

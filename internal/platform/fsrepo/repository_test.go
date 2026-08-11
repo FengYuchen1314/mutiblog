@@ -6,47 +6,82 @@ import (
 	"testing"
 )
 
-func TestRepositoryWritesAndReadsYAML(t *testing.T) {
-	repository, err := Open(t.TempDir())
+func TestOpenSecuresExistingConfigDirectory(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "config")
+	if err := os.Mkdir(config, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(config, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(root); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"name": "MutiBlog", "schemaVersion": 1}
-	if err := repository.WriteYAML("config/site.yaml", want, false); err != nil {
-		t.Fatal(err)
-	}
-	var got map[string]any
-	if err := repository.ReadYAML("config/site.yaml", &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["name"] != want["name"] {
-		t.Fatalf("name = %v, want %v", got["name"], want["name"])
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("config mode = %o, want 700", got)
 	}
 }
 
-func TestRepositoryRejectsEscapes(t *testing.T) {
-	repository, err := Open(t.TempDir())
-	if err != nil {
+func TestOpenRejectsSymlinkInRepositoryLayout(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "content")); err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.WriteFile("../escape", []byte("no"), 0o600); err == nil {
-		t.Fatal("expected path escape to be rejected")
+	if _, err := Open(root); err == nil {
+		t.Fatal("expected repository layout symlink to be rejected")
 	}
 }
 
-func TestSecretFileMode(t *testing.T) {
-	repository, err := Open(t.TempDir())
+func TestRepositoryRejectsSymlinkIntroducedAfterOpen(t *testing.T) {
+	root := t.TempDir()
+	repository, err := Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.WriteYAML("config/secrets.yaml", map[string]any{"key": "value"}, true); err != nil {
+	posts := filepath.Join(root, "content", "posts")
+	if err := os.Remove(posts); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(filepath.Join(repository.Root(), "config", "secrets.yaml"))
+	outside := t.TempDir()
+	if err := os.Symlink(outside, posts); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteFile("content/posts/escaped.md", []byte("outside"), 0o640); err == nil {
+		t.Fatal("expected runtime repository symlink to be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "escaped.md")); !os.IsNotExist(err) {
+		t.Fatalf("outside path was written through symlink: %v", err)
+	}
+}
+
+func TestRemoveTreeRejectsSymlinkIntroducedAfterOpen(t *testing.T) {
+	root := t.TempDir()
+	repository, err := Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("mode = %o, want 600", got)
+	posts := filepath.Join(root, "content", "posts")
+	if err := os.Remove(posts); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	outsideContent := filepath.Join(outside, "keep")
+	if err := os.WriteFile(outsideContent, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, posts); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.RemoveTree("content/posts/keep"); err == nil {
+		t.Fatal("expected tree removal through a runtime symlink to be rejected")
+	}
+	if _, err := os.Stat(outsideContent); err != nil {
+		t.Fatalf("outside content changed through symlink: %v", err)
 	}
 }

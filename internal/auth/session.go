@@ -61,6 +61,12 @@ func (s *SessionStore) Delete(token string) {
 	s.mu.Unlock()
 }
 
+func (s *SessionStore) Clear() {
+	s.mu.Lock()
+	clear(s.sessions)
+	s.mu.Unlock()
+}
+
 func (s *SessionStore) removeExpiredLocked(now time.Time) {
 	for key, session := range s.sessions {
 		if now.After(session.ExpiresAt) {

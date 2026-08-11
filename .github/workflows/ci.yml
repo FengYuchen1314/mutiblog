@@ -22,9 +22,10 @@ jobs:
           version: 11.20.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: bash -n deploy/*.sh && bash deploy/update-test.sh
       - run: go test ./...
       - run: pnpm typecheck
       - run: pnpm test
@@ -41,6 +42,10 @@ jobs:
         with:
           context: .
           push: false
+          load: true
+          platforms: linux/amd64
           tags: mutiblog:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Smoke-test initialized candidate image
+        run: ./deploy/smoke-test.sh mutiblog:test
