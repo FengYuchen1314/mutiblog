@@ -92,7 +92,7 @@ function mathInline(state: StateInline, silent: boolean) {
   }
 
   const start = state.pos + 1;
-  const match = findUnescapedDollar(state.src, start);
+  const match = findUnescapedDollar(state.src, start, state.posMax);
 
   if (match === -1) {
     if (!silent) state.pending += "$";
