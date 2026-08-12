@@ -54,7 +54,7 @@ func (s *Server) handleCreateLinkGroup(w http.ResponseWriter, r *http.Request) {
 		s.writeLinkError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusCreated, item, "LinkGroup", item.ID)
+	s.writePublishedResource(w, r, http.StatusCreated, item, "LinkGroup", item.ID, true)
 }
 func (s *Server) handleCreateLink(w http.ResponseWriter, r *http.Request) {
 	var request createLinkRequest
@@ -67,7 +67,7 @@ func (s *Server) handleCreateLink(w http.ResponseWriter, r *http.Request) {
 		s.writeLinkError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusCreated, item, "Link", item.ID)
+	s.writePublishedResource(w, r, http.StatusCreated, item, "Link", item.ID, true)
 }
 func (s *Server) handleUpdateLinkGroup(w http.ResponseWriter, r *http.Request) {
 	var request updateLinkGroupRequest
@@ -80,7 +80,7 @@ func (s *Server) handleUpdateLinkGroup(w http.ResponseWriter, r *http.Request) {
 		s.writeLinkError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, item, "LinkGroup", item.ID)
+	s.writePublishedResource(w, r, http.StatusOK, item, "LinkGroup", item.ID, false)
 }
 func (s *Server) handleUpdateLink(w http.ResponseWriter, r *http.Request) {
 	var request updateLinkRequest
@@ -93,7 +93,7 @@ func (s *Server) handleUpdateLink(w http.ResponseWriter, r *http.Request) {
 		s.writeLinkError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, item, "Link", item.ID)
+	s.writePublishedResource(w, r, http.StatusOK, item, "Link", item.ID, false)
 }
 func (s *Server) handleUpdateLinkGroupLocale(w http.ResponseWriter, r *http.Request) {
 	var request updateLinkLocaleRequest
@@ -106,7 +106,7 @@ func (s *Server) handleUpdateLinkGroupLocale(w http.ResponseWriter, r *http.Requ
 		s.writeLinkError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, item, "LinkGroup", item.ID)
+	s.writePublishedResource(w, r, http.StatusOK, item, "LinkGroup", item.ID, sourceLocaleWasUpdated(item.SourceLocale, r.PathValue("locale")))
 }
 func (s *Server) handleUpdateLinkLocale(w http.ResponseWriter, r *http.Request) {
 	var request updateLinkLocaleRequest
@@ -119,7 +119,7 @@ func (s *Server) handleUpdateLinkLocale(w http.ResponseWriter, r *http.Request) 
 		s.writeLinkError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, item, "Link", item.ID)
+	s.writePublishedResource(w, r, http.StatusOK, item, "Link", item.ID, sourceLocaleWasUpdated(item.SourceLocale, r.PathValue("locale")))
 }
 func (s *Server) handleDeleteLinkGroup(w http.ResponseWriter, r *http.Request) {
 	var request deleteResourceRequest

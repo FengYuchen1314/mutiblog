@@ -177,6 +177,20 @@ func TestBackupAfterPermanentDeletionOfUpvotedContentRemainsRestorable(t *testin
 
 func TestRestoreSwapsPersistentVisitCountersWithContent(t *testing.T) {
 	repository := restoreTestRepository(t)
+	// The global Chinese fallback is renderer-visible after locale normalization.
+	// Complete the legacy English source release before exercising its public
+	// visit snapshot, rather than relying on a source-only release.
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  "en",
+		Enabled: []domain.LocaleDefinition{
+			{Code: "en", Label: "English", Enabled: true},
+			{Code: "zh-CN", Label: "简体中文", Enabled: true, Status: domain.LocaleStatusReady},
+		},
+		Fallback: []string{"zh-CN"},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
 	contentService := content.NewService(repository)
 	post, err := contentService.CreatePost(content.CreatePostInput{ID: "restored-visits", Title: "Restored visits"})
 	if err != nil {
@@ -184,6 +198,16 @@ func TestRestoreSwapsPersistentVisitCountersWithContent(t *testing.T) {
 	}
 	post, err = contentService.PublishPost(post.Meta.ID, post.Meta.Revision)
 	if err != nil {
+		t.Fatal(err)
+	}
+	post, err = contentService.ApplyAITranslation(post.Meta.ID, "zh-CN", content.ApplyAITranslationInput{
+		ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "恢复访问"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contentService.PromoteAITranslation("Post", post.Meta.ID, "zh-CN", post.Meta.Locales[post.Meta.SourceLocale].Revision); err != nil {
 		t.Fatal(err)
 	}
 	visitService := visits.NewService(repository, contentService)

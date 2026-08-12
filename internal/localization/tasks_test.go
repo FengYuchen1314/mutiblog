@@ -149,6 +149,108 @@ func TestLocaleProvisionTaskPersistsBeforeLaunchAndReusesExactActiveTargets(t *t
 	}
 }
 
+func TestLocaleRefreshKeepsVisibleLocalesUntouchedAndBuildsOnce(t *testing.T) {
+	repository := localeTaskRepository(t)
+	provisioner := &localeTaskProvisioner{}
+	builder := &localeTaskBuilder{children: make(map[string]publisher.Task)}
+	service := NewTaskService(repository, provisioner, builder)
+	defer service.Close()
+	var lifecycleMu sync.Mutex
+	var lifecycle []TargetLifecycleUpdate
+	service.SetTargetLifecycleCallback(func(_ context.Context, update TargetLifecycleUpdate) error {
+		lifecycleMu.Lock()
+		lifecycle = append(lifecycle, update)
+		lifecycleMu.Unlock()
+		return nil
+	})
+
+	task, err := service.Start(LocaleProvisionStartInput{Locales: []string{"en", "ja"}, PreserveLocaleVisibility: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := waitLocaleTask(t, service, task.ID)
+	if !completed.PreserveLocaleVisibility || completed.Operation != localeRefreshTaskOperation || completed.Status != "succeeded" || completed.BuildStatus != "succeeded" {
+		t.Fatalf("completed refresh = %#v", completed)
+	}
+	builds, request := builder.snapshot()
+	if builds != 1 || request.Operation != localeRefreshTaskOperation || request.ParentTaskID != completed.ID {
+		t.Fatalf("refresh build = calls:%d request:%#v parent:%#v", builds, request, completed)
+	}
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+	if len(lifecycle) != 0 {
+		t.Fatalf("visible locales received lifecycle changes: %#v", lifecycle)
+	}
+}
+
+func TestLocaleRefreshDoesNotBuildPartialVisibleLocales(t *testing.T) {
+	repository := localeTaskRepository(t)
+	provisioner := &localeTaskProvisioner{failures: map[string]error{"ja": errors.New("provider failed")}}
+	builder := &localeTaskBuilder{children: make(map[string]publisher.Task)}
+	service := NewTaskService(repository, provisioner, builder)
+	defer service.Close()
+	var lifecycleMu sync.Mutex
+	var lifecycle []TargetLifecycleUpdate
+	service.SetTargetLifecycleCallback(func(_ context.Context, update TargetLifecycleUpdate) error {
+		lifecycleMu.Lock()
+		lifecycle = append(lifecycle, update)
+		lifecycleMu.Unlock()
+		return nil
+	})
+
+	task, err := service.Start(LocaleProvisionStartInput{Locales: []string{"en", "ja"}, PreserveLocaleVisibility: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := waitLocaleTask(t, service, task.ID)
+	if completed.Status != "failed" || completed.BuildStatus != "" || len(completed.Targets) != 2 || completed.Targets[0].Status != "succeeded" || completed.Targets[1].Status != "failed" {
+		t.Fatalf("partial refresh = %#v", completed)
+	}
+	if builds, _ := builder.snapshot(); builds != 0 {
+		t.Fatalf("partial refresh issued %d builds", builds)
+	}
+	lifecycleMu.Lock()
+	defer lifecycleMu.Unlock()
+	if len(lifecycle) != 0 {
+		t.Fatalf("visible locales received lifecycle changes: %#v", lifecycle)
+	}
+}
+
+func TestLocaleRefreshCreatesSuccessorForSameActiveTargets(t *testing.T) {
+	repository := localeTaskRepository(t)
+	provisioner := &localeTaskProvisioner{started: make(chan struct{}, 1), release: make(chan struct{})}
+	builder := &localeTaskBuilder{children: make(map[string]publisher.Task)}
+	service := NewTaskService(repository, provisioner, builder)
+	defer service.Close()
+
+	first, err := service.Start(LocaleProvisionStartInput{Locales: []string{"ja"}, PreserveLocaleVisibility: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-provisioner.started:
+	case <-time.After(time.Second):
+		t.Fatal("first refresh did not start")
+	}
+	second, err := service.Start(LocaleProvisionStartInput{Locales: []string{"ja"}, PreserveLocaleVisibility: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("refresh reused active task %q", first.ID)
+	}
+	close(provisioner.release)
+	if completed := waitLocaleTask(t, service, first.ID); completed.Status != "succeeded" {
+		t.Fatalf("first refresh = %#v", completed)
+	}
+	if completed := waitLocaleTask(t, service, second.ID); completed.Status != "succeeded" {
+		t.Fatalf("second refresh = %#v", completed)
+	}
+	if builds, _ := builder.snapshot(); builds != 2 {
+		t.Fatalf("successor refresh builds = %d", builds)
+	}
+}
+
 func TestLocaleProvisionTaskRunsTargetsSequentiallyAndBuildsOnce(t *testing.T) {
 	repository := localeTaskRepository(t)
 	provisioner := &localeTaskProvisioner{}

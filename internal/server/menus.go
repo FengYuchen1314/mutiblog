@@ -45,7 +45,7 @@ func (s *Server) handleCreateMenu(w http.ResponseWriter, r *http.Request) {
 		s.writeMenuError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusCreated, item, "Menu", item.ID)
+	s.writePublishedResource(w, r, http.StatusCreated, item, "Menu", item.ID, true)
 }
 func (s *Server) handleAddMenuItem(w http.ResponseWriter, r *http.Request) {
 	var request addMenuItemRequest
@@ -58,7 +58,7 @@ func (s *Server) handleAddMenuItem(w http.ResponseWriter, r *http.Request) {
 		s.writeMenuError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusCreated, item, "Menu", item.ID)
+	s.writePublishedResource(w, r, http.StatusCreated, item, "Menu", item.ID, true)
 }
 func (s *Server) handleUpdateMenuLocale(w http.ResponseWriter, r *http.Request) {
 	var request updateMenuLocaleRequest
@@ -71,7 +71,7 @@ func (s *Server) handleUpdateMenuLocale(w http.ResponseWriter, r *http.Request) 
 		s.writeMenuError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, item, "Menu", item.ID)
+	s.writePublishedResource(w, r, http.StatusOK, item, "Menu", item.ID, sourceLocaleWasUpdated(item.SourceLocale, r.PathValue("locale")))
 }
 func (s *Server) handleUpdateMenuItem(w http.ResponseWriter, r *http.Request) {
 	var request updateMenuItemRequest
@@ -84,7 +84,7 @@ func (s *Server) handleUpdateMenuItem(w http.ResponseWriter, r *http.Request) {
 		s.writeMenuError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, menu, "Menu", menu.ID)
+	s.writePublishedResource(w, r, http.StatusOK, menu, "Menu", menu.ID, false)
 }
 func (s *Server) handleUpdateMenuItemLocale(w http.ResponseWriter, r *http.Request) {
 	var request updateMenuLocaleRequest
@@ -97,7 +97,7 @@ func (s *Server) handleUpdateMenuItemLocale(w http.ResponseWriter, r *http.Reque
 		s.writeMenuError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, item, "Menu", item.ID)
+	s.writePublishedResource(w, r, http.StatusOK, item, "Menu", item.ID, sourceLocaleWasUpdated(item.SourceLocale, r.PathValue("locale")))
 }
 func (s *Server) handleDeleteMenu(w http.ResponseWriter, r *http.Request) {
 	var request deleteResourceRequest
@@ -131,7 +131,7 @@ func (s *Server) handleDeleteMenuItem(w http.ResponseWriter, r *http.Request) {
 		s.writeMenuError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, menu, "Menu", menu.ID)
+	s.writePublishedResource(w, r, http.StatusOK, menu, "Menu", menu.ID, false)
 }
 func (s *Server) writeMenuError(w http.ResponseWriter, err error) {
 	switch {

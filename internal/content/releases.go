@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
+	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
 )
 
 type releasePointer struct {
@@ -195,10 +196,13 @@ func (s *Service) writeReleasePublicationGeneration(kind string, released domain
 	return s.writeContentSnapshot(filepath.Join(paths.revisions, pointer.HistorySnapshot), released)
 }
 
-// ListPostsForBuild and ListPagesForBuild substitute the immutable public
-// release for every published head. Private releases are omitted entirely;
-// draft, unpublished, and recycled heads are retained for the renderer's
-// normal status filter.
+// ListPostsForBuild and ListPagesForBuild substitute an immutable public
+// release for every published head. A newly published release can be pending
+// automatic translations, though. That pending snapshot remains the current
+// release for its translation task, but it must not make an unrelated static
+// build fail exact-locale validation. Build reads therefore fall back to the
+// newest complete immutable release, or omit a first publication until it is
+// complete. No release pointer or history entry is changed by this selection.
 func (s *Service) ListPostsForBuild() ([]domain.Post, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -219,24 +223,67 @@ func (s *Service) ListPagesForBuild() ([]domain.Post, error) {
 	return s.publicReleasesForBuild("Page", pages)
 }
 
-func (s *Service) publicReleasesForBuild(kind string, heads []domain.Post) ([]domain.Post, error) {
-	items, err := s.releasesForBuild(kind, heads)
+// ListPostsForLocalization and ListPagesForLocalization retain the active
+// public pointer, including an incomplete pending publication. Localization
+// planners must translate that exact release; they must never receive the
+// last-known-good fallback that a static build uses.
+func (s *Service) ListPostsForLocalization() ([]domain.Post, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	posts, err := s.listPostsLocked()
 	if err != nil {
 		return nil, err
 	}
-	public := make([]domain.Post, 0, len(items))
-	for _, item := range items {
-		if item.Meta.Visibility == domain.ContentVisibilityPrivate {
-			continue
-		}
-		public = append(public, item)
-	}
-	return public, nil
+	return s.currentPublicReleases("Post", posts)
 }
 
-// GetPublishedRelease returns the same immutable snapshot that the public
-// renderer uses. Dynamic surfaces such as comments must not observe an
-// unpublished head while visitors are still reading the previous release.
+func (s *Service) ListPagesForLocalization() ([]domain.Post, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	pages, err := s.listPagesLocked()
+	if err != nil {
+		return nil, err
+	}
+	return s.currentPublicReleases("Page", pages)
+}
+
+func (s *Service) publicReleasesForBuild(kind string, heads []domain.Post) ([]domain.Post, error) {
+	visibleLocales, err := s.renderableLocalesForBuild()
+	if err != nil {
+		return nil, err
+	}
+	return s.releasesForBuild(kind, heads, visibleLocales)
+}
+
+func (s *Service) currentPublicReleases(kind string, heads []domain.Post) ([]domain.Post, error) {
+	result := make([]domain.Post, 0, len(heads))
+	for _, head := range heads {
+		if head.Meta.Status != domain.ContentStatusPublished {
+			if head.Meta.Visibility != domain.ContentVisibilityPrivate {
+				result = append(result, head)
+			}
+			continue
+		}
+		released, err := s.readRelease(kind, head.Meta.ID)
+		if errors.Is(err, os.ErrNotExist) {
+			if head.Meta.Visibility != domain.ContentVisibilityPrivate {
+				result = append(result, head)
+			}
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if released.Meta.Visibility != domain.ContentVisibilityPrivate {
+			result = append(result, released)
+		}
+	}
+	return result, nil
+}
+
+// GetPublishedRelease returns the active immutable release pointer. Translation
+// and dynamic surfaces use that exact pending publication; static builds may
+// instead select an older complete release through List*ForBuild.
 func (s *Service) GetPublishedRelease(kind, id string) (domain.Post, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -260,26 +307,160 @@ func (s *Service) GetPublishedRelease(kind, id string) (domain.Post, error) {
 	return released, err
 }
 
-func (s *Service) releasesForBuild(kind string, heads []domain.Post) ([]domain.Post, error) {
+func (s *Service) releasesForBuild(kind string, heads []domain.Post, visibleLocales map[string]struct{}) ([]domain.Post, error) {
 	result := make([]domain.Post, 0, len(heads))
 	for _, head := range heads {
 		if head.Meta.Status != domain.ContentStatusPublished {
-			result = append(result, head)
+			if head.Meta.Visibility != domain.ContentVisibilityPrivate {
+				result = append(result, head)
+			}
 			continue
 		}
 		released, err := s.readRelease(kind, head.Meta.ID)
 		if errors.Is(err, os.ErrNotExist) {
 			// Backward-compatible migration path: the pre-release-pointer head is
 			// the only public snapshot until its first edit or explicit publish.
-			result = append(result, head)
+			// It still has to be complete for every currently renderable locale.
+			if head.Meta.Visibility != domain.ContentVisibilityPrivate && releaseRenderableForBuild(head, visibleLocales) {
+				result = append(result, head)
+			}
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, released)
+		// The active release owns visibility. Falling back past an explicit
+		// private publication would otherwise leak the older public snapshot.
+		if released.Meta.Visibility == domain.ContentVisibilityPrivate {
+			continue
+		}
+		selected, available, selectErr := s.latestRenderableReleaseForBuild(kind, head.Meta.ID, released, visibleLocales)
+		if selectErr != nil {
+			return nil, selectErr
+		}
+		if available {
+			result = append(result, selected)
+		}
 	}
 	return result, nil
+}
+
+// renderableLocalesForBuild mirrors publisher.snapshot's locale visibility:
+// ready, legacy statusless, and internally building locales are present in a
+// renderer input. Provisioning and failed locales are intentionally hidden.
+func (s *Service) renderableLocalesForBuild() (map[string]struct{}, error) {
+	config, err := s.locales()
+	if err != nil {
+		return nil, err
+	}
+	localeconfig.Normalize(&config)
+	locales := make(map[string]struct{}, len(config.Enabled))
+	for _, definition := range config.Enabled {
+		if !definition.Enabled {
+			continue
+		}
+		switch definition.Status {
+		case "", domain.LocaleStatusReady, domain.LocaleStatusBuilding:
+			locales[definition.Code] = struct{}{}
+		}
+	}
+	return locales, nil
+}
+
+// latestRenderableReleaseForBuild deliberately leaves current.yaml untouched.
+// The current snapshot may be incomplete while an automatic translation task
+// owns it; scanning immutable release snapshots lets a later, unrelated build
+// keep serving the last coherent version instead of failing globally.
+func (s *Service) latestRenderableReleaseForBuild(kind, id string, current domain.Post, visibleLocales map[string]struct{}) (domain.Post, bool, error) {
+	if releaseRenderableForBuild(current, visibleLocales) {
+		return current, true, nil
+	}
+	root, err := releaseRoot(kind, id)
+	if err != nil {
+		return domain.Post{}, false, err
+	}
+	entries, err := s.repository.ReadDir(filepath.Join(root, "snapshots"))
+	if errors.Is(err, os.ErrNotExist) {
+		return domain.Post{}, false, nil
+	}
+	if err != nil {
+		return domain.Post{}, false, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() > entries[j].Name() })
+	for _, entry := range entries {
+		if !entry.IsDir() || !validRevisionID(entry.Name()) {
+			continue
+		}
+		candidate, readErr := s.readReleaseSnapshot(kind, id, entry.Name())
+		// A partial or corrupt historical snapshot is never a reason to make an
+		// otherwise unrelated public build fail. It cannot become a fallback.
+		if readErr != nil || candidate.Meta.Revision >= current.Meta.Revision {
+			continue
+		}
+		if candidate.Meta.Visibility == domain.ContentVisibilityPrivate || !releaseRenderableForBuild(candidate, visibleLocales) {
+			continue
+		}
+		return candidate, true, nil
+	}
+	return domain.Post{}, false, nil
+}
+
+// releaseRenderableForBuild matches the renderer's published Post/Page
+// exact-locale contract closely enough to choose a safe immutable snapshot
+// before handing it to the renderer. The renderer remains the final validator.
+func releaseRenderableForBuild(item domain.Post, visibleLocales map[string]struct{}) bool {
+	if item.Meta.Status != domain.ContentStatusPublished {
+		return true
+	}
+	sourceLocale := item.Meta.SourceLocale
+	sourceState, exists := item.Meta.Locales[sourceLocale]
+	if !exists || sourceState.Origin != domain.LocaleOriginSource || sourceState.State != "current" || sourceState.SourceRevision != sourceState.Revision {
+		return false
+	}
+	source, exists := item.Content[sourceLocale]
+	if !exists {
+		return false
+	}
+	locales := make(map[string]struct{}, len(visibleLocales)+1)
+	for locale := range visibleLocales {
+		locales[locale] = struct{}{}
+	}
+	locales[sourceLocale] = struct{}{}
+	for locale := range locales {
+		target, exists := item.Content[locale]
+		if !exists || !completeLocalizedMarkdownForBuild(source, target) {
+			return false
+		}
+		state, exists := item.Meta.Locales[locale]
+		if !exists || state.State != "current" {
+			return false
+		}
+		if locale == sourceLocale {
+			if state.Origin != domain.LocaleOriginSource || state.SourceRevision != state.Revision {
+				return false
+			}
+			continue
+		}
+		if state.SourceRevision != sourceState.Revision {
+			return false
+		}
+	}
+	return true
+}
+
+func completeLocalizedMarkdownForBuild(source, target domain.LocalizedMarkdown) bool {
+	for _, values := range [][2]string{
+		{source.Title, target.Title},
+		{source.Summary, target.Summary},
+		{source.SEOTitle, target.SEOTitle},
+		{source.SEODescription, target.SEODescription},
+		{source.Markdown, target.Markdown},
+	} {
+		if strings.TrimSpace(values[0]) != "" && strings.TrimSpace(values[1]) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) ensureRelease(kind string, item domain.Post) error {
@@ -475,7 +656,26 @@ func (s *Service) readRelease(kind, id string) (domain.Post, error) {
 	if pointer.SchemaVersion != domain.SchemaVersion || !validRevisionID(pointer.Snapshot) {
 		return domain.Post{}, errors.New("invalid content release pointer")
 	}
-	base := filepath.Join(root, "snapshots", pointer.Snapshot)
+	released, err := s.readReleaseSnapshot(kind, id, pointer.Snapshot)
+	if err != nil {
+		return domain.Post{}, err
+	}
+	if pointer.Revision != released.Meta.Revision {
+		return domain.Post{}, errors.New("content release revision does not match its snapshot")
+	}
+	released.Meta.ReleaseRevision = pointer.Revision
+	return released, nil
+}
+
+func (s *Service) readReleaseSnapshot(kind, id, snapshot string) (domain.Post, error) {
+	root, err := releaseRoot(kind, id)
+	if err != nil {
+		return domain.Post{}, err
+	}
+	if !validRevisionID(snapshot) {
+		return domain.Post{}, errors.New("invalid content release snapshot")
+	}
+	base := filepath.Join(root, "snapshots", snapshot)
 	var meta domain.PostMeta
 	if err := s.repository.ReadYAML(filepath.Join(base, "meta.yaml"), &meta); err != nil {
 		return domain.Post{}, err
@@ -484,10 +684,6 @@ func (s *Service) readRelease(kind, id string) (domain.Post, error) {
 		return domain.Post{}, errors.New("invalid content release snapshot")
 	}
 	normalizeRevisionPointers(&meta)
-	if pointer.Revision != meta.Revision {
-		return domain.Post{}, errors.New("content release revision does not match its snapshot")
-	}
-	meta.ReleaseRevision = pointer.Revision
 	contents := make(map[string]domain.LocalizedMarkdown, len(meta.Locales))
 	for locale := range meta.Locales {
 		data, err := s.repository.ReadFile(filepath.Join(base, locale+".md"))

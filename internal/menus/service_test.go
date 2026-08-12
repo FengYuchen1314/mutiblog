@@ -186,3 +186,30 @@ func TestApplyAILocalesUseSourceAndTargetLocaleRevisions(t *testing.T) {
 		t.Fatalf("disabled item target error = %v, want ErrLocaleDisabled", err)
 	}
 }
+
+func TestAddedMenuItemUsesItsOwnSourceRevision(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{SchemaVersion: 1, SourceLocale: "zh-CN", Enabled: []domain.LocaleDefinition{{Code: "zh-CN", Enabled: true}, {Code: "en", Enabled: true}}}, false); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository)
+	menu, err := service.Create(CreateInput{ID: "primary", Label: "主菜单"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	menu, err = service.UpdateMenuLocale(menu.ID, "zh-CN", UpdateLocaleInput{ExpectedRevision: menu.Revision, Label: "更新后的主菜单"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	menu, err = service.AddItem(menu.ID, AddItemInput{ID: "about", TargetKind: "internal", URL: "/pages/about/", Label: "关于", ExpectedRevision: menu.Revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := menu.Items[0].Locales["zh-CN"]
+	if source.State != "current" || source.Origin != domain.LocaleOriginSource || source.SourceRevision != source.Revision {
+		t.Fatalf("new menu item source state = %#v", source)
+	}
+}

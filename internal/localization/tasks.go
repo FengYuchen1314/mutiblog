@@ -30,6 +30,7 @@ var (
 const (
 	localeProvisionTaskKind       = "LocaleProvision"
 	localeProvisionTaskOperation  = "localize-site"
+	localeRefreshTaskOperation    = "refresh-localized-site"
 	localeProvisionWriteAttempts  = 3
 	localeProvisionTaskIDPrefix   = "locale-provision-"
 	localeProvisionSourceLocale   = "zh-CN"
@@ -80,6 +81,11 @@ type TargetLifecycleCallback func(context.Context, TargetLifecycleUpdate) error
 // cancel durable site-wide work.
 type LocaleProvisionStartInput struct {
 	Locales []string
+	// PreserveLocaleVisibility turns the task into a refresh of already-public
+	// locales after a source-only resource change. It must not change their
+	// lifecycle visibility: the last known good release remains public until
+	// every target has been localized and the one replacement build succeeds.
+	PreserveLocaleVisibility bool
 }
 
 type TargetTask struct {
@@ -98,20 +104,24 @@ type TargetTask struct {
 // locales. Target work remains sequential so each provider/config mutation is
 // easy to recover, while successful targets share exactly one build child.
 type Task struct {
-	SchemaVersion int                `yaml:"schemaVersion" json:"schemaVersion"`
-	ID            string             `yaml:"id" json:"id"`
-	Kind          string             `yaml:"kind" json:"kind"`
-	Operation     string             `yaml:"operation" json:"operation"`
-	Status        string             `yaml:"status" json:"status"`
-	Progress      taskstore.Progress `yaml:"progress" json:"progress"`
-	Targets       []TargetTask       `yaml:"targets" json:"targets"`
-	BuildStatus   string             `yaml:"buildStatus,omitempty" json:"buildStatus,omitempty"`
-	BuildTaskID   string             `yaml:"buildTaskId,omitempty" json:"buildTaskId,omitempty"`
-	CreatedAt     time.Time          `yaml:"createdAt" json:"createdAt"`
-	StartedAt     *time.Time         `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
-	CompletedAt   *time.Time         `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
-	Error         string             `yaml:"error,omitempty" json:"error,omitempty"`
-	ErrorDetail   string             `yaml:"errorDetail,omitempty" json:"errorDetail,omitempty"`
+	SchemaVersion int    `yaml:"schemaVersion" json:"schemaVersion"`
+	ID            string `yaml:"id" json:"id"`
+	Kind          string `yaml:"kind" json:"kind"`
+	Operation     string `yaml:"operation" json:"operation"`
+	// PreserveLocaleVisibility distinguishes a refresh of healthy, visible
+	// locales from initial provisioning, whose targets remain hidden until the
+	// build has completed.
+	PreserveLocaleVisibility bool               `yaml:"preserveLocaleVisibility,omitempty" json:"preserveLocaleVisibility,omitempty"`
+	Status                   string             `yaml:"status" json:"status"`
+	Progress                 taskstore.Progress `yaml:"progress" json:"progress"`
+	Targets                  []TargetTask       `yaml:"targets" json:"targets"`
+	BuildStatus              string             `yaml:"buildStatus,omitempty" json:"buildStatus,omitempty"`
+	BuildTaskID              string             `yaml:"buildTaskId,omitempty" json:"buildTaskId,omitempty"`
+	CreatedAt                time.Time          `yaml:"createdAt" json:"createdAt"`
+	StartedAt                *time.Time         `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
+	CompletedAt              *time.Time         `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
+	Error                    string             `yaml:"error,omitempty" json:"error,omitempty"`
+	ErrorDetail              string             `yaml:"errorDetail,omitempty" json:"errorDetail,omitempty"`
 }
 
 type TaskService struct {
@@ -260,7 +270,16 @@ func (s *TaskService) Prepare(input LocaleProvisionStartInput) (Task, bool, erro
 		return Task{}, false, err
 	}
 	for _, existing := range tasks {
-		if (existing.Status == "queued" || existing.Status == "running") && sameTaskTargets(existing.Targets, targets) {
+		// A resource refresh captures a mutable site snapshot. Reusing a running
+		// refresh solely because its locale set matches would let a later source
+		// mutation arrive after that task had planned work, then remain
+		// untranslated forever. Refreshes are serialized below, so give every
+		// request its own durable successor. Initial locale provisioning still
+		// safely reuses its exact active target set.
+		if !input.PreserveLocaleVisibility &&
+			(existing.Status == "queued" || existing.Status == "running") &&
+			existing.PreserveLocaleVisibility == input.PreserveLocaleVisibility &&
+			sameTaskTargets(existing.Targets, targets) {
 			return existing, false, nil
 		}
 	}
@@ -269,12 +288,17 @@ func (s *TaskService) Prepare(input LocaleProvisionStartInput) (Task, bool, erro
 		return Task{}, false, err
 	}
 	now := time.Now().UTC()
+	operation := localeProvisionTaskOperation
+	if input.PreserveLocaleVisibility {
+		operation = localeRefreshTaskOperation
+	}
 	task := Task{
-		SchemaVersion: domain.SchemaVersion,
-		ID:            id,
-		Kind:          localeProvisionTaskKind,
-		Operation:     localeProvisionTaskOperation,
-		Status:        "queued",
+		SchemaVersion:            domain.SchemaVersion,
+		ID:                       id,
+		Kind:                     localeProvisionTaskKind,
+		Operation:                operation,
+		PreserveLocaleVisibility: input.PreserveLocaleVisibility,
+		Status:                   "queued",
 		Progress: taskstore.Progress{
 			Phase:   "preparing-site-localization",
 			Total:   len(targets) + 2,
@@ -474,12 +498,14 @@ func (s *TaskService) run(taskID string, runGeneration uint64) {
 			if !s.checkpoint(&task, "target-unavailable") {
 				return
 			}
-			if err := s.targetStatus(s.root, task.ID, []string{target.Locale}, "failed"); err != nil {
-				if s.root.Err() != nil {
+			if !task.PreserveLocaleVisibility {
+				if err := s.targetStatus(s.root, task.ID, []string{target.Locale}, "failed"); err != nil {
+					if s.root.Err() != nil {
+						return
+					}
+					s.finishBestEffort(&task, "needs-review", "locale-status-update-failed")
 					return
 				}
-				s.finishBestEffort(&task, "needs-review", "locale-status-update-failed")
-				return
 			}
 			continue
 		}
@@ -501,12 +527,14 @@ func (s *TaskService) run(taskID string, runGeneration uint64) {
 			if !s.checkpoint(&task, "target-failed") {
 				return
 			}
-			if err := s.targetStatus(s.root, task.ID, []string{target.Locale}, "failed"); err != nil {
-				if s.root.Err() != nil {
+			if !task.PreserveLocaleVisibility {
+				if err := s.targetStatus(s.root, task.ID, []string{target.Locale}, "failed"); err != nil {
+					if s.root.Err() != nil {
+						return
+					}
+					s.finishBestEffort(&task, "needs-review", "locale-status-update-failed")
 					return
 				}
-				s.finishBestEffort(&task, "needs-review", "locale-status-update-failed")
-				return
 			}
 			// A source/generation fence means this parent no longer describes a
 			// coherent snapshot. Do not translate remaining targets or build the
@@ -538,12 +566,22 @@ func (s *TaskService) run(taskID string, runGeneration uint64) {
 		s.finishFromTargetResults(&task)
 		return
 	}
-	if err := s.targetStatus(s.root, task.ID, successful, "building"); err != nil {
-		if s.root.Err() != nil {
+	// A visible-locale refresh cannot build a partial target set: those
+	// locales remain public, so a failed target would make the strict renderer
+	// reject the snapshot. Keep the previous release and surface only the
+	// localization task failure instead.
+	if task.PreserveLocaleVisibility && len(successful) != len(task.Targets) {
+		s.finishFromTargetResults(&task)
+		return
+	}
+	if !task.PreserveLocaleVisibility {
+		if err := s.targetStatus(s.root, task.ID, successful, "building"); err != nil {
+			if s.root.Err() != nil {
+				return
+			}
+			s.finishBestEffort(&task, "needs-review", "locale-status-update-failed")
 			return
 		}
-		s.finishBestEffort(&task, "needs-review", "locale-status-update-failed")
-		return
 	}
 	buildTaskID, err := publisher.NewBuildTaskID()
 	if err != nil {
@@ -566,6 +604,10 @@ func (s *TaskService) resumeBuild(task *Task, runGeneration uint64) {
 	}
 	successful := successfulTargetLocales(task.Targets)
 	if len(successful) == 0 {
+		s.finishFromTargetResults(task)
+		return
+	}
+	if task.PreserveLocaleVisibility && len(successful) != len(task.Targets) {
 		s.finishFromTargetResults(task)
 		return
 	}
@@ -632,7 +674,7 @@ func (s *TaskService) resumeBuild(task *Task, runGeneration uint64) {
 
 	buildContext := publisher.WithBuildRequest(s.root, publisher.BuildRequest{
 		TaskID:       task.BuildTaskID,
-		Operation:    localeProvisionTaskOperation,
+		Operation:    task.Operation,
 		SubjectKind:  "Site",
 		SubjectID:    "locales",
 		ParentTaskID: task.ID,
@@ -693,15 +735,17 @@ func (s *TaskService) finalizeSuccessfulBuild(task *Task, successful []string, r
 		s.finishBestEffort(task, "needs-review", "source-changed")
 		return
 	}
-	if err := s.targetStatus(s.root, task.ID, successful, "ready"); err != nil {
-		if s.root.Err() != nil {
+	if !task.PreserveLocaleVisibility {
+		if err := s.targetStatus(s.root, task.ID, successful, "ready"); err != nil {
+			if s.root.Err() != nil {
+				return
+			}
+			// The public build is already active but config visibility was not
+			// confirmed. Do not rebuild; an explicit review/retry can safely replay
+			// only the ready callback from the durable succeeded child receipt.
+			s.finishBestEffort(task, "needs-review", "locale-status-update-failed")
 			return
 		}
-		// The public build is already active but config visibility was not
-		// confirmed. Do not rebuild; an explicit review/retry can safely replay
-		// only the ready callback from the durable succeeded child receipt.
-		s.finishBestEffort(task, "needs-review", "locale-status-update-failed")
-		return
 	}
 	if s.root.Err() != nil {
 		return
@@ -710,12 +754,14 @@ func (s *TaskService) finalizeSuccessfulBuild(task *Task, successful []string, r
 }
 
 func (s *TaskService) finalizeFailedBuild(task *Task, successful []string) {
-	if err := s.targetStatus(s.root, task.ID, successful, "failed"); err != nil {
-		if s.root.Err() != nil {
+	if !task.PreserveLocaleVisibility {
+		if err := s.targetStatus(s.root, task.ID, successful, "failed"); err != nil {
+			if s.root.Err() != nil {
+				return
+			}
+			s.finishBestEffort(task, "needs-review", "locale-status-update-failed")
 			return
 		}
-		s.finishBestEffort(task, "needs-review", "locale-status-update-failed")
-		return
 	}
 	if s.root.Err() != nil {
 		return
@@ -1019,7 +1065,12 @@ func localeProvisionFailureSummary(targets []TargetTask) (message, detail string
 }
 
 func validLocaleProvisionTask(task Task, expectedID string) bool {
-	if task.SchemaVersion != domain.SchemaVersion || task.ID != expectedID || task.Kind != localeProvisionTaskKind || !taskstore.ValidLocaleProvisionID(task.ID) || task.Operation != localeProvisionTaskOperation || task.CreatedAt.IsZero() || len(task.Targets) == 0 {
+	if task.SchemaVersion != domain.SchemaVersion || task.ID != expectedID || task.Kind != localeProvisionTaskKind || !taskstore.ValidLocaleProvisionID(task.ID) || task.CreatedAt.IsZero() || len(task.Targets) == 0 {
+		return false
+	}
+	if (task.Operation == localeProvisionTaskOperation && task.PreserveLocaleVisibility) ||
+		(task.Operation == localeRefreshTaskOperation && !task.PreserveLocaleVisibility) ||
+		(task.Operation != localeProvisionTaskOperation && task.Operation != localeRefreshTaskOperation) {
 		return false
 	}
 	switch task.Status {

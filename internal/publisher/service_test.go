@@ -72,6 +72,28 @@ func TestBuildActivatesCompleteReleaseAndRecordsTask(t *testing.T) {
 	if err := repository.WriteYAML("config/locales.yaml", legacyLocales, false); err != nil {
 		t.Fatal(err)
 	}
+	// This test intentionally makes French renderer-visible. Complete that
+	// published snapshot first: build input must never rely on source-only
+	// content for a ready target locale.
+	post, err := contentService.GetPost("hello-world")
+	if err != nil {
+		t.Fatal(err)
+	}
+	post, err = contentService.ApplyAITranslation(post.Meta.ID, "fr", content.ApplyAITranslationInput{
+		ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		Content: domain.LocalizedMarkdown{
+			Title:          "Bonjour",
+			SEOTitle:       "SEO de publication",
+			SEODescription: "Description de publication",
+			Markdown:       "# Corps",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contentService.PromoteAITranslation("Post", post.Meta.ID, "fr", post.Meta.Locales[post.Meta.SourceLocale].Revision); err != nil {
+		t.Fatal(err)
+	}
 	renderer := &fakeRenderer{}
 	service := NewService(repository, contentService, renderer)
 	report, err := service.Build(context.Background())
@@ -715,6 +737,189 @@ func TestSnapshotExcludesUntranslatedLocalesAndRendersBuildingLocaleAsReady(t *t
 	if len(input.Locales) != 3 || input.Locales[0].Code != "de" || input.Locales[0].Status != domain.LocaleStatusReady || input.Locales[1].Code != "es" || input.Locales[1].Status != domain.LocaleStatusReady || input.Locales[2].Code != "zh-CN" {
 		t.Fatalf("public snapshot locales = %#v", input.Locales)
 	}
+}
+
+func TestSnapshotOmitsIncompleteOrStaleLocalizedResources(t *testing.T) {
+	repository, contentService := publisherFixture(t)
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  "zh-CN",
+		Enabled: []domain.LocaleDefinition{
+			{Code: "zh-CN", Label: "简体中文", Enabled: true, Status: domain.LocaleStatusReady},
+			{Code: "en", Label: "English", Enabled: true, Status: domain.LocaleStatusReady},
+		},
+		Fallback: []string{"zh-CN"},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	sourceTaxonomy := func(name string, revision int) domain.LocalizedTaxonomy {
+		return domain.LocalizedTaxonomy{Name: name, State: "current", Origin: domain.LocaleOriginSource, Revision: revision, SourceRevision: revision}
+	}
+	targetTaxonomy := func(name string, sourceRevision int, state string) domain.LocalizedTaxonomy {
+		return domain.LocalizedTaxonomy{Name: name, State: state, Origin: domain.LocaleOriginAI, Revision: 1, SourceRevision: sourceRevision}
+	}
+	sourceLink := func(name string, revision int) domain.LocalizedLink {
+		return domain.LocalizedLink{Name: name, State: "current", Origin: domain.LocaleOriginSource, Revision: revision, SourceRevision: revision}
+	}
+	targetLink := func(name string, sourceRevision int, state string) domain.LocalizedLink {
+		return domain.LocalizedLink{Name: name, State: state, Origin: domain.LocaleOriginAI, Revision: 1, SourceRevision: sourceRevision}
+	}
+	sourceMenu := func(label string, revision int) domain.LocalizedMenu {
+		return domain.LocalizedMenu{Label: label, State: "current", Origin: domain.LocaleOriginSource, Revision: revision, SourceRevision: revision}
+	}
+	targetMenu := func(label string, sourceRevision int, state string) domain.LocalizedMenu {
+		return domain.LocalizedMenu{Label: label, State: state, Origin: domain.LocaleOriginAI, Revision: 1, SourceRevision: sourceRevision}
+	}
+	write := func(path string, value any) {
+		t.Helper()
+		if err := repository.WriteYAML(path, value, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("content/taxonomies/categories/complete-category.yaml", domain.Taxonomy{
+		SchemaVersion: domain.SchemaVersion, Kind: "Category", ID: "complete-category", SourceLocale: "zh-CN", Revision: 1,
+		Locales: map[string]domain.LocalizedTaxonomy{"zh-CN": sourceTaxonomy("完整分类", 1), "en": targetTaxonomy("Complete category", 1, "current")},
+	})
+	write("content/taxonomies/categories/stale-category.yaml", domain.Taxonomy{
+		SchemaVersion: domain.SchemaVersion, Kind: "Category", ID: "stale-category", SourceLocale: "zh-CN", Revision: 2,
+		// Its target is superficially current, but belongs to source revision 1
+		// rather than the current source revision 2.
+		Locales: map[string]domain.LocalizedTaxonomy{"zh-CN": sourceTaxonomy("过期分类", 2), "en": targetTaxonomy("Stale category", 1, "current")},
+	})
+	write("content/taxonomies/categories/pending-category.yaml", domain.Taxonomy{
+		SchemaVersion: domain.SchemaVersion, Kind: "Category", ID: "pending-category", SourceLocale: "zh-CN", Revision: 1,
+		Locales: map[string]domain.LocalizedTaxonomy{"zh-CN": sourceTaxonomy("待翻译分类", 1)},
+	})
+
+	write("content/links/groups/complete-group.yaml", domain.LinkGroup{
+		SchemaVersion: domain.SchemaVersion, Kind: "LinkGroup", ID: "complete-group", SourceLocale: "zh-CN", Revision: 1,
+		Locales: map[string]domain.LocalizedLink{"zh-CN": sourceLink("完整分组", 1), "en": targetLink("Complete group", 1, "current")},
+	})
+	write("content/links/groups/pending-group.yaml", domain.LinkGroup{
+		SchemaVersion: domain.SchemaVersion, Kind: "LinkGroup", ID: "pending-group", SourceLocale: "zh-CN", Revision: 1,
+		Locales: map[string]domain.LocalizedLink{"zh-CN": sourceLink("待翻译分组", 1)},
+	})
+	write("content/links/items/complete-link.yaml", domain.Link{
+		SchemaVersion: domain.SchemaVersion, Kind: "Link", ID: "complete-link", GroupID: "complete-group", URL: "https://example.com", SourceLocale: "zh-CN", Revision: 1,
+		Locales: map[string]domain.LocalizedLink{"zh-CN": sourceLink("完整友链", 1), "en": targetLink("Complete link", 1, "current")},
+	})
+	write("content/links/items/pending-link.yaml", domain.Link{
+		SchemaVersion: domain.SchemaVersion, Kind: "Link", ID: "pending-link", GroupID: "complete-group", URL: "https://pending.example.com", SourceLocale: "zh-CN", Revision: 1,
+		Locales: map[string]domain.LocalizedLink{"zh-CN": sourceLink("待翻译友链", 1)},
+	})
+	write("content/links/items/orphan-link.yaml", domain.Link{
+		SchemaVersion: domain.SchemaVersion, Kind: "Link", ID: "orphan-link", GroupID: "pending-group", URL: "https://orphan.example.com", SourceLocale: "zh-CN", Revision: 1,
+		Locales: map[string]domain.LocalizedLink{"zh-CN": sourceLink("孤立友链", 1), "en": targetLink("Orphan link", 1, "current")},
+	})
+
+	write("content/menus/primary.yaml", domain.Menu{
+		SchemaVersion: domain.SchemaVersion, Kind: "Menu", ID: "primary", SourceLocale: "zh-CN", Revision: 1,
+		Locales: map[string]domain.LocalizedMenu{"zh-CN": sourceMenu("主菜单", 1), "en": targetMenu("Primary", 1, "current")},
+		Items: []domain.MenuItem{
+			{ID: "home", TargetKind: "internal", URL: "/", Locales: map[string]domain.LocalizedMenu{"zh-CN": sourceMenu("首页", 1), "en": targetMenu("Home", 1, "current")}},
+			{ID: "pending-item", TargetKind: "internal", URL: "/pending/", Locales: map[string]domain.LocalizedMenu{"zh-CN": sourceMenu("待翻译", 1)}},
+			{ID: "pending-child", ParentID: "pending-item", TargetKind: "internal", URL: "/pending/child/", Locales: map[string]domain.LocalizedMenu{"zh-CN": sourceMenu("子项", 1), "en": targetMenu("Child", 1, "current")}},
+		},
+	})
+	write("content/menus/pending-menu.yaml", domain.Menu{
+		SchemaVersion: domain.SchemaVersion, Kind: "Menu", ID: "pending-menu", SourceLocale: "zh-CN", Revision: 1,
+		Locales: map[string]domain.LocalizedMenu{"zh-CN": sourceMenu("待翻译菜单", 1)},
+	})
+
+	input, err := NewService(repository, contentService, &fakeRenderer{}).snapshot("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := taxonomyInputIDs(input.Categories); !reflect.DeepEqual(got, []string{"complete-category"}) {
+		t.Fatalf("category snapshot = %#v", got)
+	}
+	if got := linkGroupIDs(input.LinkGroups); !reflect.DeepEqual(got, []string{"complete-group"}) {
+		t.Fatalf("link group snapshot = %#v", got)
+	}
+	if got := linkIDs(input.Links); !reflect.DeepEqual(got, []string{"complete-link"}) {
+		t.Fatalf("link snapshot = %#v", got)
+	}
+	if len(input.Menus) != 1 || input.Menus[0].ID != "primary" || len(input.Menus[0].Items) != 1 || input.Menus[0].Items[0].ID != "home" {
+		t.Fatalf("menu snapshot = %#v", input.Menus)
+	}
+}
+
+func TestSnapshotPreservesLegacyResourceSourcesAtFixedChineseFallback(t *testing.T) {
+	repository, contentService := publisherFixture(t)
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  "en",
+		Enabled:       []domain.LocaleDefinition{{Code: "en", Label: "English", Enabled: true}},
+		Fallback:      []string{"en"},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path string, value any) {
+		t.Helper()
+		if err := repository.WriteYAML(path, value, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// These are pre-migration entities: their immutable source is English and
+	// they intentionally have no newer source-state metadata or zh-CN copy.
+	write("content/taxonomies/categories/legacy-category.yaml", domain.Taxonomy{
+		SchemaVersion: domain.SchemaVersion, Kind: "Category", ID: "legacy-category", SourceLocale: "en", Revision: 1,
+		Locales: map[string]domain.LocalizedTaxonomy{"en": {Name: "Legacy category"}},
+	})
+	write("content/links/groups/legacy-group.yaml", domain.LinkGroup{
+		SchemaVersion: domain.SchemaVersion, Kind: "LinkGroup", ID: "legacy-group", SourceLocale: "en", Revision: 1,
+		Locales: map[string]domain.LocalizedLink{"en": {Name: "Legacy group"}},
+	})
+	write("content/links/items/legacy-link.yaml", domain.Link{
+		SchemaVersion: domain.SchemaVersion, Kind: "Link", ID: "legacy-link", GroupID: "legacy-group", URL: "https://legacy.example.com", SourceLocale: "en", Revision: 1,
+		Locales: map[string]domain.LocalizedLink{"en": {Name: "Legacy link"}},
+	})
+	write("content/menus/legacy-menu.yaml", domain.Menu{
+		SchemaVersion: domain.SchemaVersion, Kind: "Menu", ID: "legacy-menu", SourceLocale: "en", Revision: 1,
+		Locales: map[string]domain.LocalizedMenu{"en": {Label: "Legacy menu"}},
+		Items:   []domain.MenuItem{{ID: "home", TargetKind: "internal", URL: "/", Locales: map[string]domain.LocalizedMenu{"en": {Label: "Home"}}}},
+	})
+
+	input, err := NewService(repository, contentService, &fakeRenderer{}).snapshot("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := taxonomyInputIDs(input.Categories); !reflect.DeepEqual(got, []string{"legacy-category"}) {
+		t.Fatalf("legacy category snapshot = %#v", got)
+	}
+	if got := linkGroupIDs(input.LinkGroups); !reflect.DeepEqual(got, []string{"legacy-group"}) {
+		t.Fatalf("legacy link group snapshot = %#v", got)
+	}
+	if got := linkIDs(input.Links); !reflect.DeepEqual(got, []string{"legacy-link"}) {
+		t.Fatalf("legacy link snapshot = %#v", got)
+	}
+	if len(input.Menus) != 1 || input.Menus[0].ID != "legacy-menu" || len(input.Menus[0].Items) != 1 {
+		t.Fatalf("legacy menu snapshot = %#v", input.Menus)
+	}
+}
+
+func taxonomyInputIDs(items []TaxonomyInput) []string {
+	ids := make([]string, len(items))
+	for index, item := range items {
+		ids[index] = item.ID
+	}
+	return ids
+}
+
+func linkGroupIDs(items []domain.LinkGroup) []string {
+	ids := make([]string, len(items))
+	for index, item := range items {
+		ids[index] = item.ID
+	}
+	return ids
+}
+
+func linkIDs(items []domain.Link) []string {
+	ids := make([]string, len(items))
+	for index, item := range items {
+		ids[index] = item.ID
+	}
+	return ids
 }
 
 func publisherFixture(t *testing.T) (*fsrepo.Repository, *content.Service) {

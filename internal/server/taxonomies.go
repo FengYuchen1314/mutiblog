@@ -71,7 +71,7 @@ func (s *Server) handleCreateTaxonomy(w http.ResponseWriter, r *http.Request) {
 		s.writeTaxonomyError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusCreated, item, item.Kind, item.ID)
+	s.writePublishedResource(w, r, http.StatusCreated, item, item.Kind, item.ID, true)
 }
 
 func (s *Server) handleUpdateTaxonomyLocale(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +88,7 @@ func (s *Server) handleUpdateTaxonomyLocale(w http.ResponseWriter, r *http.Reque
 		s.writeTaxonomyError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, item, item.Kind, item.ID)
+	s.writePublishedResource(w, r, http.StatusOK, item, item.Kind, item.ID, sourceLocaleWasUpdated(item.SourceLocale, r.PathValue("locale")))
 }
 
 func (s *Server) handleDeleteTaxonomy(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +136,7 @@ func (s *Server) handleUpdateTaxonomyStructure(w http.ResponseWriter, r *http.Re
 		s.writeTaxonomyError(w, err)
 		return
 	}
-	s.writePublishedResource(w, r, http.StatusOK, item, item.Kind, item.ID)
+	s.writePublishedResource(w, r, http.StatusOK, item, item.Kind, item.ID, false)
 }
 
 func taxonomyKindIsCategory(kind string) bool {

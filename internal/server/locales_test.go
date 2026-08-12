@@ -33,6 +33,7 @@ func successfulLocaleProvisioner(_ context.Context, locale string) (localization
 
 type recordingLocaleTaskStarter struct {
 	inputs []localization.LocaleProvisionStartInput
+	starts []localization.LocaleProvisionStartInput
 	launch []string
 	failed []string
 	err    error
@@ -40,6 +41,19 @@ type recordingLocaleTaskStarter struct {
 
 func (starter *recordingLocaleTaskStarter) Prepare(input localization.LocaleProvisionStartInput) (localization.Task, bool, error) {
 	starter.inputs = append(starter.inputs, localization.LocaleProvisionStartInput{Locales: append([]string(nil), input.Locales...)})
+	return starter.task(input)
+}
+
+func (starter *recordingLocaleTaskStarter) Start(input localization.LocaleProvisionStartInput) (localization.Task, error) {
+	starter.starts = append(starter.starts, localization.LocaleProvisionStartInput{
+		Locales:                  append([]string(nil), input.Locales...),
+		PreserveLocaleVisibility: input.PreserveLocaleVisibility,
+	})
+	task, _, err := starter.task(input)
+	return task, err
+}
+
+func (starter *recordingLocaleTaskStarter) task(input localization.LocaleProvisionStartInput) (localization.Task, bool, error) {
 	if starter.err != nil {
 		return localization.Task{}, false, starter.err
 	}
@@ -54,15 +68,20 @@ func (starter *recordingLocaleTaskStarter) Prepare(input localization.LocaleProv
 			Progress: taskstore.Progress{Phase: "preparing-site-localization", Total: 1, Message: "preparing-site-localization"},
 		})
 	}
+	operation := "localize-site"
+	if input.PreserveLocaleVisibility {
+		operation = "refresh-localized-site"
+	}
 	return localization.Task{
-		SchemaVersion: domain.SchemaVersion,
-		ID:            "locale-provision-" + buildID,
-		Kind:          "LocaleProvision",
-		Operation:     "localize-site",
-		Status:        "queued",
-		Progress:      taskstore.Progress{Phase: "preparing-site-localization", Total: len(targets) + 2},
-		Targets:       targets,
-		CreatedAt:     time.Now().UTC(),
+		SchemaVersion:            domain.SchemaVersion,
+		ID:                       "locale-provision-" + buildID,
+		Kind:                     "LocaleProvision",
+		Operation:                operation,
+		PreserveLocaleVisibility: input.PreserveLocaleVisibility,
+		Status:                   "queued",
+		Progress:                 taskstore.Progress{Phase: "preparing-site-localization", Total: len(targets) + 2},
+		Targets:                  targets,
+		CreatedAt:                time.Now().UTC(),
 	}, true, nil
 }
 

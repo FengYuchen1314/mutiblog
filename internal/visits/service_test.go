@@ -269,6 +269,16 @@ func testVisitService(t *testing.T) (*Service, *fsrepo.Repository, string, strin
 		if err != nil {
 			t.Fatal(err)
 		}
+		post, err = contentService.ApplyAITranslation(post.Meta.ID, "zh-CN", content.ApplyAITranslationInput{
+			ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+			Content:                domain.LocalizedMarkdown{Title: "本地化文章"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := contentService.PromoteAITranslation("Post", post.Meta.ID, "zh-CN", post.Meta.Locales[post.Meta.SourceLocale].Revision); err != nil {
+			t.Fatal(err)
+		}
 		return post
 	}
 	first := createPost("first-visit-post", "First post", []string{"engineering"})
@@ -279,6 +289,16 @@ func testVisitService(t *testing.T) (*Service, *fsrepo.Repository, string, strin
 	}
 	page, err = contentService.PublishPage(page.Meta.ID, page.Meta.Revision)
 	if err != nil {
+		t.Fatal(err)
+	}
+	page, err = contentService.ApplyAIPageTranslation(page.Meta.ID, "zh-CN", content.ApplyAITranslationInput{
+		ExpectedSourceRevision: page.Meta.Locales[page.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "本地化页面"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contentService.PromoteAITranslation("Page", page.Meta.ID, "zh-CN", page.Meta.Locales[page.Meta.SourceLocale].Revision); err != nil {
 		t.Fatal(err)
 	}
 	return NewService(repository, contentService), repository, first.Meta.ID, second.Meta.ID, page.Meta.ID
