@@ -63,29 +63,29 @@ describe("useBuildTasks", () => {
     expect(tracker.taskLabels.value).toEqual({ "generated-task": "Generated article" });
   });
 
-  test("tracks build and translation children reported by a scheduled parent", () => {
+  test("tracks build and translation children reported by a durable parent", () => {
     const tracker = useBuildTasks();
-    tracker.track("scheduled-parent", "Post title · post-id");
+    tracker.track("locale-provision-parent", "Whole-site localization");
 
     expect(
       tracker.trackTaskChildren({
-        id: "scheduled-parent",
+        id: "locale-provision-parent",
         buildTaskId: "build-child",
         translationTaskId: "translation-child",
       }),
     ).toEqual(["build-child", "translation-child"]);
     expect(
       tracker.trackTaskChildren({
-        id: "scheduled-parent",
+        id: "locale-provision-parent",
         buildTaskId: "build-child",
         translationTaskId: "build-child",
       }),
     ).toEqual(["build-child"]);
-    expect(tracker.taskIds.value).toEqual(["scheduled-parent", "build-child", "translation-child"]);
+    expect(tracker.taskIds.value).toEqual(["locale-provision-parent", "build-child", "translation-child"]);
     expect(tracker.taskLabels.value).toEqual({
-      "scheduled-parent": "Post title · post-id",
-      "build-child": "Post title · post-id",
-      "translation-child": "Post title · post-id",
+      "locale-provision-parent": "Whole-site localization",
+      "build-child": "Whole-site localization",
+      "translation-child": "Whole-site localization",
     });
   });
 

@@ -259,10 +259,10 @@ export default {
     translationWorkflowHelp:
       "After you save a new locale, the system translates every post, page, site field, menu, and " +
       "public UI string, then rebuilds the site automatically. There is no framework dictionary to maintain manually.",
-    saved:
-      "Locale settings saved. New locales are translated across the whole site and the public site is rebuilt automatically.",
-    savedBuildFailed:
-      "Locale settings were saved, but automatic translation or the static build did not complete; the previous public release remains online.",
+    savedQueued:
+      "Locale settings saved. Whole-site localization is queued; you can leave this page and follow it in Task center.",
+    saved: "Locale settings saved.",
+    viewTaskCenter: "View in Task center",
     loadFailed: "Cannot load locale settings",
     saveFailed: "Cannot save locale settings",
     addInvalid: "Enter a BCP 47 locale that has not already been added.",
@@ -352,7 +352,7 @@ export default {
       "target-needs-review": "One or more target languages changed after the task was confirmed and require review.",
       "target-failed": "One or more target languages failed.",
       "rebuild-failed": "Translations were saved, but the static rebuild failed.",
-      "source-changed": "The source changed during translation; review is required.",
+      "source-changed": "The source changed during translation or whole-site localization; review is required.",
       "target-changed":
         "This target language changed after translation was confirmed; the newer content was preserved.",
       "manual-protected": "A manually maintained translation is protected.",
@@ -362,6 +362,14 @@ export default {
       "unsafe-output": "The Provider did not preserve protected Markdown.",
       "translation-timeout": "This target language exceeded the 15-minute translation limit.",
       "translation-failed": "Translation failed.",
+      "site-localization-failed": "Whole-site localization failed.",
+      "localization-build-failed":
+        "Whole-site localization finished, but the final static build failed; the previous public release remains online.",
+      "locale-status-update-failed":
+        "Localized content was saved, but its locale status could not be finalized safely.",
+      "locale-config-commit-failed": "Locale settings could not be committed safely; no localization was started.",
+      "build-child-incomplete": "The final static build did not reach a terminal result.",
+      "locale-target-unavailable": "A target locale is no longer available for whole-site localization.",
       unknown: "The translation task failed.",
     },
   },
@@ -794,12 +802,14 @@ export default {
     unavailable: "Task progress is temporarily unavailable.",
     kinds: {
       Translation: "Translation",
+      LocaleProvision: "Whole-site localization",
       StaticBuild: "Static build",
       Backup: "Backup",
       ScheduledPublish: "Scheduled publish",
     },
     operations: {
       translate: "Translate",
+      "localize-site": "Localize site",
       publish: "Publish",
       rebuild: "Rebuild",
       "translation-rebuild": "Translation rebuild",
@@ -817,6 +827,14 @@ export default {
     },
     messages: {
       queued: "Queued",
+      "preparing-site-localization": "Preparing whole-site localization",
+      "localizing-site": "Localizing site content",
+      "starting-localization-build": "Starting final static build",
+      "building-localized-site": "Building the localized public site",
+      "finalizing-localized-site": "Finalizing whole-site localization",
+      "site-localization-complete": "Whole-site localization complete",
+      "locale-localization-complete": "Target locale localization complete",
+      "site-localization-failed": "Whole-site localization failed",
       scheduled: "Waiting for scheduled time",
       "waiting-for-publish-time": "Waiting for the scheduled publication time",
       snapshot: "Capturing content snapshot",
@@ -898,13 +916,15 @@ export default {
   taskCenter: {
     title: "Task center",
     guidance:
-      "Translation, publishing, static rebuilds, search-index rebuilds, scheduled publication, and backups report real durable progress that survives navigation and restarts.",
+      "Whole-site localization, translation, publishing, static rebuilds, search-index rebuilds, scheduled publication, and backups report real durable progress that survives navigation and restarts.",
     allTypes: "All types",
     allStatuses: "All statuses",
     loading: "Loading tasks…",
     loadFailed: "Cannot load task history",
     empty: "No tasks yet",
     dueAt: "Scheduled for: {time}",
+    buildChild: "Final static build",
+    parentTask: "Parent task",
     taskFailed: "The task failed.",
   },
   navigation: {

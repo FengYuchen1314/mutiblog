@@ -2,7 +2,7 @@
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { VButton, VCard, VPageHeader, VTag } from "@halo-dev/components";
-import { api, type LocalesConfig } from "@/api/client";
+import { api, type LocalesConfig, type UnifiedTask } from "@/api/client";
 import TaskProgress from "@/components/TaskProgress.vue";
 import { useBuildTasks } from "@/composables/useBuildTasks";
 import { useSessionStore } from "@/stores/session";
@@ -18,12 +18,12 @@ const saving = ref(false);
 const message = ref("");
 const error = ref("");
 const {
-  taskIds: localesBuildTaskIds,
-  createTask: createLocalesBuildTask,
-  discardIfMissing: discardLocalesBuildTaskIfMissing,
+  taskIds: localeTaskIds,
+  track: trackLocaleTask,
+  trackTaskChildren: trackLocaleTaskChildren,
   beginOperation: beginLocalesBuildOperation,
-  reconcile: reconcileLocalesBuildTask,
 } = useBuildTasks();
+const localeTaskId = ref("");
 
 const presets: Record<string, string> = {
   en: "English",
@@ -53,8 +53,28 @@ async function load() {
     const localeConfig = await api.locales();
     entries.value = normalizeEntries(localeConfig.enabled);
     persistedLocaleCodes.value = new Set(entries.value.map((entry) => entry.code));
+    await restoreLatestLocaleTask();
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : t("localesPage.loadFailed");
+  }
+}
+
+function observeLocaleTask(task: UnifiedTask) {
+  if (task.kind === "LocaleProvision") localeTaskId.value = task.id;
+  trackLocaleTask(task.id);
+  trackLocaleTaskChildren(task);
+}
+
+function handleLocaleTaskUpdate(task: UnifiedTask) {
+  observeLocaleTask(task);
+}
+
+async function restoreLatestLocaleTask() {
+  try {
+    const latest = (await api.tasks({ kind: "LocaleProvision", limit: 1 })).items[0];
+    if (latest) observeLocaleTask(latest);
+  } catch {
+    // Locale configuration remains editable when task history is temporarily unavailable.
   }
 }
 
@@ -83,19 +103,18 @@ async function save() {
   message.value = "";
   error.value = "";
   await beginLocalesBuildOperation();
-  const taskId = createLocalesBuildTask();
+  localeTaskId.value = "";
   try {
-    const result = await api.updateLocales(csrfToken, enabled, SOURCE_LOCALE, taskId);
-    await reconcileLocalesBuildTask(taskId);
+    const result = await api.updateLocales(csrfToken, enabled, SOURCE_LOCALE);
     entries.value = normalizeEntries(result.locales.enabled);
     persistedLocaleCodes.value = new Set(entries.value.map((entry) => entry.code));
-    const incomplete =
-      result.build.status === "failed" ||
-      result.localization?.status === "failed" ||
-      result.localization?.status === "partial";
-    message.value = t(incomplete ? "localesPage.savedBuildFailed" : "localesPage.saved");
+    if (result.task) {
+      observeLocaleTask(result.task);
+      message.value = t("localesPage.savedQueued");
+    } else {
+      message.value = t("localesPage.saved");
+    }
   } catch (caught) {
-    await discardLocalesBuildTaskIfMissing(taskId);
     error.value = caught instanceof Error ? caught.message : t("localesPage.saveFailed");
   } finally {
     saving.value = false;
@@ -144,7 +163,19 @@ onMounted(load);
             </VTag>
           </article>
         </div>
-        <TaskProgress v-for="taskId in localesBuildTaskIds" :key="taskId" :task-id="taskId" />
+        <TaskProgress
+          v-for="taskId in localeTaskIds"
+          :key="taskId"
+          :task-id="taskId"
+          @update="handleLocaleTaskUpdate"
+        />
+        <RouterLink
+          v-if="localeTaskId"
+          class="locale-task-center-link"
+          :to="{ name: 'tasks', query: { focus: localeTaskId } }"
+        >
+          {{ t("localesPage.viewTaskCenter") }}
+        </RouterLink>
       </VCard>
       <VCard>
         <div class="settings-section-title">
@@ -181,3 +212,14 @@ onMounted(load);
     </div>
   </div>
 </template>
+
+<style scoped>
+.locale-task-center-link {
+  color: #4f46e5;
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+.locale-task-center-link:hover {
+  text-decoration: underline;
+}
+</style>

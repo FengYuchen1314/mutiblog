@@ -46,7 +46,12 @@ describe("console dictionaries", () => {
   test("keeps added locales permanent and delegates whole-site translation to the backend", async () => {
     const source = await viewSource("LocalesView.vue");
 
-    expect(source).toContain("api.updateLocales(csrfToken, enabled, SOURCE_LOCALE, taskId)");
+    expect(source).toContain("api.updateLocales(csrfToken, enabled, SOURCE_LOCALE)");
+    expect(source).toContain("if (result.task)");
+    expect(source).toContain("observeLocaleTask(result.task)");
+    expect(source).toContain('api.tasks({ kind: "LocaleProvision", limit: 1 })');
+    expect(source).toContain("trackLocaleTaskChildren(task)");
+    expect(source).not.toContain("createLocalesBuildTask");
     expect(source).toContain("{ ...entry, enabled: true }");
     expect(source).toContain('"localesPage.permanent"');
     expect(source).toContain('"localesPage.pendingSave"');
@@ -58,6 +63,21 @@ describe("console dictionaries", () => {
     expect(source).not.toContain('v-model="entry.enabled"');
     expect(source).not.toContain("api.dictionaries");
     expect(source).not.toContain("api.updateDictionary");
+  });
+
+  test("presents durable whole-site localization and its final build child", async () => {
+    const taskCenter = await viewSource("TaskCenterView.vue");
+    const progress = await sourceFile("components/TaskProgress.vue");
+    const client = await sourceFile("api/client.ts");
+
+    expect(client).toContain('"LocaleProvision"');
+    expect(client).toContain('localization: { status: "queued" | "idle"; taskId?: string }');
+    expect(client).toContain('build: { status: "deferred" | "skipped" }');
+    expect(taskCenter).toContain('<option value="LocaleProvision">');
+    expect(taskCenter).toContain('t("taskCenter.buildChild")');
+    expect(taskCenter).toContain('t("taskCenter.parentTask")');
+    expect(progress).toContain("statusLabel");
+    expect(progress).toContain("taskFailure");
   });
 
   test("only starts content translation through publish", async () => {

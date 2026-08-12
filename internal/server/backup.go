@@ -166,6 +166,11 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	resumeTranslations := s.translator.Pause()
 	defer resumeTranslations()
+	resumeLocaleProvisioning := func() {}
+	if s.localeTasks != nil {
+		resumeLocaleProvisioning = s.localeTasks.Pause()
+	}
+	defer resumeLocaleProvisioning()
 	resumeScheduled := func() {}
 	if s.scheduler != nil {
 		resumeScheduled = s.scheduler.Pause()

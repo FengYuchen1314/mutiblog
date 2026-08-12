@@ -370,10 +370,23 @@ export interface TranslationTask {
   error?: string;
 }
 
+export type TaskKind =
+  "Translation" | "StaticBuild" | "Backup" | "ScheduledPublish" | "IndexRebuild" | "LocaleProvision";
+
+// Tasks outside the per-content translation worker can still report progress
+// for each target locale. Keep the task-center shape intentionally small so
+// the durable task API is not coupled to translation-only receipt fields.
+export interface TaskTarget {
+  locale: string;
+  status: string;
+  progress?: TaskProgress;
+  error?: string;
+}
+
 export interface UnifiedTask {
   schemaVersion: number;
   id: string;
-  kind: "Translation" | "StaticBuild" | "Backup" | "ScheduledPublish" | "IndexRebuild";
+  kind: TaskKind;
   operation: string;
   subject?: { kind: string; id: string };
   parentTaskId?: string;
@@ -392,7 +405,7 @@ export interface UnifiedTask {
   translationStatus?: string;
   translationTaskId?: string;
   outcome?: string;
-  targets?: TranslationTask["targets"];
+  targets?: TaskTarget[];
   report?: StaticBuildReport;
 }
 
@@ -521,18 +534,15 @@ export const api = {
       total: number;
     }>(`/api/v1/admin/index/search?q=${encodeURIComponent(query)}&limit=${limit}`),
   locales: () => request<LocalesConfig>("/api/v1/admin/locales"),
-  updateLocales: (csrfToken: string, enabled: LocalesConfig["enabled"], sourceLocale: string, taskId?: string) =>
+  updateLocales: (csrfToken: string, enabled: LocalesConfig["enabled"], sourceLocale: string) =>
     request<{
       locales: LocalesConfig;
-      localization?: {
-        status: "succeeded" | "partial" | "failed";
-        reports: Array<Record<string, string | number>>;
-        failedLocales: string[];
-      };
-      build: { status: "succeeded" | "failed"; report?: StaticBuildReport };
+      task?: UnifiedTask;
+      localization: { status: "queued" | "idle"; taskId?: string };
+      build: { status: "deferred" | "skipped" };
     }>("/api/v1/admin/locales", {
       method: "PUT",
-      headers: trackedMutationHeaders(csrfToken, taskId),
+      headers: { "X-CSRF-Token": csrfToken },
       body: JSON.stringify({ enabled, sourceLocale }),
     }),
   dictionaries: () => request<{ items: FrameworkDictionary[] }>("/api/v1/admin/dictionaries"),

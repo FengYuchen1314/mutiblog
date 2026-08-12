@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -129,6 +132,14 @@ func (s *Server) handleUpdateLocales(w http.ResponseWriter, r *http.Request) {
 	for _, target := range targets {
 		setLocaleStatus(&next, target, domain.LocaleStatusProvisioning)
 	}
+	taskManager := s.localeTaskManager
+	if taskManager == nil && s.localeTasks != nil {
+		taskManager = s.localeTasks
+	}
+	if len(targets) > 0 && taskManager == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "locale_tasks_unavailable", "Locale provisioning is temporarily unavailable.", nil)
+		return
+	}
 	var site domain.SiteConfig
 	if err := s.repository.ReadYAML("config/site.yaml", &site); err != nil {
 		s.writeError(w, http.StatusInternalServerError, "site_unavailable", "Cannot read site settings.", nil)
@@ -151,108 +162,163 @@ func (s *Server) handleUpdateLocales(w http.ResponseWriter, r *http.Request) {
 		// buildable; managed setup and all future writes use zh-CN directly.
 		site.Locales[localeconfig.FixedSourceLocale] = previousCopy
 	}
+	var localeTask localization.Task
+	localeTaskCreated := false
+	if len(targets) > 0 {
+		var err error
+		localeTask, localeTaskCreated, err = taskManager.Prepare(localization.LocaleProvisionStartInput{Locales: targets})
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, "locale_task_write_failed", "Locale settings could not be queued safely.", nil)
+			return
+		}
+	}
+	failPrepared := func() {
+		if !localeTaskCreated {
+			return
+		}
+		if err := taskManager.FailPrepared(localeTask.ID, "locale-config-commit-failed"); err != nil {
+			if s.logger != nil {
+				s.logger.Error("terminalize locale task after config commit failure failed", "task", localeTask.ID, "error", err)
+			}
+			// The still-queued receipt can safely prove the config mismatch itself.
+			taskManager.LaunchPrepared(localeTask.ID)
+		}
+	}
+	launchPrepared := func() {
+		if localeTask.ID == "" {
+			return
+		}
+		if !taskManager.LaunchPrepared(localeTask.ID) && localeTaskCreated && s.logger != nil {
+			s.logger.Warn("prepared locale provisioning task remains durable for recovery", "task", localeTask.ID)
+		}
+	}
 	current = next
 	if err := s.repository.WriteYAML("config/locales.yaml", current, false); err != nil {
-		s.writeError(w, http.StatusInternalServerError, "locales_write_failed", "Cannot save locale settings.", nil)
-		return
+		persisted, readErr := s.readLocaleConfig()
+		switch {
+		case readErr == nil && reflect.DeepEqual(persisted, current):
+			// Atomic rename succeeded and only its durability sync reported an
+			// error. The desired config is authoritative; finish the transaction.
+			if s.logger != nil {
+				s.logger.Warn("locale config write reported an error after the desired state became readable", "error", err)
+			}
+		case readErr == nil && reflect.DeepEqual(persisted, previous):
+			failPrepared()
+			s.writeError(w, http.StatusInternalServerError, "locales_write_failed", "Cannot save locale settings.", nil)
+			return
+		default:
+			// The receipt must remain live when the durable config state cannot be
+			// proven. Claim any managed write before the watcher can publish it.
+			s.syncProjectionAfterManagedMutation()
+			launchPrepared()
+			s.clearPublicStatsCache()
+			s.writeError(w, http.StatusInternalServerError, "locales_write_failed", "Cannot save locale settings.", nil)
+			return
+		}
 	}
 	site.SourceLocale = localeconfig.FixedSourceLocale
 	site.UpdatedAt = time.Now().UTC()
 	if err := s.repository.WriteYAML("config/site.yaml", site, false); err != nil {
-		if rollbackErr := s.repository.WriteYAML("config/locales.yaml", previous, false); rollbackErr != nil {
-			s.logger.Error("rollback locale settings failed", "error", rollbackErr)
-		}
-		s.writeError(w, http.StatusInternalServerError, "site_write_failed", "Cannot save the new source locale.", nil)
-		return
-	}
-	localizationReports := make([]localization.Report, 0, len(targets))
-	localizationFailures := make([]string, 0)
-	readyTargets := make([]string, 0, len(targets))
-	for _, target := range targets {
-		if s.localeProvisioner == nil {
-			localizationFailures = append(localizationFailures, target)
-			setLocaleStatus(&current, target, domain.LocaleStatusFailed)
-			continue
-		}
-		result, provisionErr := s.localeProvisioner.Provision(r.Context(), target)
-		if provisionErr != nil {
-			s.logger.Error("site-wide locale provisioning failed", "locale", target, "error", provisionErr)
-			localizationFailures = append(localizationFailures, target)
-			setLocaleStatus(&current, target, domain.LocaleStatusFailed)
-			continue
-		}
-		localizationReports = append(localizationReports, result)
-		readyTargets = append(readyTargets, target)
-		setLocaleStatus(&current, target, domain.LocaleStatusBuilding)
-	}
-	if len(targets) > 0 {
-		if err := s.repository.WriteYAML("config/locales.yaml", current, false); err != nil {
-			s.writeError(w, http.StatusInternalServerError, "locales_write_failed", "Cannot save locale translation status.", nil)
+		persistedSite, readErr := s.readSiteConfig()
+		if readErr == nil && reflect.DeepEqual(persistedSite, site) {
+			// As with locale config, a post-rename sync error does not roll back an
+			// already-readable desired site config.
+			if s.logger != nil {
+				s.logger.Warn("site config write reported an error after the desired state became readable", "error", err)
+			}
+		} else {
+			rollbackErr := s.repository.WriteYAML("config/locales.yaml", previous, false)
+			rolledBack, rollbackReadErr := s.readLocaleConfig()
+			rollbackConfirmed := rollbackReadErr == nil && reflect.DeepEqual(rolledBack, previous)
+			if rollbackErr != nil && s.logger != nil {
+				s.logger.Error("rollback locale settings failed", "error", rollbackErr)
+			}
+			// The site write or locale rollback may have crossed its atomic rename
+			// before reporting failure. Claim the readable final state in every case.
+			s.syncProjectionAfterManagedMutation()
+			if rollbackConfirmed {
+				failPrepared()
+			} else {
+				launchPrepared()
+			}
+			s.clearPublicStatsCache()
+			s.writeError(w, http.StatusInternalServerError, "site_write_failed", "Cannot save the new source locale.", nil)
 			return
 		}
+	}
+	// The route suppresses the generic post-handler projection sync. Claim the
+	// committed provisioning config now, while its exclusive mutation gate is
+	// still held, so the watcher cannot publish this intermediate state.
+	s.syncProjectionAfterManagedMutation()
+	if len(targets) > 0 {
+		launchPrepared()
+		s.clearPublicStatsCache()
+		w.Header().Set("X-MutiBlog-Static-Build", "deferred")
+		s.writeJSON(w, http.StatusAccepted, map[string]any{
+			"locales":      current,
+			"task":         adminTaskFromLocaleProvision(localeTask),
+			"localization": map[string]any{"status": "queued", "taskId": localeTask.ID},
+			"build":        map[string]any{"status": "deferred"},
+		})
+		return
 	}
 	s.clearPublicStatsCache()
-	if len(targets) > 0 && len(readyTargets) == 0 {
-		w.Header().Set("X-MutiBlog-Static-Build", "skipped")
-		s.writeJSON(w, http.StatusAccepted, map[string]any{
-			"locales":      current,
-			"localization": map[string]any{"status": "failed", "reports": localizationReports, "failedLocales": localizationFailures},
-			"build":        map[string]any{"status": "failed"},
-		})
-		return
-	}
-	report, err := s.publisher.Build(r.Context())
-	if err != nil {
-		s.logger.Error("static build after locale settings update failed", "error", err)
-		for _, target := range readyTargets {
-			setLocaleStatus(&current, target, domain.LocaleStatusFailed)
-		}
-		if statusErr := s.repository.WriteYAML("config/locales.yaml", current, false); statusErr != nil {
-			s.logger.Error("mark locales failed after static build failure", "error", statusErr)
-			s.writeError(w, http.StatusInternalServerError, "locale_status_write_failed", "The static build failed and the locale status could not be saved safely.", nil)
-			return
-		}
-		w.Header().Set("X-MutiBlog-Static-Build", "failed")
-		s.writeJSON(w, http.StatusAccepted, map[string]any{
-			"locales":      current,
-			"localization": map[string]any{"status": "failed", "reports": localizationReports, "failedLocales": append(localizationFailures, readyTargets...)},
-			"build":        map[string]any{"status": "failed"},
-		})
-		return
-	}
-	for _, target := range readyTargets {
-		setLocaleStatus(&current, target, domain.LocaleStatusReady)
-	}
-	if len(readyTargets) > 0 {
-		if err := s.repository.WriteYAML("config/locales.yaml", current, false); err != nil {
-			s.logger.Error("mark locales ready after static build", "error", err)
-			w.Header().Set("X-MutiBlog-Static-Build", "succeeded")
-			s.writeError(w, http.StatusInternalServerError, "locale_status_write_failed", "The static site was built, but the locale status could not be finalized safely.", nil)
-			return
-		}
-	}
-	w.Header().Set("X-MutiBlog-Static-Build", "succeeded")
-	status := http.StatusOK
-	localizationStatus := "succeeded"
-	if len(localizationFailures) > 0 {
-		status = http.StatusAccepted
-		localizationStatus = "partial"
-	}
-	s.writeJSON(w, status, map[string]any{
+	w.Header().Set("X-MutiBlog-Static-Build", "skipped")
+	s.writeJSON(w, http.StatusOK, map[string]any{
 		"locales":      current,
-		"localization": map[string]any{"status": localizationStatus, "reports": localizationReports, "failedLocales": localizationFailures},
-		"build":        map[string]any{"status": "succeeded", "report": report},
+		"localization": map[string]any{"status": "idle"},
+		"build":        map[string]any{"status": "skipped"},
 	})
 }
 
-func setLocaleStatus(config *domain.LocalesConfig, locale, status string) {
+func (s *Server) readLocaleConfig() (domain.LocalesConfig, error) {
+	var config domain.LocalesConfig
+	err := s.repository.ReadYAML("config/locales.yaml", &config)
+	return config, err
+}
+
+func (s *Server) readSiteConfig() (domain.SiteConfig, error) {
+	var config domain.SiteConfig
+	err := s.repository.ReadYAML("config/site.yaml", &config)
+	return config, err
+}
+
+func (s *Server) updateLocaleTargetLifecycle(ctx context.Context, update localization.TargetLifecycleUpdate) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	switch update.Status {
+	case domain.LocaleStatusBuilding, domain.LocaleStatusReady, domain.LocaleStatusFailed:
+	default:
+		return errors.New("locale lifecycle status is invalid")
+	}
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
+	var config domain.LocalesConfig
+	if err := s.repository.ReadYAML("config/locales.yaml", &config); err != nil {
+		return err
+	}
+	for _, locale := range update.Locales {
+		if !setLocaleStatus(&config, locale, update.Status) {
+			return errors.New("locale lifecycle target is unavailable")
+		}
+	}
+	if err := s.repository.WriteYAML("config/locales.yaml", config, false); err != nil {
+		return err
+	}
+	s.clearPublicStatsCache()
+	return nil
+}
+
+func setLocaleStatus(config *domain.LocalesConfig, locale, status string) bool {
 	for index := range config.Enabled {
 		if config.Enabled[index].Code == locale && locale != localeconfig.FixedSourceLocale {
 			config.Enabled[index].Status = status
 			config.Enabled[index].Enabled = true
-			return
+			return true
 		}
 	}
+	return false
 }
 
 func containsString(values []string, candidate string) bool {

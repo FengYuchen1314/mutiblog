@@ -69,6 +69,23 @@ type localeProvisioner interface {
 	Provision(context.Context, string) (localization.Report, error)
 }
 
+type localeTaskCoordinator interface {
+	Prepare(localization.LocaleProvisionStartInput) (localization.Task, bool, error)
+	FailPrepared(string, string) error
+	LaunchPrepared(string) bool
+}
+
+type serverLocaleProvisioner struct {
+	server *Server
+}
+
+func (provisioner serverLocaleProvisioner) Provision(ctx context.Context, locale string) (localization.Report, error) {
+	if provisioner.server == nil || provisioner.server.localeProvisioner == nil {
+		return localization.Report{}, localization.ErrLocaleUnavailable
+	}
+	return provisioner.server.localeProvisioner.Provision(ctx, locale)
+}
+
 // backupTaskStarter narrows the backup task-start checkpoint used by the
 // asynchronous runners. The concrete backup service remains responsible for
 // all other task lifecycle operations; keeping this seam small lets callers
@@ -92,6 +109,8 @@ type Server struct {
 	publisher          SitePublisher
 	translator         *translation.Service
 	localeProvisioner  localeProvisioner
+	localeTasks        *localization.TaskService
+	localeTaskManager  localeTaskCoordinator
 	scheduler          *scheduled.Service
 	taxonomies         *taxonomy.Service
 	comments           *comments.Service
@@ -222,6 +241,10 @@ func New(options Options) (*Server, error) {
 	}
 	server.projection.StartWatcher(server.lifecycle, server.reconcileExternalSourceChange)
 	server.scheduler = scheduled.NewService(options.Repository, server.content, server.publisher, server.translator, server.acquireBackgroundContentMutation)
+	server.localeTasks = localization.NewTaskService(options.Repository, serverLocaleProvisioner{server: server}, server.publisher)
+	server.localeTaskManager = server.localeTasks
+	server.localeTasks.SetMutationAcquire(server.acquireBackgroundContentMutation)
+	server.localeTasks.SetTargetLifecycleCallback(server.updateLocaleTargetLifecycle)
 	server.translator.SetContentMutationAcquire(server.acquireBackgroundContentMutation)
 	server.translator.SetContentChangedCallback(func(entityKind, entityID string, revision int) {
 		if _, err := server.scheduler.InvalidateForEntity(entityKind, entityID, revision); err != nil {
@@ -235,20 +258,33 @@ func New(options Options) (*Server, error) {
 	// Recover then launches all queued work in one pass without racing a runner's
 	// first checkpoint.
 	server.mutationGate.Lock()
-	_, recoverErr := server.translator.ReconcilePublishedPublications()
+	recoveredLocaleTasks, recoverErr := server.localeTasks.Recover()
 	if recoverErr != nil {
-		recoverErr = fmt.Errorf("recover pending published translations: %w", recoverErr)
-	} else {
-		_, recoverErr = server.translator.Recover()
+		recoverErr = fmt.Errorf("recover locale provisioning tasks: %w", recoverErr)
+	} else if recoveredLocaleTasks > 0 {
+		// Every recovered locale task owns its one final public build. Suppress the
+		// generic startup build so it cannot race or duplicate that child.
+		server.initialBuildQueued = true
 	}
-	if recoverErr != nil {
-		recoverErr = fmt.Errorf("recover translation tasks: %w", recoverErr)
-	} else if _, err := server.scheduler.Recover(); err != nil {
-		recoverErr = fmt.Errorf("recover scheduled publish tasks: %w", err)
+	if recoverErr == nil {
+		if _, err := server.translator.ReconcilePublishedPublications(); err != nil {
+			recoverErr = fmt.Errorf("recover pending published translations: %w", err)
+		}
+	}
+	if recoverErr == nil {
+		if _, err := server.translator.Recover(); err != nil {
+			recoverErr = fmt.Errorf("recover translation tasks: %w", err)
+		}
+	}
+	if recoverErr == nil {
+		if _, err := server.scheduler.Recover(); err != nil {
+			recoverErr = fmt.Errorf("recover scheduled publish tasks: %w", err)
+		}
 	}
 	server.mutationGate.Unlock()
 	if recoverErr != nil {
 		server.cancel()
+		server.localeTasks.Close()
 		server.scheduler.Close()
 		server.translator.Close()
 		_ = server.projection.Close()
@@ -367,6 +403,12 @@ func (s *Server) Close() error {
 		s.cancel()
 	}
 	s.backgroundMu.Unlock()
+	// Locale provisioning intentionally holds the global mutation gate across
+	// provider work and its final build. Cancel it before waiting for the startup
+	// builder, which may otherwise be blocked on the shared side of that gate.
+	if s.localeTasks != nil {
+		s.localeTasks.Close()
+	}
 	s.startupWG.Wait()
 	if s.backups != nil {
 		s.backups.Close()
@@ -430,7 +472,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/admin/index/rebuild", s.requireAdminWithoutProjectionSync(s.handleRebuildIndex))
 	s.mux.HandleFunc("GET /api/v1/admin/index/search", s.requireAdmin(s.handleIndexSearch))
 	s.mux.HandleFunc("GET /api/v1/admin/locales", s.requireAdmin(s.handleLocales))
-	s.mux.HandleFunc("PUT /api/v1/admin/locales", s.requireExclusiveAdmin(s.handleUpdateLocales))
+	s.mux.HandleFunc("PUT /api/v1/admin/locales", s.requireExclusiveAdminWithoutProjectionSync(s.handleUpdateLocales))
 	s.mux.HandleFunc("GET /api/v1/admin/dictionaries", s.requireAdmin(s.handleFrameworkDictionaries))
 	s.mux.HandleFunc("PUT /api/v1/admin/dictionaries/{locale}", s.requireAdmin(s.handleUpdateFrameworkDictionary))
 	s.mux.HandleFunc("GET /api/v1/admin/posts", s.requireAdmin(s.handleListPosts))

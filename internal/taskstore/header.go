@@ -103,6 +103,10 @@ func Validate(header Header, expectedID string) error {
 		if !ValidIndexRebuildID(header.ID) {
 			return errors.New("index rebuild task ID is invalid")
 		}
+	case "LocaleProvision":
+		if !ValidLocaleProvisionID(header.ID) {
+			return errors.New("locale provisioning task ID is invalid")
+		}
 	default:
 		return errors.New("task kind is unsupported")
 	}
@@ -135,5 +139,14 @@ func ValidStaticBuildID(id string) bool { return validStaticBuildID(id) }
 // public-release build.
 func ValidIndexRebuildID(id string) bool {
 	const prefix = "index-rebuild-"
+	return strings.HasPrefix(id, prefix) && validStaticBuildID(strings.TrimPrefix(id, prefix))
+}
+
+// ValidLocaleProvisionID validates the parent task used for an asynchronous
+// site-wide locale provisioning batch. Reusing the static-build suffix gives
+// the task a collision-resistant, sortable identity while keeping its prefix
+// distinct from the build child it owns.
+func ValidLocaleProvisionID(id string) bool {
+	const prefix = "locale-provision-"
 	return strings.HasPrefix(id, prefix) && validStaticBuildID(strings.TrimPrefix(id, prefix))
 }

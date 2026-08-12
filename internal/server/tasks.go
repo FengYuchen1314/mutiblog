@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/FengYuchen1314/mutiblog/internal/backup"
+	"github.com/FengYuchen1314/mutiblog/internal/localization"
 	"github.com/FengYuchen1314/mutiblog/internal/projection"
 	"github.com/FengYuchen1314/mutiblog/internal/publisher"
 	"github.com/FengYuchen1314/mutiblog/internal/scheduled"
@@ -22,29 +23,29 @@ type adminTaskSubject struct {
 }
 
 type adminTask struct {
-	SchemaVersion     int                      `json:"schemaVersion"`
-	ID                string                   `json:"id"`
-	Kind              string                   `json:"kind"`
-	Operation         string                   `json:"operation"`
-	Subject           *adminTaskSubject        `json:"subject,omitempty"`
-	ParentTaskID      string                   `json:"parentTaskId,omitempty"`
-	Status            string                   `json:"status"`
-	Progress          taskstore.Progress       `json:"progress"`
-	CreatedAt         time.Time                `json:"createdAt"`
-	StartedAt         *time.Time               `json:"startedAt,omitempty"`
-	CompletedAt       *time.Time               `json:"completedAt,omitempty"`
-	Error             string                   `json:"error,omitempty"`
-	ProviderID        string                   `json:"providerId,omitempty"`
-	Model             string                   `json:"model,omitempty"`
-	BackupID          string                   `json:"backupId,omitempty"`
-	DueAt             *time.Time               `json:"dueAt,omitempty"`
-	BuildStatus       string                   `json:"buildStatus,omitempty"`
-	BuildTaskID       string                   `json:"buildTaskId,omitempty"`
-	TranslationStatus string                   `json:"translationStatus,omitempty"`
-	TranslationTaskID string                   `json:"translationTaskId,omitempty"`
-	Outcome           string                   `json:"outcome,omitempty"`
-	Targets           []translation.TargetTask `json:"targets,omitempty"`
-	Report            *publisher.BuildReport   `json:"report,omitempty"`
+	SchemaVersion     int                    `json:"schemaVersion"`
+	ID                string                 `json:"id"`
+	Kind              string                 `json:"kind"`
+	Operation         string                 `json:"operation"`
+	Subject           *adminTaskSubject      `json:"subject,omitempty"`
+	ParentTaskID      string                 `json:"parentTaskId,omitempty"`
+	Status            string                 `json:"status"`
+	Progress          taskstore.Progress     `json:"progress"`
+	CreatedAt         time.Time              `json:"createdAt"`
+	StartedAt         *time.Time             `json:"startedAt,omitempty"`
+	CompletedAt       *time.Time             `json:"completedAt,omitempty"`
+	Error             string                 `json:"error,omitempty"`
+	ProviderID        string                 `json:"providerId,omitempty"`
+	Model             string                 `json:"model,omitempty"`
+	BackupID          string                 `json:"backupId,omitempty"`
+	DueAt             *time.Time             `json:"dueAt,omitempty"`
+	BuildStatus       string                 `json:"buildStatus,omitempty"`
+	BuildTaskID       string                 `json:"buildTaskId,omitempty"`
+	TranslationStatus string                 `json:"translationStatus,omitempty"`
+	TranslationTaskID string                 `json:"translationTaskId,omitempty"`
+	Outcome           string                 `json:"outcome,omitempty"`
+	Targets           any                    `json:"targets,omitempty"`
+	Report            *publisher.BuildReport `json:"report,omitempty"`
 }
 
 type staticTaskReader interface {
@@ -117,6 +118,16 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			item = adminTaskFromScheduledPublish(task)
 		}
+	case taskstore.ValidLocaleProvisionID(id):
+		if s.localeTasks == nil {
+			err = localization.ErrLocaleProvisionTaskNotFound
+			break
+		}
+		var task localization.Task
+		task, err = s.localeTasks.Get(id)
+		if err == nil {
+			item = adminTaskFromLocaleProvision(task)
+		}
 	case taskstore.ValidIndexRebuildID(id):
 		if s.projection == nil {
 			err = projection.ErrTaskNotFound
@@ -178,7 +189,14 @@ func (s *Server) listAdminTasks() ([]adminTask, error) {
 			return nil, err
 		}
 	}
-	items := make([]adminTask, 0, len(translations)+len(backups)+len(builds)+len(scheduledTasks)+len(indexRebuilds))
+	localeProvisions := []localization.Task{}
+	if s.localeTasks != nil {
+		localeProvisions, err = s.localeTasks.List()
+		if err != nil {
+			return nil, err
+		}
+	}
+	items := make([]adminTask, 0, len(translations)+len(backups)+len(builds)+len(scheduledTasks)+len(indexRebuilds)+len(localeProvisions))
 	for _, task := range translations {
 		items = append(items, adminTaskFromTranslation(task))
 	}
@@ -193,6 +211,9 @@ func (s *Server) listAdminTasks() ([]adminTask, error) {
 	}
 	for _, task := range indexRebuilds {
 		items = append(items, adminTaskFromIndexRebuild(task))
+	}
+	for _, task := range localeProvisions {
+		items = append(items, adminTaskFromLocaleProvision(task))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
 	return items, nil
@@ -246,6 +267,15 @@ func adminTaskFromIndexRebuild(task projection.Task) adminTask {
 		SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind, Operation: task.Operation,
 		Status: task.Status, Progress: task.Progress, CreatedAt: task.CreatedAt,
 		StartedAt: task.StartedAt, CompletedAt: task.CompletedAt, Error: task.Error,
+	}
+}
+
+func adminTaskFromLocaleProvision(task localization.Task) adminTask {
+	return adminTask{
+		SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind, Operation: task.Operation,
+		Status: task.Status, Progress: task.Progress, CreatedAt: task.CreatedAt,
+		StartedAt: task.StartedAt, CompletedAt: task.CompletedAt, Error: task.Error,
+		BuildStatus: task.BuildStatus, BuildTaskID: task.BuildTaskID, Targets: task.Targets,
 	}
 }
 

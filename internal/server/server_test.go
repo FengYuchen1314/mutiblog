@@ -587,11 +587,12 @@ func TestSetupLoginSessionAndLogout(t *testing.T) {
 		{"code": "en", "label": "English", "enabled": true},
 		{"code": "ja", "label": "日本語", "enabled": true},
 	}}, map[string]string{"X-CSRF-Token": csrf})
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("update locales status = %d, body = %s", response.StatusCode, readBody(t, response))
 	}
 	var updateLocalesResult struct {
 		Locales domain.LocalesConfig `json:"locales"`
+		Task    adminTask            `json:"task"`
 		Build   struct {
 			Status string `json:"status"`
 		} `json:"build"`
@@ -601,14 +602,22 @@ func TestSetupLoginSessionAndLogout(t *testing.T) {
 	}
 	response.Body.Close()
 	updatedLocales := updateLocalesResult.Locales
-	if updateLocalesResult.Build.Status != "succeeded" {
+	if updateLocalesResult.Build.Status != "deferred" || updateLocalesResult.Task.Kind != "LocaleProvision" {
 		t.Fatalf("update locales build = %#v", updateLocalesResult.Build)
 	}
 	if updatedLocales.SourceLocale != "zh-CN" || len(updatedLocales.Enabled) != 3 || updatedLocales.Enabled[0].Code != "zh-CN" || len(updatedLocales.Fallback) != 1 || updatedLocales.Fallback[0] != "zh-CN" {
 		t.Fatalf("updated locales = %#v", updatedLocales)
 	}
-	if updatedLocales.Enabled[0].Status != domain.LocaleStatusReady || updatedLocales.Enabled[1].Status != domain.LocaleStatusReady || updatedLocales.Enabled[2].Status != domain.LocaleStatusReady {
+	if updatedLocales.Enabled[0].Status != domain.LocaleStatusReady || updatedLocales.Enabled[1].Status != domain.LocaleStatusProvisioning || updatedLocales.Enabled[2].Status != domain.LocaleStatusProvisioning {
 		t.Fatalf("updated locale statuses = %#v", updatedLocales.Enabled)
+	}
+	localeTask := waitLocaleProvisionTask(t, app.localeTasks, updateLocalesResult.Task.ID)
+	if localeTask.Status != "succeeded" || localeTask.BuildStatus != "succeeded" {
+		t.Fatalf("locale provisioning task = %#v", localeTask)
+	}
+	updatedLocales = readLocaleTestConfig(t, repository)
+	if updatedLocales.Enabled[1].Status != domain.LocaleStatusReady || updatedLocales.Enabled[2].Status != domain.LocaleStatusReady {
+		t.Fatalf("completed locale statuses = %#v", updatedLocales.Enabled)
 	}
 	const providerSecret = "server-test-provider-secret"
 	response = requestJSON(t, client, http.MethodPut, testServer.URL+"/api/v1/admin/ai/providers/test-provider", map[string]any{

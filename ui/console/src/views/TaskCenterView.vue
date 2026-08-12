@@ -62,6 +62,7 @@ onBeforeUnmount(() => window.clearTimeout(timer));
           <select v-model="kind" @change="reloadFiltered">
             <option value="">{{ t("taskCenter.allTypes") }}</option>
             <option value="Translation">{{ kindLabel("Translation") }}</option>
+            <option value="LocaleProvision">{{ kindLabel("LocaleProvision") }}</option>
             <option value="StaticBuild">{{ kindLabel("StaticBuild") }}</option>
             <option value="IndexRebuild">{{ kindLabel("IndexRebuild") }}</option>
             <option value="Backup">{{ kindLabel("Backup") }}</option>
@@ -120,6 +121,18 @@ onBeforeUnmount(() => window.clearTimeout(timer));
             </div>
             <div v-if="task.dueAt" class="task-center-phase">
               <span>{{ t("taskCenter.dueAt", { time: new Date(task.dueAt).toLocaleString() }) }}</span>
+            </div>
+            <div v-if="task.buildTaskId" class="task-center-phase task-center-related-task">
+              <span>{{ t("taskCenter.buildChild") }}</span>
+              <RouterLink :to="{ name: 'tasks', query: { focus: task.buildTaskId } }">
+                {{ task.buildTaskId }}
+              </RouterLink>
+            </div>
+            <div v-if="task.parentTaskId" class="task-center-phase task-center-related-task">
+              <span>{{ t("taskCenter.parentTask") }}</span>
+              <RouterLink :to="{ name: 'tasks', query: { focus: task.parentTaskId } }">
+                {{ task.parentTaskId }}
+              </RouterLink>
             </div>
             <div v-if="task.targets?.length" class="translation-targets">
               <div v-for="target in task.targets" :key="target.locale" class="translation-target">
@@ -224,6 +237,15 @@ onBeforeUnmount(() => window.clearTimeout(timer));
 }
 .task-center-phase {
   text-transform: capitalize;
+}
+.task-center-related-task a {
+  color: #4f46e5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-decoration: none;
+  text-transform: none;
+}
+.task-center-related-task a:hover {
+  text-decoration: underline;
 }
 .translation-target {
   display: flex;
