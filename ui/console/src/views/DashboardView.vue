@@ -39,8 +39,7 @@ const metrics = computed(() => [
   <div class="page">
     <MPageHeader :title="t('dashboard.title')"
       ><template #actions
-        ><MButton to="/settings">{{ t("dashboard.settings") }}</MButton
-        ></template
+        ><MButton to="/settings">{{ t("dashboard.settings") }}</MButton></template
       ></MPageHeader
     >
     <div class="page-body">

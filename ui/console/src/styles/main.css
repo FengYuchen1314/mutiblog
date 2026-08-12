@@ -881,7 +881,11 @@ a {
   min-height: 10rem;
   place-items: center;
   background:
-    radial-gradient(circle at 25% 25%, color-mix(in srgb, var(--m-sys-color-tertiary-container) 78%, transparent), transparent 32%),
+    radial-gradient(
+      circle at 25% 25%,
+      color-mix(in srgb, var(--m-sys-color-tertiary-container) 78%, transparent),
+      transparent 32%
+    ),
     linear-gradient(145deg, var(--m-sys-color-primary), var(--m-sys-color-tertiary));
   color: var(--m-sys-color-on-primary);
   font-size: 3rem;

@@ -250,13 +250,9 @@ async function removeSelected() {
           ><label
             ><span>{{ t("linksPage.order") }}</span
             ><input v-model.number="groupForm.order" type="number" /></label
-          ><MButton
-            variant="tonal"
-            :loading="busy === 'create-group'"
-            :disabled="Boolean(busy)"
-            @click="createGroup"
-            >{{ t("linksPage.createGroup") }}</MButton
-          >
+          ><MButton variant="tonal" :loading="busy === 'create-group'" :disabled="Boolean(busy)" @click="createGroup">{{
+            t("linksPage.createGroup")
+          }}</MButton>
         </div>
         <button v-for="group in groups" :key="group.id" class="provider-item" @click="editGroup(group)">
           <strong>{{ group.locales[group.sourceLocale]?.name }}</strong
