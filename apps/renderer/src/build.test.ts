@@ -691,7 +691,7 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
     site: { locales: { "zh-CN": { title: "地球站", description: "站点说明" }, en: { title: "Earth site", description: "Site description" } } },
     comments: { moderation: "pending", pageSize: 20, maxLength: 4321 },
     dictionaries: {
-      "zh-CN": { home: "首页", archives: "归档", links: "友链", search: "搜索", colorScheme: "明暗", about: "关于", languages: "语言", poweredBy: "由 MutiBlog 驱动", posts: "文章", categories: "分类", tags: "文章标签", visits: "访问", popularPosts: "热门文章", recentPosts: "最新文章", statisticsUnavailable: "统计不可用", comments: "评论", loadingComments: "加载中", commentsUnavailable: "不可用", commentEmpty: "暂无评论", commentPending: "待审核", commentsMore: "更多评论", commentName: "姓名", commentEmail: "邮箱", commentWebsite: "网站", commentContent: "内容", commentSubmit: "提交", commentsClosed: "已关闭" },
+      "zh-CN": { home: "首页", archives: "归档", links: "友链", search: "搜索", colorScheme: "明暗", about: "关于", languages: "语言", poweredBy: "由 MutiBlog 驱动", posts: "文章", categories: "分类", tags: "文章标签", visits: "访问", popularPosts: "热门文章", recentPosts: "最新文章", statisticsUnavailable: "统计不可用", redirecting: "正在前往页面…", comments: "评论", loadingComments: "加载中", commentsUnavailable: "不可用", commentEmpty: "暂无评论", commentPending: "待审核", commentsMore: "更多评论", commentName: "姓名", commentEmail: "邮箱", commentWebsite: "网站", commentContent: "内容", commentSubmit: "提交", commentsClosed: "已关闭" },
     },
     posts: [{
       id: "earth-settings",
@@ -724,6 +724,10 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
   await buildSite(input, output);
   const homepage = await readFile(join(output, "zh-CN/index.html"), "utf8");
   expect(homepage).toContain("site-header-static");
+  expect(homepage).toContain('<meta name="view-transition" content="same-origin"/>');
+  expect(homepage).toContain('data-page-loading-label="正在前往页面…"');
+  expect(homepage).toContain('data-page-loading-status');
+  expect(homepage).toContain("pageNavigationQualifies");
   expect(homepage).toContain('<span class="brand-symbol" aria-hidden="true">地</span>');
   expect(homepage).not.toContain('class="locale-picker"');
   // The initialization script keeps its selector and configured default even without a visible toggle.
@@ -742,9 +746,11 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
   expect(homepage).not.toContain("hidden-cover.webp");
   expect(homepage).not.toContain("不应显示的摘要");
   expect(homepage).toContain("body-font-serif cards-borderless");
+  expect(homepage).toContain('data-visual-preset="material-glass"');
   expect(homepage).toContain("--accent:#ff3366");
   expect(homepage).toContain("--card-radius:0");
   expect(homepage).toContain("--card-shadow:none");
+  expect(homepage).toContain("--material-surface-shadow:none");
   expect(homepage).toContain("site-footer site-footer-centered site-footer-style-1 site-footer-borderless");
   expect(homepage).toContain("保留所有权利");
   expect(homepage).not.toContain("由 MutiBlog 驱动");
@@ -781,6 +787,10 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
   expect(css).toContain(".comment-form input:focus");
   expect(css).toContain('.comment-form[data-state="submitting"]');
   expect(css).toContain(".comment-form-two-column { grid-template-columns: 1fr; }");
+  expect(css).toContain("@view-transition { navigation: auto; }");
+  expect(css).toContain(".site-navigation-progress");
+  expect(css).toContain("@view-transition { navigation: none; }");
+  expect(css).toContain('body.cards-borderless[data-visual-preset="material-glass"]');
   expect(css).toContain("mjx-container.MathJax");
 });
 
@@ -802,6 +812,7 @@ test("maps the Halo Earth source settings to real header, content, sidebar, shar
       global: { logoType: "image", logoImage: "/media/header-logo.svg", showScrollButton: true },
       layout: { headerWidget: "latest-post", headerBackgroundType: "image", headerBackgroundImage: "/media/hero.webp", headerTitleColor: "#ffeecc", contentHeader: true },
       post: { showCover: true, titlePosition: "cover", coverHeight: "24rem", contentStyle: "typography", showUpvoteButton: true, showShareButton: true, shareItems: ["native", "x"] },
+      style: { visualPreset: "earth-classic" },
       sidebar: { widgets: ["tags", "profile"], profileLogo: "/media/profile.webp", socialLinks: [{ icon: "github", name: "", url: "https://github.com/example", kind: "link" }] },
       footer: { showFooter: true, style: "style-2", layout: "centered", logo: "/media/footer.svg", title: "页脚标题", slogan: "页脚标语", menuIds: ["footer-links"], socialLinks: [{ icon: "rss", name: "RSS", url: "/zh-CN/rss.xml", kind: "link" }], copyright: "自定义版权" },
     } },
@@ -809,6 +820,7 @@ test("maps the Halo Earth source settings to real header, content, sidebar, shar
 
   await buildSite(input, output);
   const homepage = await readFile(join(output, "zh-CN/index.html"), "utf8");
+  expect(homepage).toContain('data-visual-preset="earth-classic"');
   expect(homepage).toContain('class="brand-image"');
   expect(homepage).toContain('/media/header-logo.svg');
   expect(homepage).toContain('hero-widget-latest-post');
