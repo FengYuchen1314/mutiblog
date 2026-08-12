@@ -91,9 +91,6 @@ importers:
       '@codemirror/view':
         specifier: ^6.38.8
         version: 6.43.8
-      '@halo-dev/components':
-        specifier: 2.25.0
-        version: 2.25.0(vue-router@5.2.0(@vue/compiler-sfc@3.5.41)(esbuild@0.28.2)(pinia@3.0.4(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3)))(rollup@4.62.4)(vite@7.3.6(@types/node@24.13.3)(yaml@2.9.0))(vue@3.5.41(typescript@5.9.3)))(vue@3.5.41(typescript@5.9.3))
       '@iconify/vue':
         specifier: ^5.0.0
         version: 5.0.1(vue@3.5.41(typescript@5.9.3))
@@ -498,21 +495,6 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
-
-  '@floating-ui/core@1.8.0':
-    resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
-
-  '@floating-ui/dom@1.1.1':
-    resolution: {integrity: sha512-TpIO93+DIujg3g7SykEAGZMDtbJRrmnYRCNYSjJlvIbGhBjRSNTLVbNeDQBrzy9qDgUbiWdc7KA0uZHZ2tJmiw==}
-
-  '@floating-ui/utils@0.2.12':
-    resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
-
-  '@halo-dev/components@2.25.0':
-    resolution: {integrity: sha512-+Q82TvN/+I3wN1YwDHJ7ANMShl3xmTC7DFBRfgQgNrsXj6cnTqs1T09CSW4Sv0SS82aTLB9Eh858evacbhh1cw==}
-    peerDependencies:
-      vue: ^3.5.x
-      vue-router: ^5.0.x
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -1365,15 +1347,6 @@ packages:
   flatted@3.4.4:
     resolution: {integrity: sha512-5+ybhBZANEJxaH3X5evAFatUxLfEHSr7n6kYJ+1Qd0mUqr4eu9gIf6GDbWHf8RJijHrjjO8G+la14SlL2SeS1Q==}
 
-  floating-vue@5.2.2:
-    resolution: {integrity: sha512-afW+h2CFafo+7Y9Lvw/xsqjaQlKLdJV7h1fCHfcYQ1C4SVMlu7OAekqWgu5d4SgvkBVU0pVpLlVsrSTBURFRkg==}
-    peerDependencies:
-      '@nuxt/kit': ^3.2.0
-      vue: ^3.2.0
-    peerDependenciesMeta:
-      '@nuxt/kit':
-        optional: true
-
   foreground-child@3.3.1:
     resolution: {integrity: sha512-gIXjKqtFuWEgzFRJA9WCQeSJLZDjgJUOMCMzxtvFq/37KojM1BFGufqsCy0r4qSQmYLsZYMeyRqzIWOMup03sw==}
     engines: {node: '>=14'}
@@ -1996,11 +1969,6 @@ packages:
     peerDependencies:
       vue: ^3.0.0
 
-  vue-resize@2.0.0-alpha.1:
-    resolution: {integrity: sha512-7+iqOueLU7uc9NrMfrzbG8hwMqchfVfSzpVlCMeJQe4pyibqyoifDNbKTZvwxZKDvGkB+PdFeKvnGZMoEb8esg==}
-    peerDependencies:
-      vue: ^3.0.0
-
   vue-router@5.2.0:
     resolution: {integrity: sha512-QAC5i0LEb1GLG0LXDQmHu8L7FX12j0KwU/JTKmLQUJMrn04gQdKP6Du+p0QwpHb3iy71vBlqnHQ8WAfOSAWhqw==}
     peerDependencies:
@@ -2389,24 +2357,6 @@ snapshots:
       levn: 0.4.1
 
   '@exodus/bytes@1.15.1': {}
-
-  '@floating-ui/core@1.8.0':
-    dependencies:
-      '@floating-ui/utils': 0.2.12
-
-  '@floating-ui/dom@1.1.1':
-    dependencies:
-      '@floating-ui/core': 1.8.0
-
-  '@floating-ui/utils@0.2.12': {}
-
-  '@halo-dev/components@2.25.0(vue-router@5.2.0(@vue/compiler-sfc@3.5.41)(esbuild@0.28.2)(pinia@3.0.4(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3)))(rollup@4.62.4)(vite@7.3.6(@types/node@24.13.3)(yaml@2.9.0))(vue@3.5.41(typescript@5.9.3)))(vue@3.5.41(typescript@5.9.3))':
-    dependencies:
-      floating-vue: 5.2.2(vue@3.5.41(typescript@5.9.3))
-      vue: 3.5.41(typescript@5.9.3)
-      vue-router: 5.2.0(@vue/compiler-sfc@3.5.41)(esbuild@0.28.2)(pinia@3.0.4(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3)))(rollup@4.62.4)(vite@7.3.6(@types/node@24.13.3)(yaml@2.9.0))(vue@3.5.41(typescript@5.9.3))
-    transitivePeerDependencies:
-      - '@nuxt/kit'
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -3282,12 +3232,6 @@ snapshots:
 
   flatted@3.4.4: {}
 
-  floating-vue@5.2.2(vue@3.5.41(typescript@5.9.3)):
-    dependencies:
-      '@floating-ui/dom': 1.1.1
-      vue: 3.5.41(typescript@5.9.3)
-      vue-resize: 2.0.0-alpha.1(vue@3.5.41(typescript@5.9.3))
-
   foreground-child@3.3.1:
     dependencies:
       cross-spawn: 7.0.6
@@ -3836,10 +3780,6 @@ snapshots:
       '@intlify/devtools-types': 11.4.8
       '@intlify/shared': 11.4.8
       '@vue/devtools-api': 6.6.4
-      vue: 3.5.41(typescript@5.9.3)
-
-  vue-resize@2.0.0-alpha.1(vue@3.5.41(typescript@5.9.3)):
-    dependencies:
       vue: 3.5.41(typescript@5.9.3)
 
   vue-router@5.2.0(@vue/compiler-sfc@3.5.41)(esbuild@0.28.2)(pinia@3.0.4(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3)))(rollup@4.62.4)(vite@7.3.6(@types/node@24.13.3)(yaml@2.9.0))(vue@3.5.41(typescript@5.9.3)):

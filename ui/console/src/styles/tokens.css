@@ -1,0 +1,120 @@
+/*
+ * Material Design 3 design tokens.
+ *
+ * Components use semantic roles instead of raw colors so that a future theme
+ * can replace this file's values without having to restyle every surface.
+ */
+:root {
+  color-scheme: light;
+
+  --m-sys-color-primary: #0b57d0;
+  --m-sys-color-on-primary: #ffffff;
+  --m-sys-color-primary-container: #d8e2ff;
+  --m-sys-color-on-primary-container: #001a41;
+  --m-sys-color-secondary: #4d5f8b;
+  --m-sys-color-on-secondary: #ffffff;
+  --m-sys-color-secondary-container: #dbe2ff;
+  --m-sys-color-on-secondary-container: #061a43;
+  --m-sys-color-tertiary: #705575;
+  --m-sys-color-on-tertiary: #ffffff;
+  --m-sys-color-tertiary-container: #f9d8fa;
+  --m-sys-color-on-tertiary-container: #28132f;
+  --m-sys-color-error: #ba1a1a;
+  --m-sys-color-on-error: #ffffff;
+  --m-sys-color-error-container: #ffdad6;
+  --m-sys-color-on-error-container: #410002;
+  --m-sys-color-success: #146c43;
+  --m-sys-color-on-success: #ffffff;
+  --m-sys-color-success-container: #c8f7d6;
+  --m-sys-color-on-success-container: #002110;
+  --m-sys-color-warning: #855400;
+  --m-sys-color-on-warning: #ffffff;
+  --m-sys-color-warning-container: #ffddb0;
+  --m-sys-color-on-warning-container: #2a1700;
+  --m-sys-color-info: #175ea8;
+  --m-sys-color-on-info: #ffffff;
+  --m-sys-color-info-container: #d4e3ff;
+  --m-sys-color-on-info-container: #001b3e;
+  --m-sys-color-background: #f9f9ff;
+  --m-sys-color-on-background: #191c20;
+  --m-sys-color-surface: #f9f9ff;
+  --m-sys-color-surface-dim: #d9d9e0;
+  --m-sys-color-surface-bright: #f9f9ff;
+  --m-sys-color-surface-container-lowest: #ffffff;
+  --m-sys-color-surface-container-low: #f3f3fa;
+  --m-sys-color-surface-container: #ededf4;
+  --m-sys-color-surface-container-high: #e7e8ee;
+  --m-sys-color-surface-container-highest: #e2e2e9;
+  --m-sys-color-on-surface: #191c20;
+  --m-sys-color-on-surface-variant: #44474e;
+  --m-sys-color-outline: #74777f;
+  --m-sys-color-outline-variant: #c4c6d0;
+  --m-sys-color-inverse-surface: #2e3036;
+  --m-sys-color-inverse-on-surface: #f0f0f8;
+  --m-sys-color-inverse-primary: #aec6ff;
+  --m-sys-color-scrim: #000000;
+
+  --m-sys-state-hover-opacity: 0.08;
+  --m-sys-state-focus-opacity: 0.12;
+  --m-sys-state-pressed-opacity: 0.12;
+  --m-sys-state-dragged-opacity: 0.16;
+
+  --m-sys-shape-corner-none: 0;
+  --m-sys-shape-corner-extra-small: 0.25rem;
+  --m-sys-shape-corner-small: 0.5rem;
+  --m-sys-shape-corner-medium: 0.75rem;
+  --m-sys-shape-corner-large: 1rem;
+  --m-sys-shape-corner-extra-large: 1.75rem;
+  --m-sys-shape-corner-full: 9999px;
+
+  --m-sys-elevation-level0: none;
+  --m-sys-elevation-level1: 0 1px 2px rgb(25 28 32 / 0.16), 0 1px 3px 1px rgb(25 28 32 / 0.08);
+  --m-sys-elevation-level2: 0 2px 6px 2px rgb(25 28 32 / 0.12), 0 1px 2px rgb(25 28 32 / 0.12);
+  --m-sys-elevation-level3: 0 4px 8px 3px rgb(25 28 32 / 0.12), 0 1px 3px rgb(25 28 32 / 0.14);
+  --m-sys-elevation-level4: 0 6px 10px 4px rgb(25 28 32 / 0.12), 0 2px 3px rgb(25 28 32 / 0.14);
+  --m-sys-elevation-level5: 0 8px 12px 6px rgb(25 28 32 / 0.12), 0 4px 4px rgb(25 28 32 / 0.14);
+
+  --m-sys-font-family:
+    "Google Sans", "Noto Sans SC", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --m-sys-font-family-plain:
+    "Google Sans Text", "Noto Sans SC", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --m-sys-typescale-display-small-size: clamp(2rem, 4vw, 2.75rem);
+  --m-sys-typescale-display-small-line-height: 1.13;
+  --m-sys-typescale-headline-small-size: 1.75rem;
+  --m-sys-typescale-headline-small-line-height: 1.22;
+  --m-sys-typescale-title-large-size: 1.375rem;
+  --m-sys-typescale-title-large-line-height: 1.28;
+  --m-sys-typescale-title-medium-size: 1rem;
+  --m-sys-typescale-title-medium-line-height: 1.5;
+  --m-sys-typescale-body-large-size: 1rem;
+  --m-sys-typescale-body-large-line-height: 1.5;
+  --m-sys-typescale-body-medium-size: 0.875rem;
+  --m-sys-typescale-body-medium-line-height: 1.43;
+  --m-sys-typescale-label-large-size: 0.875rem;
+  --m-sys-typescale-label-large-line-height: 1.43;
+  --m-sys-typescale-label-medium-size: 0.75rem;
+  --m-sys-typescale-label-medium-line-height: 1.33;
+
+  --m-sys-motion-duration-short1: 50ms;
+  --m-sys-motion-duration-short2: 100ms;
+  --m-sys-motion-duration-short3: 150ms;
+  --m-sys-motion-duration-short4: 200ms;
+  --m-sys-motion-duration-medium1: 250ms;
+  --m-sys-motion-duration-medium2: 300ms;
+  --m-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --m-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --m-sys-focus-ring: 0 0 0 3px rgb(11 87 208 / 0.36);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --m-sys-motion-duration-short1: 1ms;
+    --m-sys-motion-duration-short2: 1ms;
+    --m-sys-motion-duration-short3: 1ms;
+    --m-sys-motion-duration-short4: 1ms;
+    --m-sys-motion-duration-medium1: 1ms;
+    --m-sys-motion-duration-medium2: 1ms;
+  }
+}

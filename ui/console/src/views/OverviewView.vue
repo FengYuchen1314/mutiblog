@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VPageHeader } from "@halo-dev/components";
 import { api, type IndexStats, type SecurityAuditEvent } from "@/api/client";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
 
@@ -29,15 +28,15 @@ onMounted(load);
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('overviewPage.title')"
+    <MPageHeader :title="t('overviewPage.title')"
       ><template #actions
-        ><VButton @click="load">{{ t("common.refresh") }}</VButton></template
-      ></VPageHeader
+        ><MButton @click="load">{{ t("common.refresh") }}</MButton></template
+      ></MPageHeader
     >
     <div class="page-body">
       <div v-if="error" class="form-alert">{{ error }}</div>
       <div v-if="status" class="settings-grid">
-        <VCard
+        <MSurface
           ><div class="card-title">{{ t("overviewPage.runtime") }}</div>
           <div class="status-list">
             <div>
@@ -52,9 +51,9 @@ onMounted(load);
               <span>{{ t("overviewPage.dataDirectory") }}</span
               ><code>{{ status.dataDir }}</code>
             </div>
-          </div></VCard
+          </div></MSurface
         >
-        <VCard
+        <MSurface
           ><div class="card-title">{{ t("overviewPage.index") }}</div>
           <div class="status-list">
             <div>
@@ -75,9 +74,9 @@ onMounted(load);
               <span>{{ t("overviewPage.lastError") }}</span
               ><code>{{ status.index.lastError }}</code>
             </div>
-          </div></VCard
+          </div></MSurface
         >
-        <VCard class="audit-card"
+        <MSurface class="audit-card"
           ><div class="card-title">{{ t("overviewPage.securityAudit") }}</div>
           <div v-if="audit.length" class="post-rows">
             <article v-for="event in audit" :key="`${event.time}:${event.action}:${event.outcome}`" class="post-row">
@@ -88,7 +87,7 @@ onMounted(load);
               <time>{{ new Date(event.time).toLocaleString() }}</time>
             </article>
           </div>
-          <p v-else>{{ t("overviewPage.noAuditEvents") }}</p></VCard
+          <p v-else>{{ t("overviewPage.noAuditEvents") }}</p></MSurface
         >
       </div>
       <div v-else-if="!error" class="resource-loading">{{ t("common.loading") }}</div>

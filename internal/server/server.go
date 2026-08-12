@@ -29,6 +29,7 @@ import (
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/links"
 	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
+	"github.com/FengYuchen1314/mutiblog/internal/localization"
 	"github.com/FengYuchen1314/mutiblog/internal/media"
 	"github.com/FengYuchen1314/mutiblog/internal/menus"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
@@ -64,6 +65,27 @@ type SitePublisher interface {
 	Build(context.Context) (publisher.BuildReport, error)
 }
 
+type localeProvisioner interface {
+	Provision(context.Context, string) (localization.Report, error)
+}
+
+type localeTaskCoordinator interface {
+	Prepare(localization.LocaleProvisionStartInput) (localization.Task, bool, error)
+	FailPrepared(string, string) error
+	LaunchPrepared(string) bool
+}
+
+type serverLocaleProvisioner struct {
+	server *Server
+}
+
+func (provisioner serverLocaleProvisioner) Provision(ctx context.Context, locale string) (localization.Report, error) {
+	if provisioner.server == nil || provisioner.server.localeProvisioner == nil {
+		return localization.Report{}, localization.ErrLocaleUnavailable
+	}
+	return provisioner.server.localeProvisioner.Provision(ctx, locale)
+}
+
 // backupTaskStarter narrows the backup task-start checkpoint used by the
 // asynchronous runners. The concrete backup service remains responsible for
 // all other task lifecycle operations; keeping this seam small lets callers
@@ -86,6 +108,9 @@ type Server struct {
 	audit              *audit.Service
 	publisher          SitePublisher
 	translator         *translation.Service
+	localeProvisioner  localeProvisioner
+	localeTasks        *localization.TaskService
+	localeTaskManager  localeTaskCoordinator
 	scheduler          *scheduled.Service
 	taxonomies         *taxonomy.Service
 	comments           *comments.Service
@@ -162,6 +187,9 @@ func New(options Options) (*Server, error) {
 	if err := server.backups.RecoverInterruptedRestores(); err != nil {
 		return nil, fmt.Errorf("recover interrupted backup restore: %w", err)
 	}
+	if _, err := server.ai.MigrateLegacyDefault(); err != nil {
+		return nil, fmt.Errorf("migrate default translation provider: %w", err)
+	}
 	if _, err := localeconfig.MigrateFallback(options.Repository); err != nil {
 		return nil, fmt.Errorf("migrate locale fallback: %w", err)
 	}
@@ -192,6 +220,7 @@ func New(options Options) (*Server, error) {
 		return nil, fmt.Errorf("initialize published content releases: %w", err)
 	}
 	server.translator = translation.NewService(options.Repository, server.content, server.ai, server.publisher)
+	server.localeProvisioner = localization.NewService(options.Repository, server.content, server.translator)
 	projectionService, err := projection.Open(options.Repository, server.content, options.Logger)
 	if err != nil {
 		server.translator.Close()
@@ -211,14 +240,12 @@ func New(options Options) (*Server, error) {
 		})
 	}
 	server.projection.StartWatcher(server.lifecycle, server.reconcileExternalSourceChange)
-	server.scheduler = scheduled.NewService(options.Repository, server.content, server.publisher, server.translator, func() func() {
-		server.mutationGate.Lock()
-		return server.mutationGate.Unlock
-	})
-	server.translator.SetContentMutationAcquire(func() func() {
-		server.mutationGate.Lock()
-		return server.mutationGate.Unlock
-	})
+	server.scheduler = scheduled.NewService(options.Repository, server.content, server.publisher, server.translator, server.acquireBackgroundContentMutation)
+	server.localeTasks = localization.NewTaskService(options.Repository, serverLocaleProvisioner{server: server}, server.publisher)
+	server.localeTaskManager = server.localeTasks
+	server.localeTasks.SetMutationAcquire(server.acquireBackgroundContentMutation)
+	server.localeTasks.SetTargetLifecycleCallback(server.updateLocaleTargetLifecycle)
+	server.translator.SetContentMutationAcquire(server.acquireBackgroundContentMutation)
 	server.translator.SetContentChangedCallback(func(entityKind, entityID string, revision int) {
 		if _, err := server.scheduler.InvalidateForEntity(entityKind, entityID, revision); err != nil {
 			server.logger.Error("invalidate scheduled publication after AI translation failed", "kind", entityKind, "id", entityID, "revision", revision, "error", err)
@@ -227,17 +254,37 @@ func New(options Options) (*Server, error) {
 	// Translation recovery starts only after the projection, its watcher, and the
 	// scheduled-publication invalidation hook are ready. Otherwise a recovered AI
 	// promotion could mutate the head without immediately retiring a stale
-	// publication intent.
+	// publication intent. Persist orphan publication receipts before Recover;
+	// Recover then launches all queued work in one pass without racing a runner's
+	// first checkpoint.
 	server.mutationGate.Lock()
-	_, recoverErr := server.translator.Recover()
+	recoveredLocaleTasks, recoverErr := server.localeTasks.Recover()
 	if recoverErr != nil {
-		recoverErr = fmt.Errorf("recover translation tasks: %w", recoverErr)
-	} else if _, err := server.scheduler.Recover(); err != nil {
-		recoverErr = fmt.Errorf("recover scheduled publish tasks: %w", err)
+		recoverErr = fmt.Errorf("recover locale provisioning tasks: %w", recoverErr)
+	} else if recoveredLocaleTasks > 0 {
+		// Every recovered locale task owns its one final public build. Suppress the
+		// generic startup build so it cannot race or duplicate that child.
+		server.initialBuildQueued = true
+	}
+	if recoverErr == nil {
+		if _, err := server.translator.ReconcilePublishedPublications(); err != nil {
+			recoverErr = fmt.Errorf("recover pending published translations: %w", err)
+		}
+	}
+	if recoverErr == nil {
+		if _, err := server.translator.Recover(); err != nil {
+			recoverErr = fmt.Errorf("recover translation tasks: %w", err)
+		}
+	}
+	if recoverErr == nil {
+		if _, err := server.scheduler.Recover(); err != nil {
+			recoverErr = fmt.Errorf("recover scheduled publish tasks: %w", err)
+		}
 	}
 	server.mutationGate.Unlock()
 	if recoverErr != nil {
 		server.cancel()
+		server.localeTasks.Close()
 		server.scheduler.Close()
 		server.translator.Close()
 		_ = server.projection.Close()
@@ -260,6 +307,22 @@ func New(options Options) (*Server, error) {
 	keepBackupService = true
 	keepPublisherService = true
 	return server, nil
+}
+
+func (s *Server) acquireBackgroundContentMutation() func() {
+	s.mutationGate.Lock()
+	return func() {
+		// Claim scheduled-publication and AI content writes in the derived
+		// projection before the watcher can observe them as external edits and
+		// publish an incomplete translation batch. The owning durable task performs
+		// the single intentional public build.
+		if s.projection != nil {
+			if _, err := s.projection.RebuildManagedChange(); err != nil {
+				s.logger.Error("refresh projection after background content mutation failed", "error", err)
+			}
+		}
+		s.mutationGate.Unlock()
+	}
 }
 
 func (s *Server) reconcileExternalSourceChange(ctx context.Context) (bool, error) {
@@ -340,6 +403,12 @@ func (s *Server) Close() error {
 		s.cancel()
 	}
 	s.backgroundMu.Unlock()
+	// Locale provisioning intentionally holds the global mutation gate across
+	// provider work and its final build. Cancel it before waiting for the startup
+	// builder, which may otherwise be blocked on the shared side of that gate.
+	if s.localeTasks != nil {
+		s.localeTasks.Close()
+	}
 	s.startupWG.Wait()
 	if s.backups != nil {
 		s.backups.Close()
@@ -403,7 +472,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/admin/index/rebuild", s.requireAdminWithoutProjectionSync(s.handleRebuildIndex))
 	s.mux.HandleFunc("GET /api/v1/admin/index/search", s.requireAdmin(s.handleIndexSearch))
 	s.mux.HandleFunc("GET /api/v1/admin/locales", s.requireAdmin(s.handleLocales))
-	s.mux.HandleFunc("PUT /api/v1/admin/locales", s.requireExclusiveAdmin(s.handleUpdateLocales))
+	s.mux.HandleFunc("PUT /api/v1/admin/locales", s.requireExclusiveAdminWithoutProjectionSync(s.handleUpdateLocales))
 	s.mux.HandleFunc("GET /api/v1/admin/dictionaries", s.requireAdmin(s.handleFrameworkDictionaries))
 	s.mux.HandleFunc("PUT /api/v1/admin/dictionaries/{locale}", s.requireAdmin(s.handleUpdateFrameworkDictionary))
 	s.mux.HandleFunc("GET /api/v1/admin/posts", s.requireAdmin(s.handleListPosts))
@@ -478,8 +547,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/v1/admin/ai/providers/{id}", s.requireAdmin(s.handleUpsertProvider))
 	s.mux.HandleFunc("DELETE /api/v1/admin/ai/providers/{id}", s.requireAdmin(s.handleDeleteProvider))
 	s.mux.HandleFunc("POST /api/v1/admin/ai/providers/{id}/test", s.requireAdmin(s.handleTestProvider))
-	s.mux.HandleFunc("POST /api/v1/admin/posts/{id}/translate", s.requireAdmin(s.handleStartTranslation))
-	s.mux.HandleFunc("POST /api/v1/admin/pages/{id}/translate", s.requireAdmin(s.handleStartPageTranslation))
 	s.mux.HandleFunc("GET /api/v1/admin/ai/tasks", s.requireAdmin(s.handleListTranslationTasks))
 	s.mux.HandleFunc("GET /api/v1/admin/attachments", s.requireAdmin(s.handleListMedia))
 	s.mux.HandleFunc("POST /api/v1/admin/attachments", s.requireAdmin(s.handleCreateMedia))
@@ -547,7 +614,8 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handlePublic(w http.ResponseWriter, r *http.Request) {
 	current := filepath.Join(s.repository.Root(), "generated", "current")
-	if s.isThemePreviewHost(r) {
+	isPreview := s.isThemePreviewHost(r)
+	if isPreview {
 		cookie, err := r.Cookie(previewCookieName)
 		if err != nil {
 			http.NotFound(w, r)
@@ -569,23 +637,38 @@ func (s *Server) handlePublic(w http.ResponseWriter, r *http.Request) {
 		current = root
 		w.Header().Set("Cache-Control", "private, no-store")
 	}
-	s.serveStaticRoot(w, r, current)
+	s.serveStaticRootWithLocaleVisibility(w, r, current, !isPreview)
 }
 
 func (s *Server) serveStaticRoot(w http.ResponseWriter, r *http.Request, current string) {
-	if strings.Trim(r.URL.Path, "/") == "" {
-		w.Header().Add("Vary", "Accept-Language")
-		w.Header().Set("Cache-Control", "no-cache")
-	}
-	if target, ok := s.publicRedirect(current, r); ok {
-		http.Redirect(w, r, target, http.StatusFound)
-		return
-	}
+	s.serveStaticRootWithLocaleVisibility(w, r, current, true)
+}
+
+func (s *Server) serveStaticRootWithLocaleVisibility(w http.ResponseWriter, r *http.Request, current string, enforceVisibility bool) {
 	// Repeat the anchored clean at the public boundary instead of depending on
 	// ServeMux or a reverse proxy to canonicalize encoded dot segments.
 	clean := strings.TrimPrefix(filepath.Clean(string(filepath.Separator)+r.URL.Path), string(filepath.Separator))
 	if clean == "." || clean == "" {
 		clean = "index.html"
+	}
+	var localeConfig *domain.LocalesConfig
+	if enforceVisibility {
+		localeConfig = s.readPublicLocaleConfig()
+		if pathTargetsExplicitlyHiddenLocale(clean, localeConfig) {
+			// The locale can become ready without changing this URL, so prevent an
+			// intermediary from retaining the temporary lifecycle 404.
+			w.Header().Set("Cache-Control", "no-cache")
+			http.NotFound(w, r)
+			return
+		}
+	}
+	if strings.Trim(r.URL.Path, "/") == "" {
+		w.Header().Add("Vary", "Accept-Language")
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	if target, ok := s.publicRedirectWithLocaleVisibility(current, r, localeConfig, enforceVisibility); ok {
+		http.Redirect(w, r, target, http.StatusFound)
+		return
 	}
 	requested := filepath.Join(current, clean)
 	if info, err := os.Stat(requested); err == nil && !info.IsDir() {
@@ -602,7 +685,7 @@ func (s *Server) serveStaticRoot(w http.ResponseWriter, r *http.Request, current
 		s.serveFile(w, r, filepath.Join(requested, "index.html"))
 		return
 	}
-	if notFound := s.localizedNotFound(current, clean); notFound != "" {
+	if notFound := s.localizedNotFoundWithLocaleVisibility(current, clean, localeConfig, enforceVisibility); notFound != "" {
 		if w.Header().Get("Cache-Control") == "" {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
@@ -657,14 +740,23 @@ func (s *Server) isThemePreviewHost(r *http.Request) bool {
 }
 
 func (s *Server) localizedNotFound(current, clean string) string {
+	return s.localizedNotFoundWithLocaleVisibility(current, clean, s.readPublicLocaleConfig(), true)
+}
+
+func (s *Server) localizedNotFoundWithLocaleVisibility(current, clean string, config *domain.LocalesConfig, enforceVisibility bool) string {
 	requestedLocale := strings.SplitN(clean, "/", 2)[0]
 	candidates := []string{requestedLocale}
 	available, hasReleaseReport := activeReleaseLocales(current)
+	if enforceVisibility {
+		available = filterExplicitlyHiddenLocales(available, config)
+	}
 	sourceLocale := releaseRootLocale(current, available)
 	if sourceLocale == "" && !hasReleaseReport {
-		var locales domain.LocalesConfig
-		if err := s.repository.ReadYAML("config/locales.yaml", &locales); err == nil {
-			sourceLocale = locales.SourceLocale
+		if config == nil {
+			config = s.readPublicLocaleConfig()
+		}
+		if config != nil {
+			sourceLocale = config.SourceLocale
 		}
 	}
 	if requestedLocale != localeconfig.DefaultFallback {
@@ -677,6 +769,9 @@ func (s *Server) localizedNotFound(current, clean string) string {
 		if locale == "" || locale == "." || strings.ContainsAny(locale, `/\\`) {
 			continue
 		}
+		if enforceVisibility && localeIsExplicitlyHidden(locale, config) {
+			continue
+		}
 		path := filepath.Join(current, locale, "404.html")
 		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
 			return path
@@ -686,8 +781,12 @@ func (s *Server) localizedNotFound(current, clean string) string {
 }
 
 func (s *Server) publicRedirect(current string, r *http.Request) (string, bool) {
+	return s.publicRedirectWithLocaleVisibility(current, r, s.readPublicLocaleConfig(), true)
+}
+
+func (s *Server) publicRedirectWithLocaleVisibility(current string, r *http.Request, config *domain.LocalesConfig, enforceVisibility bool) (string, bool) {
 	if strings.Trim(r.URL.Path, "/") == "" {
-		if target, ok := s.negotiatedRootTarget(current, r.Header.Get("Accept-Language")); ok {
+		if target, ok := s.negotiatedRootTargetWithLocaleVisibility(current, r.Header.Get("Accept-Language"), config, enforceVisibility); ok {
 			return target, true
 		}
 	}
@@ -710,6 +809,9 @@ func (s *Server) publicRedirect(current string, r *http.Request) (string, bool) 
 			from = "/"
 		}
 		if from == want && redirect.Status == http.StatusFound && strings.HasPrefix(redirect.To, "/") && !strings.HasPrefix(redirect.To, "//") {
+			if enforceVisibility && redirectTargetsExplicitlyHiddenLocale(redirect.To, config) {
+				continue
+			}
 			return redirect.To, true
 		}
 	}
@@ -717,14 +819,23 @@ func (s *Server) publicRedirect(current string, r *http.Request) (string, bool) 
 }
 
 func (s *Server) negotiatedRootTarget(current, acceptLanguage string) (string, bool) {
+	return s.negotiatedRootTargetWithLocaleVisibility(current, acceptLanguage, s.readPublicLocaleConfig(), true)
+}
+
+func (s *Server) negotiatedRootTargetWithLocaleVisibility(current, acceptLanguage string, config *domain.LocalesConfig, enforceVisibility bool) (string, bool) {
 	available, hasReleaseReport := activeReleaseLocales(current)
+	if enforceVisibility {
+		available = filterExplicitlyHiddenLocales(available, config)
+	}
 	if len(available) == 0 && !hasReleaseReport {
-		var config domain.LocalesConfig
-		if err := s.repository.ReadYAML("config/locales.yaml", &config); err != nil {
+		if config == nil {
+			config = s.readPublicLocaleConfig()
+		}
+		if config == nil {
 			return "", false
 		}
 		for _, locale := range config.Enabled {
-			if locale.Enabled {
+			if localeDefinitionIsPublic(locale) {
 				available = append(available, locale.Code)
 			}
 		}
@@ -768,6 +879,62 @@ func (s *Server) negotiatedRootTarget(current, acceptLanguage string) (string, b
 		}
 	}
 	return "/" + codes[index] + "/", true
+}
+
+func (s *Server) readPublicLocaleConfig() *domain.LocalesConfig {
+	if s.repository == nil {
+		return nil
+	}
+	var config domain.LocalesConfig
+	if err := s.repository.ReadYAML("config/locales.yaml", &config); err != nil {
+		return nil
+	}
+	return &config
+}
+
+func localeDefinitionIsPublic(definition domain.LocaleDefinition) bool {
+	status := strings.TrimSpace(definition.Status)
+	return definition.Enabled && (status == "" || status == domain.LocaleStatusReady)
+}
+
+func localeIsExplicitlyHidden(locale string, config *domain.LocalesConfig) bool {
+	if config == nil {
+		return false
+	}
+	for _, definition := range config.Enabled {
+		if definition.Code == locale {
+			status := strings.TrimSpace(definition.Status)
+			return !definition.Enabled || (status != "" && status != domain.LocaleStatusReady)
+		}
+	}
+	return false
+}
+
+func filterExplicitlyHiddenLocales(locales []string, config *domain.LocalesConfig) []string {
+	if config == nil {
+		return locales
+	}
+	filtered := make([]string, 0, len(locales))
+	for _, locale := range locales {
+		if !localeIsExplicitlyHidden(locale, config) {
+			filtered = append(filtered, locale)
+		}
+	}
+	return filtered
+}
+
+func pathTargetsExplicitlyHiddenLocale(clean string, config *domain.LocalesConfig) bool {
+	locale := strings.SplitN(clean, "/", 2)[0]
+	return localeIsExplicitlyHidden(locale, config)
+}
+
+func redirectTargetsExplicitlyHiddenLocale(target string, config *domain.LocalesConfig) bool {
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return false
+	}
+	clean := strings.TrimPrefix(filepath.Clean(string(filepath.Separator)+parsed.Path), string(filepath.Separator))
+	return pathTargetsExplicitlyHiddenLocale(clean, config)
 }
 
 func activeReleaseLocales(current string) ([]string, bool) {

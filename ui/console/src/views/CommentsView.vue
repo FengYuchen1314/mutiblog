@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
-import { VButton, VCard, VEmpty, VPageHeader, VStatusDot, VTag } from "@halo-dev/components";
 import { api, type CommentRecord } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
@@ -88,13 +87,13 @@ async function remove(comment: CommentRecord) {
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('commentsPage.title')"
+    <MPageHeader :title="t('commentsPage.title')"
       ><template #actions
-        ><VButton @click="load">{{ t("common.refresh") }}</VButton></template
-      ></VPageHeader
+        ><MButton @click="load">{{ t("common.refresh") }}</MButton></template
+      ></MPageHeader
     >
     <div class="page-body">
-      <VCard>
+      <MSurface>
         <div class="filter-bar">
           <input v-model="query" :placeholder="t('commentsPage.search')" @keyup.enter="applyFilters" /><select
             v-model="kind"
@@ -117,31 +116,31 @@ async function remove(comment: CommentRecord) {
           <article v-for="comment in comments" :key="comment.id" class="comment-admin-item">
             <header>
               <strong>{{ comment.author.name }}</strong
-              ><VTag>{{ comment.locale }}</VTag
+              ><MChip>{{ comment.locale }}</MChip
               ><span
-                ><VStatusDot
-                  :state="comment.status === 'approved' ? 'success' : comment.status === 'spam' ? 'error' : 'warning'"
+                ><MStatus
+                  :tone="comment.status === 'approved' ? 'success' : comment.status === 'spam' ? 'danger' : 'warning'"
                 />{{ codeLabel(comment.status) }}</span
               ><time>{{ new Date(comment.createdAt).toLocaleString() }}</time>
             </header>
             <p>{{ comment.content }}</p>
             <small>{{ codeLabel(comment.subject.kind) }} · {{ comment.subject.id }}</small>
             <footer>
-              <VButton size="sm" @click="moderate(comment, 'approved')">{{ t("commentsPage.approve") }}</VButton
-              ><VButton size="sm" @click="moderate(comment, 'pending')">{{ t("commentsPage.pending") }}</VButton
-              ><VButton size="sm" @click="moderate(comment, 'spam')">{{ t("commentsPage.spam") }}</VButton
+              <MButton size="sm" @click="moderate(comment, 'approved')">{{ t("commentsPage.approve") }}</MButton
+              ><MButton size="sm" @click="moderate(comment, 'pending')">{{ t("commentsPage.pending") }}</MButton
+              ><MButton size="sm" @click="moderate(comment, 'spam')">{{ t("commentsPage.spam") }}</MButton
               ><button class="text-danger" @click="remove(comment)">{{ t("common.deleteForever") }}</button>
             </footer>
           </article>
         </div>
         <div v-else-if="loading" class="resource-loading">{{ t("commentsPage.loading") }}</div>
-        <VEmpty v-else :title="t('commentsPage.empty')" />
+        <MEmptyState v-else :title="t('commentsPage.empty')" />
         <nav v-if="total" class="pagination-bar" :aria-label="t('commentsPage.pagination')">
           <button :disabled="page <= 1" @click="changePage(page - 1)">{{ t("contentList.previous") }}</button
           ><span>{{ t("contentList.pageStatus", { page, pages, total }) }}</span
           ><button :disabled="page >= pages" @click="changePage(page + 1)">{{ t("contentList.next") }}</button>
         </nav>
-      </VCard>
+      </MSurface>
     </div>
   </div>
 </template>

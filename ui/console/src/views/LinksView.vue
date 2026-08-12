@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VEmpty, VPageHeader } from "@halo-dev/components";
 import { api, type LinkGroup, type LocalesConfig, type SiteLink } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
@@ -230,13 +229,13 @@ async function removeSelected() {
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('linksPage.title')"
+    <MPageHeader :title="t('linksPage.title')"
       ><template #actions
-        ><VButton @click="load">{{ t("common.refresh") }}</VButton></template
-      ></VPageHeader
+        ><MButton @click="load">{{ t("common.refresh") }}</MButton></template
+      ></MPageHeader
     >
     <div class="page-body settings-grid">
-      <VCard
+      <MSurface
         ><h3>{{ t("linksPage.groups") }}</h3>
         <div class="provider-form">
           <label
@@ -251,20 +250,16 @@ async function removeSelected() {
           ><label
             ><span>{{ t("linksPage.order") }}</span
             ><input v-model.number="groupForm.order" type="number" /></label
-          ><VButton
-            type="secondary"
-            :loading="busy === 'create-group'"
-            :disabled="Boolean(busy)"
-            @click="createGroup"
-            >{{ t("linksPage.createGroup") }}</VButton
-          >
+          ><MButton variant="tonal" :loading="busy === 'create-group'" :disabled="Boolean(busy)" @click="createGroup">{{
+            t("linksPage.createGroup")
+          }}</MButton>
         </div>
         <button v-for="group in groups" :key="group.id" class="provider-item" @click="editGroup(group)">
           <strong>{{ group.locales[group.sourceLocale]?.name }}</strong
           ><span>{{ group.id }}</span>
-        </button></VCard
+        </button></MSurface
       >
-      <VCard
+      <MSurface
         ><h3>{{ t("linksPage.links") }}</h3>
         <div class="provider-form">
           <label
@@ -290,16 +285,16 @@ async function removeSelected() {
           ><label
             ><span>{{ t("linksPage.order") }}</span
             ><input v-model.number="linkForm.order" type="number" /></label
-          ><VButton type="secondary" :loading="busy === 'create-link'" :disabled="Boolean(busy)" @click="createLink">{{
+          ><MButton variant="tonal" :loading="busy === 'create-link'" :disabled="Boolean(busy)" @click="createLink">{{
             t("linksPage.createLink")
-          }}</VButton>
+          }}</MButton>
         </div>
         <button v-for="link in items" :key="link.id" class="provider-item" @click="editLink(link)">
           <strong>{{ link.locales[link.sourceLocale]?.name }}</strong
           ><span>{{ link.url }}</span></button
-        ><VEmpty v-if="!items.length" :title="t('linksPage.empty')"
-      /></VCard>
-      <VCard v-if="selectedGroup || selectedLink"
+        ><MEmptyState v-if="!items.length" :title="t('linksPage.empty')"
+      /></MSurface>
+      <MSurface v-if="selectedGroup || selectedLink"
         ><h3>{{ t("linksPage.resourceSettings") }}</h3>
         <div class="provider-form">
           <label v-if="selectedLink"
@@ -315,12 +310,12 @@ async function removeSelected() {
           ><MediaPickerField v-if="selectedLink" v-model="structureForm.logo" :label="t('linksPage.localLogo')" /><label
             ><span>{{ t("linksPage.order") }}</span
             ><input v-model.number="structureForm.order" type="number" /></label
-          ><VButton
-            type="secondary"
+          ><MButton
+            variant="tonal"
             :loading="busy === 'save-structure'"
             :disabled="Boolean(busy)"
             @click="saveStructure"
-            >{{ t("linksPage.saveStructure") }}</VButton
+            >{{ t("linksPage.saveStructure") }}</MButton
           >
         </div>
         <h3>{{ t("linksPage.localizedCopy") }}</h3>
@@ -347,17 +342,17 @@ async function removeSelected() {
           ><label
             ><span>{{ t("linksPage.description") }}</span
             ><textarea v-model="localeForm.description" /></label
-          ><VButton type="secondary" :loading="busy === 'save-locale'" :disabled="Boolean(busy)" @click="saveLocale">{{
+          ><MButton variant="tonal" :loading="busy === 'save-locale'" :disabled="Boolean(busy)" @click="saveLocale">{{
             t("linksPage.saveTranslation")
-          }}</VButton
+          }}</MButton
           ><button type="button" class="text-danger" :disabled="Boolean(busy)" @click="removeSelected">
             {{ t("common.deleteForever") }}
           </button>
-        </div></VCard
+        </div></MSurface
       >
-      <VCard v-if="buildTaskIds.length"
+      <MSurface v-if="buildTaskIds.length"
         ><TaskProgress v-for="taskId in buildTaskIds" :key="taskId" :task-id="taskId"
-      /></VCard>
+      /></MSurface>
       <div v-if="error" class="form-alert">{{ error }}</div>
     </div>
   </div>

@@ -78,6 +78,14 @@ func (p *trackedSitePublisher) Build(ctx context.Context) (publisher.BuildReport
 	return p.buildWhileLocked(ctx)
 }
 
+// PrepareBuild exposes the delegate's durable queued-receipt boundary to
+// parent task services. Delegates without a separate preparation phase keep
+// the original context and retain the synchronous SitePublisher contract.
+func (p *trackedSitePublisher) PrepareBuild(ctx context.Context) (context.Context, error) {
+	prepared, _, err := p.prepareBuild(ctx)
+	return prepared, err
+}
+
 // prepareBuild exposes the publisher's queued receipt step to server handlers
 // that need to return before a long initial build begins. It intentionally
 // stays package-private: SitePublisher remains the small synchronous contract

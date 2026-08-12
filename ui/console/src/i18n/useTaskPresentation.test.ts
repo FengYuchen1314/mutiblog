@@ -5,13 +5,20 @@ const dictionary: Record<string, string> = {
   taskProgressTranslatedChunk: "chunk {current}/{total}",
   "taskProgress.working": "working",
   "taskProgress.kinds.StaticBuild": "static build",
+  "taskProgress.kinds.LocaleProvision": "whole-site localization",
   "taskProgress.operations.publish": "publish",
+  "taskProgress.operations.publish-translate": "publish and translate",
+  "taskProgress.operations.localize-site": "localize site",
   "taskProgress.messages.render": "rendering",
+  "taskProgress.messages.localizing-site": "localizing site",
+  "taskProgress.messages.building-localized-site": "building localized site",
   "taskProgressIndex.kinds.IndexRebuild": "index rebuild",
   "taskProgressIndex.messages.preparing-search-index": "preparing index",
   "taskProgressExtraMessages.storing-imported-backup": "storing backup",
   "codes.running": "running",
   "tasksPage.errors.provider-key-missing": "provider key missing",
+  "tasksPage.errors.site-localization-failed": "whole-site localization failed",
+  "tasksPage.errors.localization-build-failed": "localized build failed",
   "tasksPage.errors.unknown": "unknown translation error",
   "backupPage.taskErrors.create-failed": "backup creation failed",
   "taskCenter.taskFailed": "task failed",
@@ -37,11 +44,16 @@ describe("task presentation", () => {
 
     expect(labels.kindLabel("IndexRebuild")).toBe("index rebuild");
     expect(labels.kindLabel("StaticBuild")).toBe("static build");
+    expect(labels.kindLabel("LocaleProvision")).toBe("whole-site localization");
     expect(labels.kindLabel("FutureTask")).toBe("FutureTask");
     expect(labels.operationLabel("publish")).toBe("publish");
+    expect(labels.operationLabel("publish-translate")).toBe("publish and translate");
+    expect(labels.operationLabel("localize-site")).toBe("localize site");
     expect(labels.progressLabel("translated-chunk-2-of-5")).toBe("chunk 2/5");
     expect(labels.progressLabel("preparing-search-index")).toBe("preparing index");
     expect(labels.progressLabel("render")).toBe("rendering");
+    expect(labels.progressLabel("localizing-site")).toBe("localizing site");
+    expect(labels.progressLabel("building-localized-site")).toBe("building localized site");
     expect(labels.progressLabel("storing-imported-backup")).toBe("storing backup");
     expect(labels.progressLabel("running")).toBe("running");
     expect(labels.progressLabel("future-phase")).toBe("working");
@@ -58,6 +70,10 @@ describe("task presentation", () => {
     expect(normalizeTaskError(" provider API key is missing ")).toBe("provider-key-missing");
     expect(labels.taskErrorLabel("provider API key is missing", "taskCenter.taskFailed")).toBe("provider key missing");
     expect(labels.taskErrorLabel("create-failed", "taskCenter.taskFailed")).toBe("backup creation failed");
+    expect(labels.taskErrorLabel("site-localization-failed", "taskCenter.taskFailed")).toBe(
+      "whole-site localization failed",
+    );
+    expect(labels.taskErrorLabel("localization-build-failed", "taskCenter.taskFailed")).toBe("localized build failed");
     expect(labels.taskErrorLabel("future-target-error", "tasksPage.errors.unknown")).toBe("unknown translation error");
     expect(labels.taskErrorLabel("future-task-error", "taskCenter.taskFailed")).toBe("task failed");
   });

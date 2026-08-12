@@ -2,11 +2,13 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { ApiError, api, type UnifiedTask } from "@/api/client";
+import { useCodeLabel } from "@/i18n/useCodeLabel";
 import { useTaskPresentation } from "@/i18n/useTaskPresentation";
 
 const props = withDefaults(defineProps<{ taskId?: string; compact?: boolean }>(), { taskId: "", compact: false });
 const emit = defineEmits<{ update: [task: UnifiedTask]; terminal: [task: UnifiedTask] }>();
 const { t } = useI18n();
+const codeLabel = useCodeLabel();
 const {
   kindLabel: presentKind,
   operationLabel: presentOperation,
@@ -22,6 +24,9 @@ const missingTaskPollLimit = 30;
 const pollIntervalMilliseconds = 700;
 let missingTaskPolls = 0;
 let timer: number | undefined;
+let controller: AbortController | undefined;
+let requestSequence = 0;
+let disposed = false;
 
 const terminal = computed(() => task.value && !["queued", "running"].includes(task.value.status));
 const percent = computed(() => progressPercent(task.value?.progress.percent));
@@ -32,14 +37,35 @@ const label = computed(() => {
 const kindLabel = computed(() => (task.value ? presentKind(task.value.kind) : ""));
 const operationLabel = computed(() => (task.value ? presentOperation(task.value.operation) : ""));
 const warnings = computed(() => (task.value ? taskWarnings(task.value) : []));
+const statusLabel = computed(() => (task.value ? codeLabel(task.value.status) : ""));
+const taskFailure = computed(() =>
+  task.value?.error ? taskErrorLabel(task.value.error, "taskCenter.taskFailed") : "",
+);
+const progressValueText = computed(() => `${label.value} ${percent.value}%`);
+
+function stopPolling() {
+  window.clearTimeout(timer);
+  controller?.abort();
+  controller = undefined;
+  requestSequence++;
+}
+
+function pollDelay() {
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return 5000;
+  return pollIntervalMilliseconds;
+}
 
 async function load() {
   window.clearTimeout(timer);
-  if (!props.taskId) return;
+  if (!props.taskId || disposed) return;
   const requestedTaskId = props.taskId;
+  controller?.abort();
+  const requestController = new AbortController();
+  controller = requestController;
+  const sequence = ++requestSequence;
   try {
-    const loaded = await api.task(requestedTaskId);
-    if (props.taskId !== requestedTaskId) return;
+    const loaded = await api.task(requestedTaskId, requestController.signal);
+    if (disposed || sequence !== requestSequence || props.taskId !== requestedTaskId) return;
     task.value = loaded;
     missingTaskPolls = 0;
     waiting.value = false;
@@ -50,7 +76,13 @@ async function load() {
       return;
     }
   } catch (caught) {
-    if (props.taskId !== requestedTaskId) return;
+    if (
+      disposed ||
+      sequence !== requestSequence ||
+      props.taskId !== requestedTaskId ||
+      (caught instanceof Error && caught.name === "AbortError")
+    )
+      return;
     if (caught instanceof ApiError && caught.status === 404) {
       missingTaskPolls++;
       if (missingTaskPolls >= missingTaskPollLimit) {
@@ -69,13 +101,14 @@ async function load() {
             : String(t("taskProgress.unavailable"));
     }
   }
-  timer = window.setTimeout(load, pollIntervalMilliseconds);
+  if (!disposed && sequence === requestSequence && props.taskId === requestedTaskId)
+    timer = window.setTimeout(load, pollDelay());
 }
 
 watch(
   () => props.taskId,
   () => {
-    window.clearTimeout(timer);
+    stopPolling();
     missingTaskPolls = 0;
     task.value = undefined;
     waiting.value = Boolean(props.taskId);
@@ -85,7 +118,10 @@ watch(
   { immediate: true },
 );
 
-onBeforeUnmount(() => window.clearTimeout(timer));
+onBeforeUnmount(() => {
+  disposed = true;
+  stopPolling();
+});
 </script>
 
 <template>
@@ -100,9 +136,20 @@ onBeforeUnmount(() => window.clearTimeout(timer));
   >
     <div class="task-progress__header">
       <span>{{ label }}</span>
-      <strong>{{ percent }}%</strong>
+      <div class="task-progress__summary">
+        <span v-if="statusLabel" class="task-progress__status">{{ statusLabel }}</span>
+        <strong>{{ percent }}%</strong>
+      </div>
     </div>
-    <div class="task-progress__track" role="progressbar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100">
+    <div
+      class="task-progress__track"
+      role="progressbar"
+      :aria-label="label"
+      :aria-valuetext="progressValueText"
+      :aria-valuenow="percent"
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
       <span :style="{ width: `${percent}%` }" />
     </div>
     <div v-if="!compact && task" class="task-progress__meta">
@@ -110,7 +157,11 @@ onBeforeUnmount(() => window.clearTimeout(timer));
       <span v-if="task.progress.total">{{ task.progress.current }} / {{ task.progress.total }}</span>
     </div>
     <p v-for="warning in warnings" :key="warning" class="task-progress__warning">{{ warning }}</p>
+    <p v-if="taskFailure" class="task-progress__error">{{ taskFailure }}</p>
     <p v-if="error" class="task-progress__error">{{ error }}</p>
+    <p v-if="terminal && (taskFailure || warnings.length)" class="task-progress__live" aria-live="polite">
+      {{ taskFailure || warnings[0] }}
+    </p>
   </section>
 </template>
 
@@ -130,6 +181,11 @@ onBeforeUnmount(() => window.clearTimeout(timer));
   justify-content: space-between;
   gap: 0.75rem;
 }
+.task-progress__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
 .task-progress__header {
   color: #394150;
   font-size: 0.76rem;
@@ -138,6 +194,11 @@ onBeforeUnmount(() => window.clearTimeout(timer));
 .task-progress__header strong {
   color: #111827;
   font-variant-numeric: tabular-nums;
+}
+.task-progress__status {
+  color: #687386;
+  font-size: 0.68rem;
+  text-transform: none;
 }
 .task-progress__track {
   overflow: hidden;
@@ -168,6 +229,14 @@ onBeforeUnmount(() => window.clearTimeout(timer));
   margin: 0;
   color: #b91c1c;
   font-size: 0.7rem;
+}
+.task-progress__live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .task-progress--compact {
   border: 0;

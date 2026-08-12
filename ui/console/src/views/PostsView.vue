@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { Icon } from "@iconify/vue";
-import { VButton, VCard, VEmpty, VPageHeader, VStatusDot, VTag } from "@halo-dev/components";
 import { api, type Post, type UnifiedTask } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
@@ -241,7 +240,13 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
       } else if (action === "publish") {
         const result = await api.publishPost(csrfToken, post.meta.id, post.meta.revision, taskId);
         await reconcileBuildTask(taskId, result.build.taskId, result.translation.taskId);
-        if (result.build.status === "failed" || result.translation.status === "failed") failed += 1;
+        if (
+          result.build.status === "failed" ||
+          result.build.status === "blocked" ||
+          result.translation.status === "failed" ||
+          result.translation.status === "not-configured"
+        )
+          failed += 1;
       } else {
         const result = await api.changePostStatus(csrfToken, post.meta.id, action, post.meta.revision, taskId);
         await reconcileBuildTask(taskId);
@@ -261,18 +266,18 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('navigation.posts')">
+    <MPageHeader :title="t('navigation.posts')">
       <template #actions>
-        <VButton route="/categories">{{ t("contentList.categories") }}</VButton
-        ><VButton route="/tags">{{ t("contentList.tags") }}</VButton
-        ><VButton @click="toggleRecycleMode">{{
+        <MButton to="/categories">{{ t("contentList.categories") }}</MButton
+        ><MButton to="/tags">{{ t("contentList.tags") }}</MButton
+        ><MButton @click="toggleRecycleMode">{{
           recycleMode ? t("contentList.returnPosts") : t("common.recycleBin")
-        }}</VButton>
-        <VButton type="secondary" route="/posts/editor">{{ t("common.new") }}</VButton>
+        }}</MButton>
+        <MButton variant="tonal" to="/posts/editor">{{ t("common.new") }}</MButton>
       </template>
-    </VPageHeader>
+    </MPageHeader>
     <div class="page-body">
-      <VCard>
+      <MSurface>
         <div class="filter-bar">
           <input v-model="query" :placeholder="t('contentList.keyword')" /><select
             v-if="!recycleMode"
@@ -338,16 +343,16 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
                 <strong>{{ sourceTitle(post) }}</strong>
                 <span>{{ post.meta.id }}</span>
                 <div class="post-row-tags">
-                  <VTag v-if="post.meta.hasUnpublishedChanges">{{ t("contentList.unpublishedChanges") }}</VTag>
-                  <VTag v-for="(locale, code) in post.meta.locales" :key="code"
-                    >{{ code }} · {{ codeLabel(locale.state) }}</VTag
+                  <MChip v-if="post.meta.hasUnpublishedChanges">{{ t("contentList.unpublishedChanges") }}</MChip>
+                  <MChip v-for="(locale, code) in post.meta.locales" :key="code"
+                    >{{ code }} · {{ codeLabel(locale.state) }}</MChip
                   >
                 </div>
               </div>
             </RouterLink>
             <div class="post-row-meta">
               <span
-                ><VStatusDot :state="post.meta.status === 'published' ? 'success' : 'default'" />
+                ><MStatus :tone="post.meta.status === 'published' ? 'success' : 'neutral'" />
                 {{ codeLabel(post.meta.status) }}</span
               ><time>{{ new Date(post.meta.updatedAt).toLocaleString() }}</time>
             </div>
@@ -364,7 +369,7 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
             </div>
           </article>
         </div>
-        <div v-else class="empty-resource"><VEmpty :title="t('contentList.noPosts')" /></div>
+        <div v-else class="empty-resource"><MEmptyState :title="t('contentList.noPosts')" /></div>
         <nav v-if="visiblePosts.length" class="pagination-bar" :aria-label="t('contentList.pagination')">
           <button :disabled="currentPage <= 1" @click="page = currentPage - 1">{{ t("contentList.previous") }}</button
           ><span>{{
@@ -374,7 +379,7 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
             {{ t("contentList.next") }}
           </button>
         </nav>
-      </VCard>
+      </MSurface>
     </div>
   </div>
 </template>

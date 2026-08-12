@@ -215,6 +215,14 @@ func (s *Server) requireExclusiveAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return s.requireAdminWithGate(next, true, true)
 }
 
+// requireExclusiveAdminWithoutProjectionSync reserves the whole mutation gate
+// for a durable parent receipt whose worker owns later projection refreshes.
+// The handler explicitly claims its initial config write before returning, so
+// the watcher cannot publish that intermediate state.
+func (s *Server) requireExclusiveAdminWithoutProjectionSync(next http.HandlerFunc) http.HandlerFunc {
+	return s.requireAdminWithGate(next, true, false)
+}
+
 // requireAdminWithoutProjectionSync is for durable operations that rebuild only
 // derived state themselves. They still require the normal session, CSRF, and
 // shared mutation gate, but must not synchronously rebuild the same projection
@@ -251,7 +259,7 @@ func (s *Server) syncProjectionAfterManagedMutation() {
 	if s.projection == nil {
 		return
 	}
-	if _, err := s.projection.RebuildIfChanged(); err != nil {
+	if _, err := s.projection.RebuildManagedChange(); err != nil {
 		// The projection is derived state and the watcher will retry it. The
 		// already-durable domain mutation remains the authoritative result.
 		s.logger.Error("refresh projection after managed mutation failed", "error", err)

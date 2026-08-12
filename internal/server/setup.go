@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FengYuchen1314/mutiblog/internal/ai"
 	"github.com/FengYuchen1314/mutiblog/internal/auth"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/localeconfig"
@@ -69,10 +70,9 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourceTag, _ := language.Parse(request.SourceLocale)
 	adminTag, _ := language.Parse(request.AdminLocale)
 	baseURL, _ := normalizeBaseURL(request.BaseURL)
-	request.SourceLocale = sourceTag.String()
+	request.SourceLocale = localeconfig.FixedSourceLocale
 	request.AdminLocale = adminTag.String()
 	now := time.Now().UTC()
 	passwordHash, err := auth.HashPassword(request.Password)
@@ -99,7 +99,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		SchemaVersion: domain.SchemaVersion,
 		SourceLocale:  request.SourceLocale,
 		Enabled: []domain.LocaleDefinition{{
-			Code: request.SourceLocale, Label: defaultLocaleLabel(request.SourceLocale), Enabled: true,
+			Code: request.SourceLocale, Label: defaultLocaleLabel(request.SourceLocale), Enabled: true, Status: domain.LocaleStatusReady,
 		}},
 		Fallback: localeconfig.FixedFallbackOrder(),
 	}
@@ -119,13 +119,13 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	secrets := domain.SecretsConfig{SchemaVersion: domain.SchemaVersion, Providers: map[string]string{}, CommentHMACKey: hex.EncodeToString(commentKey)}
 	providers := domain.AIProvidersConfig{
 		SchemaVersion:   domain.SchemaVersion,
-		DefaultProvider: "qwen-free",
+		DefaultProvider: "google-free",
 		Providers: []domain.AIProviderConfig{{
-			ID:              "qwen-free",
-			Name:            "Qwen Free (OpenRouter)",
-			Kind:            "openai-compatible",
-			BaseURL:         "https://openrouter.ai/api/v1",
-			Model:           "qwen/qwen3-32b:free",
+			ID:              "google-free",
+			Name:            "Google Free Translate",
+			Kind:            ai.ProviderKindGoogleFree,
+			BaseURL:         ai.GoogleFreeDefaultEndpoint,
+			Model:           ai.GoogleFreeDefaultModel,
 			Enabled:         true,
 			TimeoutSeconds:  45,
 			MaxOutputTokens: 8192,
@@ -274,8 +274,9 @@ func validateSetup(request *setupRequest) map[string]string {
 	if baseURL, err := normalizeBaseURL(request.BaseURL); err != nil || baseURL == "" {
 		fields["baseUrl"] = "Public base URL must be an absolute HTTP or HTTPS origin."
 	}
-	if _, err := language.Parse(request.SourceLocale); err != nil || strings.TrimSpace(request.SourceLocale) == "" {
-		fields["sourceLocale"] = "Source locale must be a valid BCP 47 language tag."
+	sourceTag, err := language.Parse(strings.TrimSpace(request.SourceLocale))
+	if err != nil || strings.TrimSpace(request.SourceLocale) == "" || sourceTag.String() != localeconfig.FixedSourceLocale {
+		fields["sourceLocale"] = "Source locale must be Simplified Chinese (zh-CN)."
 	}
 	adminTag, err := language.Parse(request.AdminLocale)
 	if err != nil || strings.TrimSpace(request.AdminLocale) == "" || (adminTag.String() != "en" && adminTag.String() != "zh-CN") {

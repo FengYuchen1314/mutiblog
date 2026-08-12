@@ -2,7 +2,6 @@
 import { ref } from "vue";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
 import {
   ApiError,
   api,
@@ -117,18 +116,18 @@ async function rebuildSite() {
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('toolsPage.title')" />
+    <MPageHeader :title="t('toolsPage.title')" />
     <div class="page-body settings-grid">
-      <VCard
+      <MSurface
         ><div class="card-title">{{ t("toolsPage.maintenance") }}</div>
         <p>{{ t("toolsPage.maintenanceHelp") }}</p>
         <div class="tool-actions">
-          <VButton :loading="busy === 'index'" :disabled="Boolean(busy)" @click="rebuildIndex">{{
+          <MButton :loading="busy === 'index'" :disabled="Boolean(busy)" @click="rebuildIndex">{{
             t("toolsPage.rebuildIndex")
-          }}</VButton>
-          <VButton type="secondary" :loading="busy === 'site'" :disabled="Boolean(busy)" @click="rebuildSite">{{
+          }}</MButton>
+          <MButton variant="tonal" :loading="busy === 'site'" :disabled="Boolean(busy)" @click="rebuildSite">{{
             t("toolsPage.rebuildSite")
-          }}</VButton>
+          }}</MButton>
         </div>
         <div v-if="route.query.setupBuildFailed === '1'" class="form-alert">{{ t("login.setupBuildFailed") }}</div>
         <TaskProgress v-if="indexTaskId" :task-id="indexTaskId" @terminal="handleIndexTaskTerminal" /><TaskProgress
@@ -136,9 +135,9 @@ async function rebuildSite() {
           :task-id="siteTaskId"
         />
         <div v-if="notice" class="form-success">{{ notice }}</div>
-        <div v-if="error" class="form-alert">{{ error }}</div></VCard
+        <div v-if="error" class="form-alert">{{ error }}</div></MSurface
       >
-      <VCard
+      <MSurface
         ><div class="card-title">{{ t("toolsPage.indexSearch") }}</div>
         <form class="filter-bar" @submit.prevent="search">
           <input v-model="query" :placeholder="t('toolsPage.searchPlaceholder')" /><button
@@ -155,13 +154,13 @@ async function rebuildSite() {
               ><span>{{ codeLabel(item.kind) }} · {{ item.id }}</span>
             </div>
             <div class="post-row-tags">
-              <VTag>{{ item.locale }}</VTag
-              ><VTag>{{ codeLabel(item.status) }}</VTag>
+              <MChip>{{ item.locale }}</MChip
+              ><MChip>{{ codeLabel(item.status) }}</MChip>
             </div>
           </article>
         </div>
-        <VEmpty v-else-if="searched" :title="t('toolsPage.noResults')" />
-      </VCard>
+        <MEmptyState v-else-if="searched" :title="t('toolsPage.noResults')" />
+      </MSurface>
     </div>
   </div>
 </template>

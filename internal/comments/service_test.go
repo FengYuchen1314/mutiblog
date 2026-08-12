@@ -212,6 +212,22 @@ func TestCommentPrivacyModerationAndFileTruth(t *testing.T) {
 	}
 }
 
+func TestCommentRejectsNonReadyLocale(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{Enabled: []domain.LocaleDefinition{
+		{Code: "zh-CN", Enabled: true, Status: domain.LocaleStatusReady},
+		{Code: "ja", Enabled: true, Status: domain.LocaleStatusProvisioning},
+	}}, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewService(repository).normalizeEnabledLocale("ja"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("provisioning comment locale error = %v, want ErrInvalid", err)
+	}
+}
+
 func TestCommentIdentityMismatchCannotDeleteAnotherSubject(t *testing.T) {
 	repository, err := fsrepo.Open(t.TempDir())
 	if err != nil {

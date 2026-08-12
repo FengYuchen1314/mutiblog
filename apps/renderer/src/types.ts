@@ -7,6 +7,7 @@ export interface LocalizedSiteInput {
 export interface LocaleInput {
   code: string;
   label: string;
+  status?: "provisioning" | "building" | "ready" | "failed";
 }
 
 export interface LocalizedPostInput {
@@ -15,6 +16,13 @@ export interface LocalizedPostInput {
   seoTitle?: string;
   seoDescription?: string;
   markdown: string;
+}
+
+export interface LocaleContentStateInput {
+  state: string;
+  origin: "source" | "ai" | "manual" | string;
+  revision: number;
+  sourceRevision: number;
 }
 
 export interface PostInput {
@@ -29,6 +37,7 @@ export interface PostInput {
   tags?: string[];
   commentPolicy?: "open" | "closed";
   locales: Record<string, LocalizedPostInput>;
+  localeStates?: Record<string, LocaleContentStateInput>;
 }
 
 export interface LocalizedTaxonomyInput {
@@ -45,7 +54,10 @@ export interface LocalizedMenuInput { label: string; }
 export interface MenuItemInput { id: string; parentId?: string; targetKind: "internal" | "external"; url: string; openInNew: boolean; order: number; locales: Record<string, LocalizedMenuInput>; }
 export interface MenuInput { id: string; sourceLocale?: string; locales: Record<string, LocalizedMenuInput>; items: MenuItemInput[]; }
 export interface ContentTemplateInput { id: string; name: string; }
-export interface ThemeInput { id: string; modulePath?: string; assetsPath?: string; settings?: Record<string, unknown>; postTemplates?: ContentTemplateInput[]; pageTemplates?: ContentTemplateInput[]; categoryTemplates?: ContentTemplateInput[]; }
+export interface ThemeInput { id: string; modulePath?: string; assetsPath?: string; settings?: Record<string, unknown>;
+  localizedSettings?: Record<string, Record<string, string>>;
+  localizableSettings?: string[];
+  postTemplates?: ContentTemplateInput[]; pageTemplates?: ContentTemplateInput[]; categoryTemplates?: ContentTemplateInput[]; }
 
 export interface BuildInput {
   schemaVersion: 1;
@@ -63,7 +75,8 @@ export interface BuildInput {
   links?: LinkInput[];
   menus?: MenuInput[];
   dictionaries?: Record<string, Record<string, string>>;
-  comments?: { moderation?: "pending" | "none"; pageSize?: number; maxLength?: number };
+  comments?: { moderation?: "pending" | "none"; pageSize?: number; maxLength?: number;
+  };
   theme?: ThemeInput;
   fallback?: string[];
   generatedAt?: string;

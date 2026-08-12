@@ -23,6 +23,18 @@ func (function publisherFunction) Build(ctx context.Context) (publisher.BuildRep
 	return function(ctx)
 }
 
+type prepareContextKey struct{}
+
+type preparingPublisher struct{}
+
+func (preparingPublisher) PrepareBuild(ctx context.Context) (context.Context, error) {
+	return context.WithValue(ctx, prepareContextKey{}, "prepared"), nil
+}
+
+func (preparingPublisher) Build(context.Context) (publisher.BuildReport, error) {
+	return publisher.BuildReport{}, nil
+}
+
 func TestTrackedPublisherExposesRealState(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -60,5 +72,20 @@ func TestTrackedPublisherForwardsClose(t *testing.T) {
 	newTrackedSitePublisher(delegate).Close()
 	if !delegate.closed.Load() {
 		t.Fatal("tracked publisher did not close its delegate")
+	}
+}
+
+func TestTrackedPublisherExposesOptionalDurableBuildPreparation(t *testing.T) {
+	ctx := context.Background()
+	prepared, err := newTrackedSitePublisher(preparingPublisher{}).PrepareBuild(ctx)
+	if err != nil || prepared.Value(prepareContextKey{}) != "prepared" {
+		t.Fatalf("prepared context = %#v, %v", prepared.Value(prepareContextKey{}), err)
+	}
+
+	unchanged, err := newTrackedSitePublisher(publisherFunction(func(context.Context) (publisher.BuildReport, error) {
+		return publisher.BuildReport{}, nil
+	})).PrepareBuild(ctx)
+	if err != nil || unchanged != ctx {
+		t.Fatalf("unsupported preparation changed context: %#v, %v", unchanged, err)
 	}
 }

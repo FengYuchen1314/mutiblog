@@ -2,7 +2,6 @@
 import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VPageHeader } from "@halo-dev/components";
 import { api, type CommentSettings, type LocalesConfig, type MenuRecord, type SiteSettings } from "@/api/client";
 import TaskProgress from "@/components/TaskProgress.vue";
 import MediaPickerField from "@/components/MediaPickerField.vue";
@@ -158,11 +157,11 @@ async function changePassword() {
 </script>
 <template>
   <div class="page">
-    <VPageHeader :title="t('settingsPage.title')" />
+    <MPageHeader :title="t('settingsPage.title')" />
     <div class="page-body settings-grid">
       <div v-if="notice" class="form-success">{{ notice }}</div>
       <div v-if="error" class="form-alert">{{ error }}</div>
-      <VCard
+      <MSurface
         ><div class="provider-form">
           <h3>{{ t("settingsPage.site") }}</h3>
           <MediaPickerField
@@ -195,10 +194,10 @@ async function changePassword() {
               <option value="uuid">{{ t("settingsPage.compactUuid") }}</option>
               <option value="timestamp">{{ t("settingsPage.millisecondTimestamp") }}</option></select
             ><small>{{ t("settingsPage.idStrategyHelp") }}</small></label
-          ><VButton type="secondary" @click="saveGeneral">{{ t("settingsPage.saveSite") }}</VButton
+          ><MButton variant="tonal" @click="saveGeneral">{{ t("settingsPage.saveSite") }}</MButton
           ><TaskProgress v-for="taskId in siteTaskIds" :key="taskId" :task-id="taskId" /></div
-      ></VCard>
-      <VCard
+      ></MSurface>
+      <MSurface
         ><h3>{{ t("settingsPage.localizedSite") }}</h3>
         <div class="locale-tabs">
           <button
@@ -224,10 +223,10 @@ async function changePassword() {
           ><label
             ><span>{{ t("settingsPage.description") }}</span
             ><textarea v-model="localized.description" rows="4" /></label
-          ><VButton type="secondary" @click="saveLocale">{{ t("settingsPage.saveAndPublish") }}</VButton
+          ><MButton variant="tonal" @click="saveLocale">{{ t("settingsPage.saveAndPublish") }}</MButton
           ><TaskProgress v-for="taskId in localeTaskIds" :key="taskId" :task-id="taskId" /></div
-      ></VCard>
-      <VCard
+      ></MSurface>
+      <MSurface
         ><div class="provider-form">
           <h3>{{ t("settingsPage.comments") }}</h3>
           <label
@@ -242,10 +241,10 @@ async function changePassword() {
           ><label
             ><span>{{ t("settingsPage.maxLength") }}</span
             ><input v-model.number="comments.maxLength" type="number" min="100" max="10000" /></label
-          ><VButton type="secondary" @click="saveComments">{{ t("settingsPage.saveComments") }}</VButton
+          ><MButton variant="tonal" @click="saveComments">{{ t("settingsPage.saveComments") }}</MButton
           ><TaskProgress v-for="taskId in commentsTaskIds" :key="taskId" :task-id="taskId" /></div
-      ></VCard>
-      <VCard
+      ></MSurface>
+      <MSurface
         ><form class="provider-form" @submit.prevent="changePassword">
           <h3>{{ t("settingsPage.security") }}</h3>
           <p>{{ t("settingsPage.passwordHelp") }}</p>
@@ -274,10 +273,10 @@ async function changePassword() {
               minlength="12"
               maxlength="256"
               required /></label
-          ><VButton type="secondary" :loading="changingPassword" @click="changePassword">{{
+          ><MButton variant="tonal" :loading="changingPassword" @click="changePassword">{{
             t("settingsPage.changePassword")
-          }}</VButton>
-        </form></VCard
+          }}</MButton>
+        </form></MSurface
       >
     </div>
   </div>

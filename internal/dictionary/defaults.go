@@ -4,12 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
 	"golang.org/x/text/language"
 )
+
+const frameworkDictionaryValueMaxRunes = 500
+
+var frameworkPlaceholderPattern = regexp.MustCompile(`\{\{\s*[^{}\s][^{}]*\s*\}\}|\$\{[A-Za-z_][A-Za-z0-9_.-]*\}|\{\}|\{[A-Za-z0-9_][A-Za-z0-9_.-]*\}|%[1-9][0-9]*\$[A-Za-z]|%(?:\([A-Za-z_][A-Za-z0-9_.-]*\))?(?:\[[1-9][0-9]*\])?[-+#0]*(?:[0-9]+|\*)?(?:\.(?:[0-9]+|\*))?[A-Za-z]`)
 
 var defaults = map[string]map[string]string{
 	"en": {
@@ -135,6 +141,120 @@ func RequiredKeys() []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func SourceValues() map[string]string {
+	source := defaults["zh-CN"]
+	values := make(map[string]string, len(source))
+	for key, value := range source {
+		values[key] = value
+	}
+	return values
+}
+
+// ReadSource returns the exact maintained Simplified Chinese framework copy.
+// Site-wide localization must translate this persisted source rather than the
+// compiled defaults because administrators may have deliberately customized
+// its wording before upgrading.
+func ReadSource(repository *fsrepo.Repository) (map[string]string, error) {
+	var source map[string]string
+	if err := repository.ReadYAML(filepath.Join("content", "dictionaries", "zh-CN.yaml"), &source); err != nil {
+		return nil, err
+	}
+	if len(source) == 0 {
+		return nil, errors.New("source framework dictionary is empty")
+	}
+	result := make(map[string]string, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result, nil
+}
+
+// ValidateComplete verifies that values are a complete target copy of the
+// currently maintained source dictionary without writing it.
+func ValidateComplete(repository *fsrepo.Repository, rawLocale string, values map[string]string) error {
+	_, _, err := validateComplete(repository, rawLocale, values)
+	return err
+}
+
+func WriteComplete(repository *fsrepo.Repository, rawLocale string, values map[string]string) error {
+	locale, cleaned, err := validateComplete(repository, rawLocale, values)
+	if err != nil {
+		return err
+	}
+	return repository.WriteYAML(filepath.Join("content", "dictionaries", locale+".yaml"), cleaned, false)
+}
+
+func validateComplete(repository *fsrepo.Repository, rawLocale string, values map[string]string) (string, map[string]string, error) {
+	rawLocale = strings.TrimSpace(rawLocale)
+	tag, err := language.Parse(rawLocale)
+	if err != nil || rawLocale == "" {
+		return "", nil, errors.New("invalid framework dictionary locale")
+	}
+	locale := tag.String()
+	if locale == "zh-CN" {
+		return "", nil, errors.New("source framework dictionary cannot be replaced")
+	}
+	source, err := ReadSource(repository)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(values) != len(source) {
+		return "", nil, fmt.Errorf("framework dictionary for %s must contain exactly %d keys", locale, len(source))
+	}
+	cleaned := make(map[string]string, len(source))
+	keys := make([]string, 0, len(source))
+	for key := range source {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		sourceValue := strings.TrimSpace(source[key])
+		if key == "" || sourceValue == "" || !utf8.ValidString(sourceValue) || utf8.RuneCountInString(sourceValue) > frameworkDictionaryValueMaxRunes {
+			return "", nil, fmt.Errorf("source framework dictionary value %q is invalid", key)
+		}
+		value, exists := values[key]
+		if !exists {
+			return "", nil, fmt.Errorf("framework dictionary for %s is missing key %q", locale, key)
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return "", nil, fmt.Errorf("framework dictionary value %s.%s is empty", locale, key)
+		}
+		if !utf8.ValidString(value) {
+			return "", nil, fmt.Errorf("framework dictionary value %s.%s is not valid UTF-8", locale, key)
+		}
+		if utf8.RuneCountInString(value) > frameworkDictionaryValueMaxRunes {
+			return "", nil, fmt.Errorf("framework dictionary value %s.%s is too long", locale, key)
+		}
+		if !sameFrameworkPlaceholders(source[key], value) {
+			return "", nil, fmt.Errorf("framework dictionary value %s.%s has inconsistent placeholders", locale, key)
+		}
+		cleaned[key] = value
+	}
+	for key := range values {
+		if _, exists := source[key]; !exists {
+			return "", nil, fmt.Errorf("framework dictionary for %s contains unknown key %q", locale, key)
+		}
+	}
+	return locale, cleaned, nil
+}
+
+func sameFrameworkPlaceholders(source, target string) bool {
+	sourcePlaceholders := frameworkPlaceholderPattern.FindAllString(source, -1)
+	targetPlaceholders := frameworkPlaceholderPattern.FindAllString(target, -1)
+	if len(sourcePlaceholders) != len(targetPlaceholders) {
+		return false
+	}
+	sort.Strings(sourcePlaceholders)
+	sort.Strings(targetPlaceholders)
+	for index := range sourcePlaceholders {
+		if sourcePlaceholders[index] != targetPlaceholders[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func Write(repository *fsrepo.Repository, rawLocale string, values map[string]string) error {

@@ -97,17 +97,26 @@ func TestStartupMigratesLegacyLocaleFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	app.localeProvisioner = localeProvisionerFunc(successfulLocaleProvisioner)
 	t.Cleanup(func() { _ = app.Close() })
 	var migrated domain.LocalesConfig
 	if err := repository.ReadYAML("config/locales.yaml", &migrated); err != nil {
 		t.Fatal(err)
 	}
-	if len(migrated.Fallback) != 1 || migrated.Fallback[0] != "zh-CN" || migrated.SourceLocale != "en" || !definitionsEnabled(migrated.Enabled, "en") || !definitionsEnabled(migrated.Enabled, "zh-CN") {
+	if len(migrated.Fallback) != 1 || migrated.Fallback[0] != "zh-CN" || migrated.SourceLocale != "zh-CN" || !definitionsEnabled(migrated.Enabled, "en") || !definitionsEnabled(migrated.Enabled, "zh-CN") {
 		t.Fatalf("startup-migrated locales = %#v", migrated)
+	}
+	for _, definition := range migrated.Enabled {
+		if definition.Code == "zh-CN" && definition.Status != domain.LocaleStatusReady {
+			t.Fatalf("startup-migrated source status = %#v", definition)
+		}
+		if definition.Code == "en" && definition.Status != "" {
+			t.Fatalf("startup-migrated legacy target status = %#v", definition)
+		}
 	}
 }
 
-func TestSetupWithNonChineseSourceEnablesRequiredChineseFallback(t *testing.T) {
+func TestSetupRejectsNonChineseSource(t *testing.T) {
 	repository, err := fsrepo.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -124,23 +133,16 @@ func TestSetupWithNonChineseSourceEnablesRequiredChineseFallback(t *testing.T) {
 		"siteTitle": "French source", "baseUrl": testServer.URL, "sourceLocale": "fr", "adminLocale": "en", "timezone": "UTC",
 		"username": "admin", "password": "correct horse battery staple",
 	}, nil)
-	if response.StatusCode != http.StatusCreated {
+	if response.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("setup status = %d, body = %s", response.StatusCode, readBody(t, response))
 	}
 	response.Body.Close()
-	var locales domain.LocalesConfig
-	if err := repository.ReadYAML("config/locales.yaml", &locales); err != nil {
+	initialized, err := repository.Exists("config/initialized")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if locales.SourceLocale != "fr" || len(locales.Enabled) != 2 || !definitionsEnabled(locales.Enabled, "fr") || definitionsEnabled(locales.Enabled, "en") || !definitionsEnabled(locales.Enabled, "zh-CN") || len(locales.Fallback) != 1 || locales.Fallback[0] != "zh-CN" {
-		t.Fatalf("initial locales = %#v", locales)
-	}
-	var site domain.SiteConfig
-	if err := repository.ReadYAML("config/site.yaml", &site); err != nil {
-		t.Fatal(err)
-	}
-	if site.BaseURL != testServer.URL {
-		t.Fatalf("initial base URL = %q, want %q", site.BaseURL, testServer.URL)
+	if initialized {
+		t.Fatal("non-Chinese setup unexpectedly initialized the repository")
 	}
 }
 
@@ -292,7 +294,7 @@ func TestRootLocaleNegotiationUsesOnlyTheActiveRelease(t *testing.T) {
 		SchemaVersion: domain.SchemaVersion,
 		SourceLocale:  "fr",
 		Enabled: []domain.LocaleDefinition{
-			{Code: "zh-CN", Enabled: false},
+			{Code: "zh-CN", Enabled: true, Status: domain.LocaleStatusReady},
 			{Code: "en", Enabled: true},
 			{Code: "fr", Enabled: true},
 		},
@@ -331,6 +333,87 @@ func TestRootLocaleNegotiationUsesOnlyTheActiveRelease(t *testing.T) {
 	}
 }
 
+func TestPublicStaticRoutesHideExplicitNonReadyReleaseLocales(t *testing.T) {
+	repository, err := fsrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  "zh-CN",
+		Enabled: []domain.LocaleDefinition{
+			{Code: "zh-CN", Label: "简体中文", Enabled: true, Status: domain.LocaleStatusReady},
+			{Code: "ja", Label: "日本語", Enabled: true, Status: domain.LocaleStatusFailed},
+			{Code: "en", Label: "English", Enabled: true},
+		},
+		Fallback: []string{"zh-CN"},
+	}
+	if err := repository.WriteYAML("config/locales.yaml", config, false); err != nil {
+		t.Fatal(err)
+	}
+	for path, body := range map[string]string{
+		"generated/current/zh-CN/index.html":      "chinese-home",
+		"generated/current/zh-CN/404.html":        "chinese-not-found",
+		"generated/current/ja/index.html":         "stale-japanese-home",
+		"generated/current/ja/archive/index.html": "stale-japanese-archive",
+		"generated/current/ja/404.html":           "stale-japanese-not-found",
+		"generated/current/en/index.html":         "legacy-english-home",
+	} {
+		if err := repository.WriteFile(path, []byte(body), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repository.WriteFile("generated/current/build-report.json", []byte(`{"schemaVersion":1,"locales":["zh-CN","ja","en"]}`), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.WriteFile("generated/current/redirects.json", []byte(`[{"from":"/","to":"/zh-CN/","status":302}]`), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	current := filepath.Join(repository.Root(), "generated", "current")
+	app := &Server{repository: repository, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+
+	request := httptest.NewRequest(http.MethodGet, "/ja/archive/", nil)
+	recorder := httptest.NewRecorder()
+	app.serveStaticRoot(recorder, request, current)
+	if recorder.Code != http.StatusNotFound || strings.Contains(recorder.Body.String(), "stale-japanese") {
+		t.Fatalf("failed locale direct response = %d %q", recorder.Code, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Accept-Language", "ja,en;q=0.5")
+	recorder = httptest.NewRecorder()
+	app.serveStaticRoot(recorder, request, current)
+	if recorder.Code != http.StatusFound || recorder.Header().Get("Location") != "/en/" {
+		t.Fatalf("failed locale negotiation = %d %q", recorder.Code, recorder.Header().Get("Location"))
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/en/", nil)
+	recorder = httptest.NewRecorder()
+	app.serveStaticRoot(recorder, request, current)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "legacy-english-home" {
+		t.Fatalf("statusless legacy response = %d %q", recorder.Code, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/ja/archive/", nil)
+	recorder = httptest.NewRecorder()
+	app.serveStaticRootWithLocaleVisibility(recorder, request, current, false)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "stale-japanese-archive" {
+		t.Fatalf("preview response = %d %q", recorder.Code, recorder.Body.String())
+	}
+
+	config.Enabled[2].Status = domain.LocaleStatusProvisioning
+	if err := repository.WriteYAML("config/locales.yaml", config, false); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/en/", nil)
+	recorder = httptest.NewRecorder()
+	app.serveStaticRoot(recorder, request, current)
+	if recorder.Code != http.StatusNotFound || strings.Contains(recorder.Body.String(), "legacy-english") {
+		t.Fatalf("retrying legacy response = %d %q", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestLocalizedNotFoundPrefersChineseBeforeEnglishReleaseSource(t *testing.T) {
 	repository, err := fsrepo.Open(t.TempDir())
 	if err != nil {
@@ -365,6 +448,7 @@ func TestSetupLoginSessionAndLogout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	app.localeProvisioner = localeProvisionerFunc(successfulLocaleProvisioner)
 	t.Cleanup(func() { _ = app.Close() })
 	testServer := httptest.NewServer(app.Handler())
 	defer testServer.Close()
@@ -393,19 +477,29 @@ func TestSetupLoginSessionAndLogout(t *testing.T) {
 	if err := repository.ReadYAML("config/locales.yaml", &initialLocales); err != nil {
 		t.Fatal(err)
 	}
-	if initialLocales.SourceLocale != "zh-CN" || len(initialLocales.Fallback) != 1 || initialLocales.Fallback[0] != "zh-CN" || len(initialLocales.Enabled) != 1 || initialLocales.Enabled[0].Label != "简体中文" || definitionsEnabled(initialLocales.Enabled, "en") {
+	if initialLocales.SourceLocale != "zh-CN" || len(initialLocales.Fallback) != 1 || initialLocales.Fallback[0] != "zh-CN" || len(initialLocales.Enabled) != 1 || initialLocales.Enabled[0].Label != "简体中文" || initialLocales.Enabled[0].Status != domain.LocaleStatusReady || definitionsEnabled(initialLocales.Enabled, "en") {
 		t.Fatalf("initial locales = %#v", initialLocales)
 	}
 	var initialProviders domain.AIProvidersConfig
 	if err := repository.ReadYAML("config/providers.yaml", &initialProviders); err != nil {
 		t.Fatal(err)
 	}
-	if initialProviders.DefaultProvider != "qwen-free" || len(initialProviders.Providers) != 1 {
+	if initialProviders.DefaultProvider != "google-free" || len(initialProviders.Providers) != 1 {
 		t.Fatalf("initial providers = %#v", initialProviders)
 	}
-	qwen := initialProviders.Providers[0]
-	if qwen.ID != "qwen-free" || qwen.BaseURL != "https://openrouter.ai/api/v1" || qwen.Model != "qwen/qwen3-32b:free" || !qwen.Enabled {
-		t.Fatalf("initial Qwen provider = %#v", qwen)
+	google := initialProviders.Providers[0]
+	expectedGoogle := domain.AIProviderConfig{
+		ID:              "google-free",
+		Name:            "Google Free Translate",
+		Kind:            "google-free",
+		BaseURL:         "https://translate.googleapis.com/translate_a/single",
+		Model:           "google-translate",
+		Enabled:         true,
+		TimeoutSeconds:  45,
+		MaxOutputTokens: 8192,
+	}
+	if google != expectedGoogle {
+		t.Fatalf("initial Google provider = %#v", google)
 	}
 	var initialSecrets domain.SecretsConfig
 	if err := repository.ReadYAML("config/secrets.yaml", &initialSecrets); err != nil {
@@ -493,11 +587,12 @@ func TestSetupLoginSessionAndLogout(t *testing.T) {
 		{"code": "en", "label": "English", "enabled": true},
 		{"code": "ja", "label": "日本語", "enabled": true},
 	}}, map[string]string{"X-CSRF-Token": csrf})
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("update locales status = %d, body = %s", response.StatusCode, readBody(t, response))
 	}
 	var updateLocalesResult struct {
 		Locales domain.LocalesConfig `json:"locales"`
+		Task    adminTask            `json:"task"`
 		Build   struct {
 			Status string `json:"status"`
 		} `json:"build"`
@@ -507,11 +602,22 @@ func TestSetupLoginSessionAndLogout(t *testing.T) {
 	}
 	response.Body.Close()
 	updatedLocales := updateLocalesResult.Locales
-	if updateLocalesResult.Build.Status != "succeeded" {
+	if updateLocalesResult.Build.Status != "deferred" || updateLocalesResult.Task.Kind != "LocaleProvision" {
 		t.Fatalf("update locales build = %#v", updateLocalesResult.Build)
 	}
 	if updatedLocales.SourceLocale != "zh-CN" || len(updatedLocales.Enabled) != 3 || updatedLocales.Enabled[0].Code != "zh-CN" || len(updatedLocales.Fallback) != 1 || updatedLocales.Fallback[0] != "zh-CN" {
 		t.Fatalf("updated locales = %#v", updatedLocales)
+	}
+	if updatedLocales.Enabled[0].Status != domain.LocaleStatusReady || updatedLocales.Enabled[1].Status != domain.LocaleStatusProvisioning || updatedLocales.Enabled[2].Status != domain.LocaleStatusProvisioning {
+		t.Fatalf("updated locale statuses = %#v", updatedLocales.Enabled)
+	}
+	localeTask := waitLocaleProvisionTask(t, app.localeTasks, updateLocalesResult.Task.ID)
+	if localeTask.Status != "succeeded" || localeTask.BuildStatus != "succeeded" {
+		t.Fatalf("locale provisioning task = %#v", localeTask)
+	}
+	updatedLocales = readLocaleTestConfig(t, repository)
+	if updatedLocales.Enabled[1].Status != domain.LocaleStatusReady || updatedLocales.Enabled[2].Status != domain.LocaleStatusReady {
+		t.Fatalf("completed locale statuses = %#v", updatedLocales.Enabled)
 	}
 	const providerSecret = "server-test-provider-secret"
 	response = requestJSON(t, client, http.MethodPut, testServer.URL+"/api/v1/admin/ai/providers/test-provider", map[string]any{
@@ -600,10 +706,25 @@ func TestSetupLoginSessionAndLogout(t *testing.T) {
 	}
 
 	response = requestJSON(t, client, http.MethodPost, testServer.URL+"/api/v1/admin/posts/hello-world/publish", map[string]int{"revision": configuredPost.Meta.Revision}, map[string]string{"X-CSRF-Token": csrf})
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("publish post status = %d, body = %s", response.StatusCode, readBody(t, response))
 	}
+	var publishResult struct {
+		Build struct {
+			Status string `json:"status"`
+		} `json:"build"`
+		Translation struct {
+			Status string `json:"status"`
+			TaskID string `json:"taskId"`
+		} `json:"translation"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&publishResult); err != nil {
+		t.Fatal(err)
+	}
 	response.Body.Close()
+	if response.Header.Get("X-MutiBlog-Static-Build") != "blocked" || publishResult.Build.Status != "blocked" || publishResult.Translation.Status != "not-configured" || publishResult.Translation.TaskID == "" {
+		t.Fatalf("publish post result = %#v, build header = %q", publishResult, response.Header.Get("X-MutiBlog-Static-Build"))
+	}
 
 	var imageData bytes.Buffer
 	canvas := image.NewRGBA(image.Rect(0, 0, 2, 2))
@@ -677,7 +798,7 @@ func TestChangePasswordInvalidatesSessionsAndOldCredential(t *testing.T) {
 	client := &http.Client{Jar: jar}
 	oldPassword := "correct horse battery staple"
 	newPassword := "another correct horse battery staple"
-	setup := map[string]string{"siteTitle": "Security Test", "baseUrl": testServer.URL, "sourceLocale": "en", "adminLocale": "en", "timezone": "UTC", "username": "admin", "password": oldPassword}
+	setup := map[string]string{"siteTitle": "Security Test", "baseUrl": testServer.URL, "sourceLocale": "zh-CN", "adminLocale": "en", "timezone": "UTC", "username": "admin", "password": oldPassword}
 	response := requestJSON(t, client, http.MethodPost, testServer.URL+"/api/v1/setup", setup, nil)
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("setup status = %d, body = %s", response.StatusCode, readBody(t, response))

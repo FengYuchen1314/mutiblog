@@ -62,7 +62,12 @@ export interface Post {
 
 export interface LocalesConfig {
   sourceLocale: string;
-  enabled: Array<{ code: string; label: string; enabled: boolean }>;
+  enabled: Array<{
+    code: string;
+    label: string;
+    enabled: boolean;
+    status?: "provisioning" | "building" | "ready" | "failed";
+  }>;
   fallback: string[];
 }
 
@@ -325,8 +330,16 @@ export interface StaticBuildReport {
 
 export interface PublishResult {
   post: Post;
-  build: { status: "succeeded" | "failed" | "scheduled"; report?: StaticBuildReport; taskId?: string; dueAt?: string };
-  translation: { status: "queued" | "not-needed" | "not-configured" | "failed" | "deferred"; taskId?: string };
+  build: {
+    status: "succeeded" | "failed" | "scheduled" | "deferred" | "blocked";
+    report?: StaticBuildReport;
+    taskId?: string;
+    dueAt?: string;
+  };
+  translation: {
+    status: "queued" | "running" | "not-needed" | "not-configured" | "failed" | "deferred";
+    taskId?: string;
+  };
 }
 
 export interface TranslationTask {
@@ -357,10 +370,34 @@ export interface TranslationTask {
   error?: string;
 }
 
+export type TaskKind =
+  "Translation" | "StaticBuild" | "Backup" | "ScheduledPublish" | "IndexRebuild" | "LocaleProvision";
+
+export type TaskRelationRole = "parent" | "static-build" | "translation";
+
+export interface TaskRelation {
+  id: string;
+  role: TaskRelationRole;
+}
+
+// Tasks outside the per-content translation worker can still report progress
+// for each target locale. Keep the task-center shape intentionally small so
+// the durable task API is not coupled to translation-only receipt fields.
+export interface TaskTarget {
+  locale: string;
+  status: string;
+  progress?: TaskProgress;
+  attempts?: number;
+  expectedRevision?: number;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
 export interface UnifiedTask {
   schemaVersion: number;
   id: string;
-  kind: "Translation" | "StaticBuild" | "Backup" | "ScheduledPublish" | "IndexRebuild";
+  kind: TaskKind;
   operation: string;
   subject?: { kind: string; id: string };
   parentTaskId?: string;
@@ -379,7 +416,8 @@ export interface UnifiedTask {
   translationStatus?: string;
   translationTaskId?: string;
   outcome?: string;
-  targets?: TranslationTask["targets"];
+  targets?: TaskTarget[];
+  relations?: TaskRelation[];
   report?: StaticBuildReport;
 }
 
@@ -403,10 +441,12 @@ function trackedMutationHeaders(csrfToken: string, taskId?: string): Record<stri
   return taskId ? { "X-CSRF-Token": csrfToken, "X-MutiBlog-Task-ID": taskId } : { "X-CSRF-Token": csrfToken };
 }
 
+export type AIProviderKind = "google-free" | "openai-compatible";
+
 export interface AIProvider {
   id: string;
   name: string;
-  kind: "openai-compatible";
+  kind: AIProviderKind;
   baseUrl: string;
   model: string;
   enabled: boolean;
@@ -431,7 +471,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init,
       headers,
     });
-  } catch {
+  } catch (caught) {
+    if (caught instanceof Error && caught.name === "AbortError") throw caught;
     throw new ApiError(0, "network_unavailable", String(i18n.global.t("apiErrors.network_unavailable")));
   }
   if (!response.ok) {
@@ -506,15 +547,17 @@ export const api = {
       total: number;
     }>(`/api/v1/admin/index/search?q=${encodeURIComponent(query)}&limit=${limit}`),
   locales: () => request<LocalesConfig>("/api/v1/admin/locales"),
-  updateLocales: (csrfToken: string, enabled: LocalesConfig["enabled"], sourceLocale: string, taskId?: string) =>
-    request<{ locales: LocalesConfig; build: { status: "succeeded" | "failed"; report?: StaticBuildReport } }>(
-      "/api/v1/admin/locales",
-      {
-        method: "PUT",
-        headers: trackedMutationHeaders(csrfToken, taskId),
-        body: JSON.stringify({ enabled, sourceLocale }),
-      },
-    ),
+  updateLocales: (csrfToken: string, enabled: LocalesConfig["enabled"], sourceLocale: string) =>
+    request<{
+      locales: LocalesConfig;
+      task?: UnifiedTask;
+      localization: { status: "queued" | "idle"; taskId?: string };
+      build: { status: "deferred" | "skipped" };
+    }>("/api/v1/admin/locales", {
+      method: "PUT",
+      headers: { "X-CSRF-Token": csrfToken },
+      body: JSON.stringify({ enabled, sourceLocale }),
+    }),
   dictionaries: () => request<{ items: FrameworkDictionary[] }>("/api/v1/admin/dictionaries"),
   updateDictionary: (csrfToken: string, locale: string, values: Record<string, string>, taskId?: string) =>
     request<FrameworkDictionary>(`/api/v1/admin/dictionaries/${encodeURIComponent(locale)}`, {
@@ -759,28 +802,17 @@ export const api = {
         headers: { "X-CSRF-Token": csrfToken },
       },
     ),
-  startTranslation: (csrfToken: string, id: string, locales: string[], overwriteManual = false) =>
-    request<TranslationTask>(`/api/v1/admin/posts/${encodeURIComponent(id)}/translate`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken },
-      body: JSON.stringify({ locales, overwriteManual }),
-    }),
-  startPageTranslation: (csrfToken: string, id: string, locales: string[], overwriteManual = false) =>
-    request<TranslationTask>(`/api/v1/admin/pages/${encodeURIComponent(id)}/translate`, {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrfToken },
-      body: JSON.stringify({ locales, overwriteManual }),
-    }),
-  tasks: (query: { kind?: UnifiedTask["kind"]; status?: TaskStatus; limit?: number } = {}) => {
+  tasks: (query: { kind?: UnifiedTask["kind"]; status?: TaskStatus; limit?: number } = {}, signal?: AbortSignal) => {
     const parameters = new URLSearchParams();
     if (query.kind) parameters.set("kind", query.kind);
     if (query.status) parameters.set("status", query.status);
     if (query.limit) parameters.set("limit", String(query.limit));
     const serialized = parameters.toString();
     const suffix = serialized ? `?${serialized}` : "";
-    return request<{ items: UnifiedTask[]; total: number; active: number }>(`/api/v1/admin/tasks${suffix}`);
+    return request<{ items: UnifiedTask[]; total: number; active: number }>(`/api/v1/admin/tasks${suffix}`, { signal });
   },
-  task: (id: string) => request<UnifiedTask>(`/api/v1/admin/tasks/${encodeURIComponent(id)}`),
+  task: (id: string, signal?: AbortSignal) =>
+    request<UnifiedTask>(`/api/v1/admin/tasks/${encodeURIComponent(id)}`, { signal }),
   comments: (query: { status?: string; kind?: string; q?: string; page?: number; size?: number } = {}) => {
     const parameters = new URLSearchParams();
     for (const [key, value] of Object.entries(query))

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/FengYuchen1314/mutiblog/internal/ai"
@@ -21,26 +22,15 @@ import (
 )
 
 type translationReceiptPublisher struct {
-	translator *translation.Service
-	sawReceipt bool
-	err        error
+	calls atomic.Int32
 }
 
 func (sitePublisher *translationReceiptPublisher) Build(context.Context) (publisher.BuildReport, error) {
-	tasks, err := sitePublisher.translator.List()
-	if err != nil {
-		sitePublisher.err = err
-	} else {
-		for _, task := range tasks {
-			if task.Status == "failed" && task.Error == "provider-unavailable" {
-				sitePublisher.sawReceipt = true
-			}
-		}
-	}
+	sitePublisher.calls.Add(1)
 	return publisher.BuildReport{SchemaVersion: domain.SchemaVersion}, nil
 }
 
-func TestImmediateFirstPublishRecordsProviderPreflightFailureBeforeSourceBuild(t *testing.T) {
+func TestEveryImmediatePublishRecordsProviderPreflightFailureWithoutUnsafeBuild(t *testing.T) {
 	for _, kind := range []string{"Post", "Page"} {
 		t.Run(kind, func(t *testing.T) {
 			repository, err := fsrepo.Open(t.TempDir())
@@ -65,7 +55,7 @@ func TestImmediateFirstPublishRecordsProviderPreflightFailureBeforeSourceBuild(t
 			}
 			translator := translation.NewService(repository, contentService, ai.NewService(repository, ai.Client{}), nil)
 			defer translator.Close()
-			builds := &translationReceiptPublisher{translator: translator}
+			builds := &translationReceiptPublisher{}
 			backups := backup.NewService(repository)
 			defer backups.Close()
 			app := &Server{
@@ -85,6 +75,7 @@ func TestImmediateFirstPublishRecordsProviderPreflightFailureBeforeSourceBuild(t
 				app.handlePublishPost(recorder, request)
 			}
 			var response struct {
+				Post  domain.Post `json:"post"`
 				Build struct {
 					Status string `json:"status"`
 				} `json:"build"`
@@ -96,11 +87,11 @@ func TestImmediateFirstPublishRecordsProviderPreflightFailureBeforeSourceBuild(t
 			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 				t.Fatal(err)
 			}
-			if recorder.Code != http.StatusOK || response.Build.Status != "succeeded" || response.Translation.Status != "not-configured" || response.Translation.TaskID == "" {
-				t.Fatalf("first-publish response = status %d, %#v, body %s", recorder.Code, response, recorder.Body.String())
+			if recorder.Code != http.StatusAccepted || response.Build.Status != "blocked" || response.Translation.Status != "not-configured" || response.Translation.TaskID == "" {
+				t.Fatalf("publish response = status %d, %#v, body %s", recorder.Code, response, recorder.Body.String())
 			}
-			if builds.err != nil || !builds.sawReceipt {
-				t.Fatalf("source build did not observe durable translation receipt: saw=%t err=%v", builds.sawReceipt, builds.err)
+			if builds.calls.Load() != 0 {
+				t.Fatalf("unsafe source-only builds = %d", builds.calls.Load())
 			}
 			stored, err := translator.Get(response.Translation.TaskID)
 			if err != nil || stored.Status != "failed" || stored.Error != "provider-unavailable" || stored.EntityKind != kind || stored.EntityID != item.Meta.ID || len(stored.Targets) != 1 || stored.SourceContent == "" || stored.Targets[0].ExpectedContent == "" {
@@ -124,6 +115,39 @@ func TestImmediateFirstPublishRecordsProviderPreflightFailureBeforeSourceBuild(t
 			}
 			if strings.Contains(string(payload), "private ") {
 				t.Fatalf("durable preflight task exposed source content: %s", payload)
+			}
+
+			body, err = json.Marshal(map[string]int{"revision": response.Post.Meta.Revision})
+			if err != nil {
+				t.Fatal(err)
+			}
+			repeatRequest := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			repeatRequest.SetPathValue("id", item.Meta.ID)
+			repeatRecorder := httptest.NewRecorder()
+			if kind == "Page" {
+				app.handlePublishPage(repeatRecorder, repeatRequest)
+			} else {
+				app.handlePublishPost(repeatRecorder, repeatRequest)
+			}
+			var repeated struct {
+				Post  domain.Post `json:"post"`
+				Build struct {
+					Status string `json:"status"`
+				} `json:"build"`
+				Translation struct {
+					Status string `json:"status"`
+					TaskID string `json:"taskId"`
+				} `json:"translation"`
+			}
+			if err := json.Unmarshal(repeatRecorder.Body.Bytes(), &repeated); err != nil {
+				t.Fatal(err)
+			}
+			if repeatRecorder.Code != http.StatusAccepted || repeated.Build.Status != "blocked" || repeated.Translation.Status != "not-configured" || repeated.Translation.TaskID == "" || repeated.Translation.TaskID == response.Translation.TaskID || builds.calls.Load() != 0 {
+				t.Fatalf("repeat publish = status %d, %#v, builds %d, body %s", repeatRecorder.Code, repeated, builds.calls.Load(), repeatRecorder.Body.String())
+			}
+			repeatedTask, getErr := translator.Get(repeated.Translation.TaskID)
+			if getErr != nil || repeatedTask.PublicationGeneration == stored.PublicationGeneration || repeatedTask.PublicationGeneration != repeated.Post.Meta.PublicationGeneration {
+				t.Fatalf("repeat publication preflight task = %#v, %v; first=%#v", repeatedTask, getErr, stored)
 			}
 		})
 	}

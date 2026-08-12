@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,12 +13,12 @@ import (
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
 )
 
-func TestFrameworkDictionaryCompletenessAndUpdate(t *testing.T) {
+func TestFrameworkDictionaryRejectsDirectUpdates(t *testing.T) {
 	repository, err := fsrepo.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	locales := domain.LocalesConfig{SchemaVersion: 1, SourceLocale: "en", Enabled: []domain.LocaleDefinition{{Code: "en", Label: "English", Enabled: true}, {Code: "fr", Label: "Français", Enabled: true}}}
+	locales := domain.LocalesConfig{SchemaVersion: 1, SourceLocale: "zh-CN", Enabled: []domain.LocaleDefinition{{Code: "zh-CN", Label: "简体中文", Enabled: true, Status: domain.LocaleStatusReady}, {Code: "fr", Label: "Français", Enabled: true, Status: domain.LocaleStatusReady}}}
 	if err := repository.WriteYAML("config/locales.yaml", locales, false); err != nil {
 		t.Fatal(err)
 	}
@@ -32,14 +31,15 @@ func TestFrameworkDictionaryCompletenessAndUpdate(t *testing.T) {
 	request.SetPathValue("locale", "fr")
 	recorder := httptest.NewRecorder()
 	server.handleUpdateFrameworkDictionary(recorder, request)
-	if recorder.Code != http.StatusOK || recorder.Header().Get("X-MutiBlog-Static-Build") != "succeeded" {
-		t.Fatalf("update response = %d %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusUnprocessableEntity || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"dictionary_managed"`)) {
+		t.Fatalf("managed target response = %d %s", recorder.Code, recorder.Body.String())
 	}
-	var updated frameworkDictionaryView
-	if err := json.Unmarshal(recorder.Body.Bytes(), &updated); err != nil {
-		t.Fatal(err)
-	}
-	if updated.Locale != "fr" || updated.Values["home"] != "Accueil" || updated.Translated != 1 || len(updated.Missing) != updated.Total-1 {
-		t.Fatalf("updated framework dictionary = %#v", updated)
+
+	request = httptest.NewRequest(http.MethodPut, "/api/v1/admin/dictionaries/zh-CN", bytes.NewBufferString(`{"values":{"home":"首页自定义"}}`))
+	request.SetPathValue("locale", "zh-CN")
+	recorder = httptest.NewRecorder()
+	server.handleUpdateFrameworkDictionary(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"dictionary_managed"`)) || recorder.Header().Get("X-MutiBlog-Static-Build") != "" {
+		t.Fatalf("managed source response = %d %s", recorder.Code, recorder.Body.String())
 	}
 }

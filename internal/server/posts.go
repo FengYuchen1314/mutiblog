@@ -82,6 +82,9 @@ func (s *Server) handleGetPost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdatePostLocale(w http.ResponseWriter, r *http.Request) {
+	if !s.requireEditableContentLocale(w, r) {
+		return
+	}
 	var request updatePostLocaleRequest
 	if !decodeJSON(w, r, &request) {
 		s.writeError(w, http.StatusBadRequest, "invalid_json", "The request body is invalid.", nil)
@@ -183,7 +186,6 @@ func (s *Server) handlePublishPost(w http.ResponseWriter, r *http.Request) {
 		s.writeContentError(w, err)
 		return
 	}
-	firstPublish := before.Meta.ReleaseRevision == 0
 	if before.Meta.PublishedAt != nil && before.Meta.PublishedAt.After(time.Now().UTC()) {
 		task, scheduleErr := s.scheduler.Start(scheduled.StartInput{EntityKind: "Post", EntityID: before.Meta.ID, Revision: request.Revision, DueAt: *before.Meta.PublishedAt})
 		if scheduleErr != nil {
@@ -217,10 +219,20 @@ func (s *Server) handlePublishPost(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("cancel superseded scheduled post publish failed after successful publish", "post", before.Meta.ID, "error", cancelErr)
 		}
 	}
-	translationPlan := s.prepareFirstPublishTranslation(firstPublish, "Post", post.Meta.ID)
-	report, buildErr := s.publisher.Build(r.Context())
-	s.launchFirstPublishTranslation(translationPlan)
+	translationPlan := s.preparePublishTranslation("Post", post.Meta.ID)
+	s.launchPublishTranslation(translationPlan)
 	translationState := translationPlan.response
+	if translationPlan.deferBuild {
+		w.Header().Set("X-MutiBlog-Static-Build", "deferred")
+		s.writeJSON(w, http.StatusAccepted, map[string]any{"post": post, "build": map[string]any{"status": "deferred"}, "translation": translationState})
+		return
+	}
+	if translationPlan.blockBuild {
+		w.Header().Set("X-MutiBlog-Static-Build", "blocked")
+		s.writeJSON(w, http.StatusAccepted, map[string]any{"post": post, "build": map[string]any{"status": "blocked"}, "translation": translationState})
+		return
+	}
+	report, buildErr := s.publisher.Build(r.Context())
 	if buildErr != nil {
 		s.logger.Error("static build after publish failed", "post", post.Meta.ID, "error", buildErr)
 		w.Header().Set("X-MutiBlog-Static-Build", "failed")
@@ -268,6 +280,10 @@ func (s *Server) writeContentError(w http.ResponseWriter, err error) {
 		s.writeError(w, http.StatusUnprocessableEntity, "invalid_post_id", "The custom ID must contain lowercase letters and hyphens only.", map[string]string{"id": "Use lowercase letters separated by single hyphens."})
 	case errors.Is(err, content.ErrLocaleDisabled):
 		s.writeError(w, http.StatusUnprocessableEntity, "locale_disabled", "The locale is not enabled for this site.", nil)
+	case errors.Is(err, content.ErrLocaleAIManaged):
+		s.writeError(w, http.StatusForbidden, "content_locale_ai_managed", "Only Simplified Chinese source content can be edited manually. Other locales are managed by AI translation.", nil)
+	case errors.Is(err, content.ErrSourceRevision):
+		s.writeError(w, http.StatusUnprocessableEntity, "source_revision_unavailable", "The selected revision does not contain editable Simplified Chinese source content.", nil)
 	case errors.Is(err, content.ErrInvalidStatus):
 		s.writeError(w, http.StatusConflict, "content_status_invalid", "The content cannot perform this action in its current status.", nil)
 	default:

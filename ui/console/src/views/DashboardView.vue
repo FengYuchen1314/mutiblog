@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { Icon } from "@iconify/vue";
-import { VButton, VCard, VPageHeader } from "@halo-dev/components";
 import { api } from "@/api/client";
 
 const totals = ref<{ posts: number | null; pages: number | null; comments: number | null }>({
@@ -38,16 +37,14 @@ const metrics = computed(() => [
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('dashboard.title')"
+    <MPageHeader :title="t('dashboard.title')"
       ><template #actions
-        ><RouterLink to="/settings"
-          ><VButton>{{ t("dashboard.settings") }}</VButton></RouterLink
-        ></template
-      ></VPageHeader
+        ><MButton to="/settings">{{ t("dashboard.settings") }}</MButton></template
+      ></MPageHeader
     >
     <div class="page-body">
       <div class="metric-grid">
-        <VCard v-for="metric in metrics" :key="metric[0]">
+        <MSurface v-for="metric in metrics" :key="metric[0]">
           <div class="metric">
             <span class="metric-icon"><Icon :icon="metric[2]" /></span>
             <div>
@@ -55,16 +52,16 @@ const metrics = computed(() => [
               ><strong>{{ metric[1] }}</strong>
             </div>
           </div>
-        </VCard>
+        </MSurface>
       </div>
-      <VCard class="dashboard-quick-access">
+      <MSurface class="dashboard-quick-access">
         <div class="card-title">{{ t("dashboard.quickAccess") }}</div>
         <div class="quick-grid">
           <RouterLink v-for="action in quickActions" :key="action[1]" :to="action[1]" class="quick-action">
             <Icon :icon="action[2]" /><span>{{ action[0] }}</span>
           </RouterLink>
         </div>
-      </VCard>
+      </MSurface>
     </div>
   </div>
 </template>

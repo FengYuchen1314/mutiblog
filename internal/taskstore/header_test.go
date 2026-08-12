@@ -9,6 +9,7 @@ func TestValidateRecognizesSharedTaskKinds(t *testing.T) {
 		{SchemaVersion: 1, ID: "20260811T010203.000000000Z-aabbccdd", Kind: "StaticBuild"},
 		{SchemaVersion: 1, ID: "scheduled-publish-20260811T010203.000000000Z-aabbccdd", Kind: "ScheduledPublish"},
 		{SchemaVersion: 1, ID: "index-rebuild-20260811T010203.000000000Z-aabbccdd", Kind: "IndexRebuild"},
+		{SchemaVersion: 1, ID: "locale-provision-20260811T010203.000000000Z-aabbccdd", Kind: "LocaleProvision"},
 	}
 	for _, header := range tests {
 		if err := Validate(header, header.ID); err != nil {

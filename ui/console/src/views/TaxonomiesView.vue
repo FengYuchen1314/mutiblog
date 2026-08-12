@@ -2,7 +2,6 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
-import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
 import { api, type LocalesConfig, type Taxonomy, type ThemeRecord } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
@@ -186,26 +185,26 @@ async function removeSelected() {
 
 <template>
   <div class="page">
-    <VPageHeader :title="title()"
+    <MPageHeader :title="title()"
       ><template #actions
-        ><VButton type="secondary" @click="startCreate">{{
+        ><MButton variant="tonal" @click="startCreate">{{
           t("taxonomyPage.new", { name: entityName() })
-        }}</VButton></template
-      ></VPageHeader
+        }}</MButton></template
+      ></MPageHeader
     >
     <div class="page-body settings-grid">
-      <VCard
+      <MSurface
         ><div class="resource-list">
           <button v-for="item in items" :key="item.id" type="button" class="provider-item" @click="edit(item)">
             <strong>{{ item.locales[item.sourceLocale]?.name }}</strong
             ><span>{{ item.id }}</span
-            ><VTag v-if="item.parentId">{{ t("taxonomyPage.childCategory") }}</VTag></button
-          ><VEmpty
+            ><MChip v-if="item.parentId">{{ t("taxonomyPage.childCategory") }}</MChip></button
+          ><MEmptyState
             v-if="!items.length"
             :title="t(kind === 'categories' ? 'taxonomyPage.emptyCategories' : 'taxonomyPage.emptyTags')"
           /></div
-      ></VCard>
-      <VCard v-if="selected || creating">
+      ></MSurface>
+      <MSurface v-if="selected || creating">
         <div class="provider-form">
           <h3>{{ t(selected ? "taxonomyPage.edit" : "taxonomyPage.new", { name: entityName() }) }}</h3>
           <div v-if="notice" class="form-success">{{ notice }}</div>
@@ -267,17 +266,17 @@ async function removeSelected() {
             ><span>{{ t("taxonomyPage.seoDescription") }}</span
             ><textarea v-model="form.seoDescription" rows="3" />
           </label>
-          <VButton type="secondary" :loading="busy === 'save'" :disabled="Boolean(busy)" @click="save">{{
+          <MButton variant="tonal" :loading="busy === 'save'" :disabled="Boolean(busy)" @click="save">{{
             t("common.save")
-          }}</VButton
+          }}</MButton
           ><button v-if="selected" type="button" class="text-danger" :disabled="Boolean(busy)" @click="removeSelected">
             {{ t("common.deleteForever") }}
           </button>
         </div>
-      </VCard>
-      <VCard v-if="buildTaskIds.length"
+      </MSurface>
+      <MSurface v-if="buildTaskIds.length"
         ><TaskProgress v-for="taskId in buildTaskIds" :key="taskId" :task-id="taskId"
-      /></VCard>
+      /></MSurface>
     </div>
   </div>
 </template>

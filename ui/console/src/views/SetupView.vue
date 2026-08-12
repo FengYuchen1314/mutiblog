@@ -2,7 +2,6 @@
 import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { VButton } from "@halo-dev/components";
 import { ApiError, api, createStaticBuildTaskId } from "@/api/client";
 import { markSetupComplete } from "@/router";
 import { useSessionStore } from "@/stores/session";
@@ -10,13 +9,14 @@ import { useSessionStore } from "@/stores/session";
 const router = useRouter();
 const session = useSessionStore();
 const { t } = useI18n();
+const SOURCE_LOCALE = "zh-CN";
 const submitting = ref(false);
 const error = ref("");
 const fields = ref<Record<string, string>>({});
 const form = reactive({
   siteTitle: "MutiBlog",
   baseUrl: window.location.origin,
-  sourceLocale: "zh-CN",
+  sourceLocale: SOURCE_LOCALE,
   adminLocale: "zh-CN",
   timezone: "Asia/Shanghai",
   username: "admin",
@@ -28,7 +28,7 @@ async function submit() {
   error.value = "";
   fields.value = {};
   try {
-    const result = await api.setup({ ...form }, createStaticBuildTaskId());
+    const result = await api.setup({ ...form, sourceLocale: SOURCE_LOCALE }, createStaticBuildTaskId());
     session.establish(result.session);
     markSetupComplete();
     if (result.build.status === "failed" && !result.build.taskId) {
@@ -73,7 +73,8 @@ async function submit() {
         </label>
         <label class="field">
           <span>{{ t("setupPage.sourceLocale") }}</span>
-          <input v-model="form.sourceLocale" placeholder="zh-CN" />
+          <input :value="t('setupPage.sourceLocaleValue')" readonly aria-readonly="true" />
+          <small>{{ t("setupPage.sourceLocaleHelp") }}</small>
           <small v-if="fields.sourceLocale" class="field-error">{{ fields.sourceLocale }}</small>
         </label>
         <label class="field">
@@ -103,9 +104,9 @@ async function submit() {
           <small v-if="fields.password" class="field-error">{{ fields.password }}</small>
         </label>
         <div v-if="error" class="form-alert field--wide">{{ error }}</div>
-        <VButton class="field--wide" type="secondary" block :loading="submitting" @click="submit">
+        <MButton class="field--wide" variant="tonal" block :loading="submitting" @click="submit">
           {{ t("setupPage.submit") }}
-        </VButton>
+        </MButton>
       </form>
     </div>
   </div>

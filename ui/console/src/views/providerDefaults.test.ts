@@ -1,13 +1,21 @@
 import { describe, expect, test } from "vitest";
-import { nextQwenProviderId, preferredProvider, providerMutationInput, qwenProviderTemplate } from "./providerDefaults";
+import {
+  googleFreeProviderTemplate,
+  nextGoogleFreeProviderId,
+  nextOpenAICompatibleProviderId,
+  openAICompatibleProviderTemplate,
+  preferredProvider,
+  providerMutationInput,
+  providerTemplate,
+} from "./providerDefaults";
 
 describe("provider defaults", () => {
-  test("prefers the seeded Qwen provider, then the configured default", () => {
+  test("prefers the seeded Google provider, then the configured default", () => {
     const providers = [
       { id: "deepseek", default: true },
-      { id: "qwen-free", default: false },
+      { id: "google-free", default: false },
     ];
-    expect(preferredProvider(providers)?.id).toBe("qwen-free");
+    expect(preferredProvider(providers)?.id).toBe("google-free");
     expect(
       preferredProvider([
         { id: "deepseek", default: true },
@@ -17,16 +25,28 @@ describe("provider defaults", () => {
     expect(preferredProvider([])).toBeUndefined();
   });
 
-  test("suggests a non-conflicting Qwen-compatible provider id", () => {
-    expect(nextQwenProviderId([])).toBe("qwen-free");
-    expect(nextQwenProviderId([{ id: "qwen-free" }])).toBe("qwen-free-2");
-    expect(nextQwenProviderId([{ id: "qwen-free" }, { id: "qwen-free-2" }])).toBe("qwen-free-3");
-    expect(qwenProviderTemplate.model).toBe("qwen/qwen3-32b:free");
+  test("suggests a non-conflicting Google provider id and keeps both templates", () => {
+    expect(nextGoogleFreeProviderId([])).toBe("google-free");
+    expect(nextGoogleFreeProviderId([{ id: "google-free" }])).toBe("google-free-2");
+    expect(nextGoogleFreeProviderId([{ id: "google-free" }, { id: "google-free-2" }])).toBe("google-free-3");
+    expect(nextOpenAICompatibleProviderId([])).toBe("openai-compatible");
+    expect(nextOpenAICompatibleProviderId([{ id: "openai-compatible" }])).toBe("openai-compatible-2");
+    expect(providerTemplate("google-free")).toBe(googleFreeProviderTemplate);
+    expect(providerTemplate("openai-compatible")).toBe(openAICompatibleProviderTemplate);
+    expect(googleFreeProviderTemplate).toEqual({
+      name: "Google Free Translate",
+      kind: "google-free",
+      baseUrl: "https://translate.googleapis.com/translate_a/single",
+      model: "google-translate",
+      enabled: true,
+      timeoutSeconds: 45,
+      maxOutputTokens: 8192,
+    });
   });
 
   test("separates ordinary edits from the explicit default promotion", () => {
     const currentDefault = {
-      ...qwenProviderTemplate,
+      ...openAICompatibleProviderTemplate,
       default: true,
       apiKey: "",
       clearKey: false,
@@ -41,10 +61,22 @@ describe("provider defaults", () => {
   });
 
   test("keeps API key changes explicit and lets clearing win", () => {
-    expect(providerMutationInput({ ...qwenProviderTemplate, apiKey: "  new-key  " }, false).apiKey).toBe("new-key");
-    expect(providerMutationInput({ ...qwenProviderTemplate, apiKey: "   " }, false)).not.toHaveProperty("apiKey");
-    expect(providerMutationInput({ ...qwenProviderTemplate, apiKey: "new-key", clearKey: true }, false).apiKey).toBe(
-      "",
+    expect(providerMutationInput({ ...openAICompatibleProviderTemplate, apiKey: "  new-key  " }, false).apiKey).toBe(
+      "new-key",
     );
+    expect(providerMutationInput({ ...openAICompatibleProviderTemplate, apiKey: "   " }, false)).not.toHaveProperty(
+      "apiKey",
+    );
+    expect(
+      providerMutationInput({ ...openAICompatibleProviderTemplate, apiKey: "new-key", clearKey: true }, false).apiKey,
+    ).toBe("");
+  });
+
+  test("never sends an API key for Google free translation", () => {
+    expect(providerMutationInput({ ...googleFreeProviderTemplate, apiKey: "stale-key" }, true)).toMatchObject({
+      kind: "google-free",
+      default: true,
+      apiKey: "",
+    });
   });
 });

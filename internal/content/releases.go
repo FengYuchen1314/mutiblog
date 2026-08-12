@@ -88,10 +88,57 @@ func (s *Service) InitializePublishedReleases() (int, error) {
 				if migrated {
 					initialized++
 				}
-				item.Meta.ReleaseRevision = released.Meta.Revision
+				if item.Meta.Status == domain.ContentStatusPublished {
+					// The immutable release, not a mutable head that may already
+					// belong to a later interrupted publication, owns the legacy
+					// generation migration. Otherwise P2's committed head marker
+					// could be rewritten back to P1 before scheduled recovery can
+					// promote P2's pending release.
+					releaseGeneration := released.Meta.PublicationGeneration
+					if releaseGeneration <= 0 {
+						// Legacy releases predate the stable publication marker. Their
+						// current immutable release is authoritative; future explicit
+						// publishes will allocate a newer generation normally.
+						releaseGeneration = released.Meta.Revision
+					}
+					if released.Meta.PublicationGeneration != releaseGeneration {
+						released.Meta.PublicationGeneration = releaseGeneration
+						if err := s.writeReleasePublicationGeneration(itemKind, released); err != nil {
+							return initialized, err
+						}
+					}
+					// A larger head marker is a durable P2 metadata commit whose
+					// release pointer did not make it to disk. Preserve it and
+					// materialize the same pending release that Publish would have
+					// written; do not let P1's pointer rebind P2 to generation P1.
+					if item.Meta.PublicationGeneration > releaseGeneration {
+						pending := publicationReleaseWithAutomaticTranslationPending(item)
+						if err := s.writeRelease(itemKind, pending); err != nil {
+							return initialized, err
+						}
+						item.Meta.ReleaseRevision = item.Meta.Revision
+						initialized++
+					} else {
+						item.Meta.ReleaseRevision = released.Meta.Revision
+						item.Meta.PublicationGeneration = releaseGeneration
+					}
+				} else {
+					item.Meta.ReleaseRevision = released.Meta.Revision
+				}
 			case errors.Is(releaseErr, os.ErrNotExist):
 				if item.Meta.Status == domain.ContentStatusPublished {
-					if err := s.writeRelease(itemKind, item); err != nil {
+					hasPublicationGeneration := item.Meta.PublicationGeneration > 0
+					if !hasPublicationGeneration {
+						item.Meta.PublicationGeneration = item.Meta.Revision
+					}
+					release := item
+					if hasPublicationGeneration {
+						// A marker written before its release pointer is evidence of a
+						// modern explicit publish. Recreate its pending release rather
+						// than exposing old AI targets as current after restart.
+						release = publicationReleaseWithAutomaticTranslationPending(item)
+					}
+					if err := s.writeRelease(itemKind, release); err != nil {
 						return initialized, err
 					}
 					item.Meta.ReleaseRevision = item.Meta.Revision
@@ -109,7 +156,7 @@ func (s *Service) InitializePublishedReleases() (int, error) {
 			if err := s.repository.ReadYAML(metaPath, &stored); err != nil {
 				return initialized, err
 			}
-			if stored.BaseRevision != item.Meta.BaseRevision || stored.HeadRevision != item.Meta.HeadRevision || stored.ReleaseRevision != item.Meta.ReleaseRevision {
+			if stored.BaseRevision != item.Meta.BaseRevision || stored.HeadRevision != item.Meta.HeadRevision || stored.ReleaseRevision != item.Meta.ReleaseRevision || stored.PublicationGeneration != item.Meta.PublicationGeneration {
 				if err := s.repository.WriteYAML(metaPath, item.Meta, false); err != nil {
 					return initialized, err
 				}
@@ -117,6 +164,35 @@ func (s *Service) InitializePublishedReleases() (int, error) {
 		}
 	}
 	return initialized, nil
+}
+
+// writeReleasePublicationGeneration updates only the immutable snapshot and
+// its exact history mirror. Rewriting through writeRelease would allocate a
+// fresh snapshot ID during startup migration, which would make an otherwise
+// no-op legacy normalization look like a new publication.
+func (s *Service) writeReleasePublicationGeneration(kind string, released domain.Post) error {
+	root, err := releaseRoot(kind, released.Meta.ID)
+	if err != nil {
+		return err
+	}
+	var pointer releasePointer
+	if err := s.repository.ReadYAML(filepath.Join(root, "current.yaml"), &pointer); err != nil {
+		return err
+	}
+	if pointer.SchemaVersion != domain.SchemaVersion || !validRevisionID(pointer.Snapshot) {
+		return errors.New("invalid content release pointer")
+	}
+	if err := s.writeContentSnapshot(filepath.Join(root, "snapshots", pointer.Snapshot), released); err != nil {
+		return err
+	}
+	if !validRevisionID(pointer.HistorySnapshot) {
+		return nil
+	}
+	paths, err := lifecyclePaths(kind, released.Meta.ID)
+	if err != nil {
+		return err
+	}
+	return s.writeContentSnapshot(filepath.Join(paths.revisions, pointer.HistorySnapshot), released)
 }
 
 // ListPostsForBuild and ListPagesForBuild substitute the immutable public
@@ -431,6 +507,28 @@ func (s *Service) readRelease(kind, id string) (domain.Post, error) {
 // public snapshot. It never promotes unrelated head edits made while the task
 // was running.
 func (s *Service) PromoteAITranslation(kind, id, locale string, sourceRevision int) error {
+	return s.promoteTranslation(kind, id, locale, sourceRevision, false, 0)
+}
+
+// PromoteAITranslationForPublication is the generation-fenced variant used by
+// automatic publication tasks. It closes the read-to-promote race with a
+// newer explicit publish that kept the same source content.
+func (s *Service) PromoteAITranslationForPublication(kind, id, locale string, sourceRevision, publicationGeneration int) error {
+	if publicationGeneration <= 0 {
+		return ErrSourceChanged
+	}
+	return s.promoteTranslation(kind, id, locale, sourceRevision, false, publicationGeneration)
+}
+
+// PromoteCurrentTranslation is retained only for explicit legacy repository
+// recovery: it may preserve a stored manual repair whose source revision still
+// matches. Normal provisioning and AI tasks use PromoteAITranslation so a
+// manual value cannot be claimed as an AI result.
+func (s *Service) PromoteCurrentTranslation(kind, id, locale string, sourceRevision int) error {
+	return s.promoteTranslation(kind, id, locale, sourceRevision, true, 0)
+}
+
+func (s *Service) promoteTranslation(kind, id, locale string, sourceRevision int, allowManual bool, expectedPublicationGeneration int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	head, err := s.getLifecycleContentLocked(kind, id)
@@ -438,7 +536,8 @@ func (s *Service) PromoteAITranslation(kind, id, locale string, sourceRevision i
 		return err
 	}
 	state, ok := head.Meta.Locales[locale]
-	if !ok || state.Origin != domain.LocaleOriginAI || state.State != "current" || state.SourceRevision != sourceRevision {
+	validOrigin := state.Origin == domain.LocaleOriginAI || (allowManual && state.Origin == domain.LocaleOriginManual)
+	if !ok || !validOrigin || state.State != "current" || state.SourceRevision != sourceRevision {
 		return ErrSourceChanged
 	}
 	if head.Meta.Status != domain.ContentStatusPublished {
@@ -450,6 +549,9 @@ func (s *Service) PromoteAITranslation(kind, id, locale string, sourceRevision i
 	released, err := s.readRelease(kind, id)
 	if err != nil {
 		return err
+	}
+	if expectedPublicationGeneration > 0 && released.Meta.PublicationGeneration != expectedPublicationGeneration {
+		return ErrSourceChanged
 	}
 	if released.Meta.Locales[released.Meta.SourceLocale].Revision != sourceRevision {
 		// The AI result belongs to an unpublished source head. Keep it on the
@@ -480,6 +582,98 @@ func (s *Service) PromoteAITranslation(kind, id, locale string, sourceRevision i
 	}
 	head.Meta.ReleaseRevision = released.Meta.Revision
 	paths, err := lifecyclePaths(kind, id)
+	if err != nil {
+		return err
+	}
+	return s.repository.WriteYAML(filepath.Join(paths.content, "meta.yaml"), head.Meta, false)
+}
+
+// ApplyAIReleaseTranslation adds a target locale to the immutable public
+// release when its source snapshot is older than the unpublished head. It does
+// not copy the old translation onto that newer head; callers translate the
+// head separately so a later publish cannot release stale target text.
+func (s *Service) ApplyAIReleaseTranslation(kind, id, locale string, input ApplyAIReleaseTranslationInput) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	descriptor := postContent
+	if strings.EqualFold(kind, pageContent.kind) || strings.EqualFold(kind, pageContent.plural) {
+		descriptor = pageContent
+	} else if !strings.EqualFold(kind, postContent.kind) && !strings.EqualFold(kind, postContent.plural) {
+		return ErrNotFound
+	}
+	locale, err := s.normalizeEnabledLocale(locale)
+	if err != nil {
+		return err
+	}
+	head, err := s.getContentLocked(descriptor, id)
+	if err != nil {
+		return err
+	}
+	if head.Meta.Status != domain.ContentStatusPublished {
+		return ErrInvalidStatus
+	}
+	released, err := s.readRelease(descriptor.kind, id)
+	if err != nil {
+		return err
+	}
+	if released.Meta.Revision != input.ExpectedReleaseRevision {
+		return ErrSourceChanged
+	}
+	if input.ExpectedPublicationGeneration > 0 && released.Meta.PublicationGeneration != input.ExpectedPublicationGeneration {
+		return ErrSourceChanged
+	}
+	if locale == released.Meta.SourceLocale {
+		return ErrLocaleDisabled
+	}
+	sourceState, exists := released.Meta.Locales[released.Meta.SourceLocale]
+	if !exists || sourceState.Revision != input.ExpectedSourceRevision {
+		return ErrSourceChanged
+	}
+	headSourceState, headSourceExists := head.Meta.Locales[head.Meta.SourceLocale]
+	headSourceContent, headContentExists := head.Content[head.Meta.SourceLocale]
+	releaseSourceContent, releaseContentExists := released.Content[released.Meta.SourceLocale]
+	if !headSourceExists || !headContentExists || !releaseContentExists {
+		return ErrSourceChanged
+	}
+	if head.Meta.SourceLocale != released.Meta.SourceLocale || (headSourceState.Revision == sourceState.Revision && headSourceContent == releaseSourceContent) {
+		// The ordinary Apply + Promote path owns a release that still follows its
+		// head source. This method must never synthesize a second competing release.
+		return ErrSourceChanged
+	}
+	target := released.Meta.Locales[locale]
+	if target.Revision != input.ExpectedTargetRevision {
+		return ErrTargetChanged
+	}
+	localized := input.Content
+	localized.Title = strings.TrimSpace(localized.Title)
+	localized.Summary = strings.TrimSpace(localized.Summary)
+	localized.SEOTitle = strings.TrimSpace(localized.SEOTitle)
+	localized.SEODescription = strings.TrimSpace(localized.SEODescription)
+	if localized.Title == "" || (strings.TrimSpace(releaseSourceContent.Markdown) != "" && strings.TrimSpace(localized.Markdown) == "") {
+		return errors.New("complete translated release content is required")
+	}
+	if released.Meta.Revision+1 >= head.Meta.HeadRevision {
+		if err := s.snapshotContent(descriptor, head); err != nil {
+			return err
+		}
+		advanceHead(&head.Meta)
+		head.Meta.UpdatedAt = time.Now().UTC()
+	}
+	target.Revision++
+	target.State = "current"
+	target.Origin = domain.LocaleOriginAI
+	target.SourceRevision = sourceState.Revision
+	released.Meta.Locales[locale] = target
+	released.Content[locale] = localized
+	advanceHead(&released.Meta)
+	released.Meta.ReleaseRevision = released.Meta.Revision
+	released.Meta.UpdatedAt = time.Now().UTC()
+	if err := s.writeRelease(descriptor.kind, released); err != nil {
+		return err
+	}
+	head.Meta.ReleaseRevision = released.Meta.Revision
+	head.Meta.HasUnpublishedChanges = head.Meta.HeadRevision != head.Meta.ReleaseRevision
+	paths, err := lifecyclePaths(descriptor.kind, id)
 	if err != nil {
 		return err
 	}

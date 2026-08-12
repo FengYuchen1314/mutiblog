@@ -22,6 +22,175 @@ describe("fallbackChain", () => {
   });
 });
 
+test("requires exact content and framework strings for ready locales", async () => {
+  const output = join("/tmp", `mutiblog-ready-locale-${crypto.randomUUID()}`);
+  outputs.push(output);
+  const input: BuildInput = {
+    schemaVersion: 1,
+    sourceLocale: "zh-CN",
+    locales: [
+      { code: "zh-CN", label: "简体中文", status: "ready" },
+      { code: "ja", label: "日本語", status: "ready" },
+    ],
+    site: {
+      locales: {
+        "zh-CN": { title: "中文站点" },
+        ja: { title: "日本語サイト" },
+      },
+    },
+    dictionaries: {
+      "zh-CN": { home: "首页", notFound: "页面不存在" },
+      ja: { home: "ホーム", notFound: "ページが見つかりません" },
+    },
+    theme: {
+      id: "earth",
+      settings: { layout: { heroKicker: "中文眉题" } },
+      localizableSettings: ["layout.heroKicker"],
+      localizedSettings: { ja: { "layout.heroKicker": "日本語の眉題" } },
+    },
+    posts: [
+      {
+        id: "exact-post",
+        status: "published",
+        locales: {
+          "zh-CN": {
+            title: "中文标题",
+            summary: "中文摘要",
+            markdown: "中文正文",
+          },
+          ja: {
+            title: "日本語のタイトル",
+            summary: "日本語の要約",
+            markdown: "日本語の本文",
+          },
+        },
+        localeStates: {
+          "zh-CN": { state: "current", origin: "source", revision: 2, sourceRevision: 2 },
+          ja: { state: "current", origin: "ai", revision: 1, sourceRevision: 2 },
+        },
+      },
+      {
+        id: "saved-draft",
+        status: "draft",
+        locales: {
+          "zh-CN": { title: "未发布草稿", markdown: "只保存中文，不触发翻译" },
+        },
+        localeStates: {
+          "zh-CN": { state: "current", origin: "source", revision: 3, sourceRevision: 3 },
+        },
+      },
+    ],
+  };
+
+  await buildSite(input, output);
+  const japanese = await readFile(join(output, "ja/index.html"), "utf8");
+  expect(japanese).toContain("日本語のタイトル");
+  expect(japanese).toContain("日本語の眉題");
+  expect(japanese).not.toContain("中文标题");
+  expect(japanese).not.toContain("中文眉题");
+
+  input.locales[1].status = "building";
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "non-ready locale cannot be rendered: ja",
+  );
+  input.locales[1].status = "ready";
+  input.posts[0].localeStates!.ja.state = "stale";
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale is stale: exact-post.ja",
+  );
+  input.posts[0].localeStates!.ja.state = "current";
+  input.posts[0].localeStates!.ja.origin = "manual";
+  await buildSite(input, output);
+  input.posts[0].localeStates!.ja.state = "stale";
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale is stale: exact-post.ja",
+  );
+  input.posts[0].localeStates!.ja.state = "current";
+  input.posts[0].localeStates!.ja.origin = "ai";
+  await buildSite(input, output);
+  delete input.posts[0].locales.ja.summary;
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale field is missing: exact-post.ja.summary",
+  );
+  input.posts[0].locales.ja.summary = "日本語の要約";
+  input.theme!.localizedSettings!.ja["stale.path"] = "古い設定";
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "localized theme setting keys do not match: ja",
+  );
+  delete input.theme!.localizedSettings!.ja["stale.path"];
+  delete input.posts[0].locales.ja;
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale is missing: exact-post.ja",
+  );
+});
+
+test("rejects a published legacy-source item missing the fixed site-source locale", async () => {
+  const output = join("/tmp", `mutiblog-pending-fixed-source-${crypto.randomUUID()}`);
+  outputs.push(output);
+  const input: BuildInput = {
+    schemaVersion: 1,
+    sourceLocale: "zh-CN",
+    locales: [
+      { code: "zh-CN", label: "简体中文", status: "ready" },
+      { code: "en", label: "English", status: "ready" },
+    ],
+    site: { locales: { "zh-CN": { title: "固定中文源站点" } } },
+    dictionaries: { "zh-CN": { notFound: "页面不存在" } },
+    posts: [{
+      id: "legacy-source-pending-translation",
+      sourceLocale: "en",
+      status: "published",
+      locales: { en: { title: "Legacy source", markdown: "Pending translation" } },
+      localeStates: {
+        en: { state: "current", origin: "source", revision: 3, sourceRevision: 3 },
+      },
+    }],
+  };
+
+  await expect(buildSite(input, output)).rejects.toThrow(
+    "post locale is missing: legacy-source-pending-translation.zh-CN",
+  );
+});
+
+test("keeps a legacy entity origin available on the fixed ready source locale", async () => {
+  const output = join("/tmp", `mutiblog-legacy-source-${crypto.randomUUID()}`);
+  outputs.push(output);
+  const input: BuildInput = {
+    schemaVersion: 1,
+    sourceLocale: "zh-CN",
+    locales: [
+      { code: "zh-CN", label: "简体中文", status: "ready" },
+      { code: "en", label: "English" },
+    ],
+    site: { locales: { "zh-CN": { title: "固定源站点" } } },
+    dictionaries: {
+      "zh-CN": { notFound: "页面不存在", redirecting: "继续访问" },
+    },
+    posts: [
+      {
+        id: "legacy-origin",
+        sourceLocale: "en",
+        status: "published",
+        locales: { en: { title: "Legacy title", markdown: "Legacy body" } },
+      },
+    ],
+  };
+
+  const report = await buildSite(input, output);
+
+  expect(report.redirects).toContainEqual({
+    from: "/zh-CN/posts/legacy-origin/",
+    to: "/en/posts/legacy-origin/",
+    status: 302,
+  });
+  expect(await readFile(join(output, "zh-CN/index.html"), "utf8")).toContain(
+    "Legacy title",
+  );
+  expect(
+    await readFile(join(output, "en/posts/legacy-origin/index.html"), "utf8"),
+  ).toContain("Legacy body");
+});
+
 test("keeps an entity's original source locale after the site source changes", async () => {
   const output = join("/tmp", `mutiblog-source-switch-${crypto.randomUUID()}`);
   outputs.push(output);
@@ -522,7 +691,7 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
     site: { locales: { "zh-CN": { title: "地球站", description: "站点说明" }, en: { title: "Earth site", description: "Site description" } } },
     comments: { moderation: "pending", pageSize: 20, maxLength: 4321 },
     dictionaries: {
-      "zh-CN": { home: "首页", archives: "归档", links: "友链", search: "搜索", colorScheme: "明暗", about: "关于", languages: "语言", poweredBy: "由 MutiBlog 驱动", posts: "文章", categories: "分类", tags: "文章标签", visits: "访问", popularPosts: "热门文章", recentPosts: "最新文章", statisticsUnavailable: "统计不可用", comments: "评论", loadingComments: "加载中", commentsUnavailable: "不可用", commentEmpty: "暂无评论", commentPending: "待审核", commentsMore: "更多评论", commentName: "姓名", commentEmail: "邮箱", commentWebsite: "网站", commentContent: "内容", commentSubmit: "提交", commentsClosed: "已关闭" },
+      "zh-CN": { home: "首页", archives: "归档", links: "友链", search: "搜索", colorScheme: "明暗", about: "关于", languages: "语言", poweredBy: "由 MutiBlog 驱动", posts: "文章", categories: "分类", tags: "文章标签", visits: "访问", popularPosts: "热门文章", recentPosts: "最新文章", statisticsUnavailable: "统计不可用", redirecting: "正在前往页面…", comments: "评论", loadingComments: "加载中", commentsUnavailable: "不可用", commentEmpty: "暂无评论", commentPending: "待审核", commentsMore: "更多评论", commentName: "姓名", commentEmail: "邮箱", commentWebsite: "网站", commentContent: "内容", commentSubmit: "提交", commentsClosed: "已关闭" },
     },
     posts: [{
       id: "earth-settings",
@@ -555,6 +724,10 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
   await buildSite(input, output);
   const homepage = await readFile(join(output, "zh-CN/index.html"), "utf8");
   expect(homepage).toContain("site-header-static");
+  expect(homepage).toContain('<meta name="view-transition" content="same-origin"/>');
+  expect(homepage).toContain('data-page-loading-label="正在前往页面…"');
+  expect(homepage).toContain('data-page-loading-status');
+  expect(homepage).toContain("pageNavigationQualifies");
   expect(homepage).toContain('<span class="brand-symbol" aria-hidden="true">地</span>');
   expect(homepage).not.toContain('class="locale-picker"');
   // The initialization script keeps its selector and configured default even without a visible toggle.
@@ -573,9 +746,11 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
   expect(homepage).not.toContain("hidden-cover.webp");
   expect(homepage).not.toContain("不应显示的摘要");
   expect(homepage).toContain("body-font-serif cards-borderless");
+  expect(homepage).toContain('data-visual-preset="material-glass"');
   expect(homepage).toContain("--accent:#ff3366");
   expect(homepage).toContain("--card-radius:0");
   expect(homepage).toContain("--card-shadow:none");
+  expect(homepage).toContain("--material-surface-shadow:none");
   expect(homepage).toContain("site-footer site-footer-centered site-footer-style-1 site-footer-borderless");
   expect(homepage).toContain("保留所有权利");
   expect(homepage).not.toContain("由 MutiBlog 驱动");
@@ -612,6 +787,11 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
   expect(css).toContain(".comment-form input:focus");
   expect(css).toContain('.comment-form[data-state="submitting"]');
   expect(css).toContain(".comment-form-two-column { grid-template-columns: 1fr; }");
+  expect(css).toContain("@view-transition { navigation: auto; }");
+  expect(css).toContain(".site-navigation-progress");
+  expect(css).toContain("@view-transition { navigation: none; }");
+  expect(css).toContain('body.cards-borderless[data-visual-preset="material-glass"]');
+  expect(css).toContain('body[data-visual-preset="material-glass"] .sidebar-profile-plain');
   expect(css).toContain("mjx-container.MathJax");
 });
 
@@ -633,6 +813,7 @@ test("maps the Halo Earth source settings to real header, content, sidebar, shar
       global: { logoType: "image", logoImage: "/media/header-logo.svg", showScrollButton: true },
       layout: { headerWidget: "latest-post", headerBackgroundType: "image", headerBackgroundImage: "/media/hero.webp", headerTitleColor: "#ffeecc", contentHeader: true },
       post: { showCover: true, titlePosition: "cover", coverHeight: "24rem", contentStyle: "typography", showUpvoteButton: true, showShareButton: true, shareItems: ["native", "x"] },
+      style: { visualPreset: "earth-classic" },
       sidebar: { widgets: ["tags", "profile"], profileLogo: "/media/profile.webp", socialLinks: [{ icon: "github", name: "", url: "https://github.com/example", kind: "link" }] },
       footer: { showFooter: true, style: "style-2", layout: "centered", logo: "/media/footer.svg", title: "页脚标题", slogan: "页脚标语", menuIds: ["footer-links"], socialLinks: [{ icon: "rss", name: "RSS", url: "/zh-CN/rss.xml", kind: "link" }], copyright: "自定义版权" },
     } },
@@ -640,6 +821,7 @@ test("maps the Halo Earth source settings to real header, content, sidebar, shar
 
   await buildSite(input, output);
   const homepage = await readFile(join(output, "zh-CN/index.html"), "utf8");
+  expect(homepage).toContain('data-visual-preset="earth-classic"');
   expect(homepage).toContain('class="brand-image"');
   expect(homepage).toContain('/media/header-logo.svg');
   expect(homepage).toContain('hero-widget-latest-post');

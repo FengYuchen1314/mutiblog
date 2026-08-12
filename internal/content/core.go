@@ -151,6 +151,9 @@ func (s *Service) updateContentLocaleLocked(descriptor contentDescriptor, id, lo
 	if err != nil {
 		return domain.Post{}, err
 	}
+	if !editableSourceLocale(item, locale) {
+		return domain.Post{}, ErrLocaleAIManaged
+	}
 	if item.Meta.Revision != input.ExpectedRevision {
 		return domain.Post{}, ErrConflict
 	}
@@ -205,6 +208,9 @@ func (s *Service) applyAIContentTranslationLocked(descriptor contentDescriptor, 
 	}
 	if locale == item.Meta.SourceLocale {
 		return domain.Post{}, ErrLocaleDisabled
+	}
+	if input.ExpectedPublicationGeneration > 0 && item.Meta.PublicationGeneration != input.ExpectedPublicationGeneration {
+		return domain.Post{}, ErrSourceChanged
 	}
 	sourceState := item.Meta.Locales[item.Meta.SourceLocale]
 	if sourceState.Revision != input.ExpectedSourceRevision {
@@ -276,18 +282,43 @@ func (s *Service) publishContentLocked(descriptor contentDescriptor, id string, 
 	}
 	advanceHead(&item.Meta)
 	item.Meta.ReleaseRevision = item.Meta.Revision
+	// Every explicit publication owns a new stable generation. AI target
+	// promotion advances the release revision but deliberately preserves this
+	// value, allowing a translation task to distinguish a new same-source
+	// publication from its own incremental release writes. Legacy migration may
+	// seed a generation above the mutable head revision, so monotonically
+	// allocate past both values rather than reusing a numeric revision.
+	item.Meta.PublicationGeneration = max(item.Meta.Revision, item.Meta.PublicationGeneration+1)
+	released := publicationReleaseWithAutomaticTranslationPending(item)
 	if err := commitPublication(
 		previousMeta,
 		item.Meta,
 		func(meta domain.PostMeta) error {
 			return s.repository.WriteYAML(descriptor.path(id, "meta.yaml"), meta, false)
 		},
-		func() error { return s.writeRelease(descriptor.kind, item) },
+		func() error { return s.writeRelease(descriptor.kind, released) },
 	); err != nil {
 		return domain.Post{}, err
 	}
 	item.Meta.HasUnpublishedChanges = false
 	return item, nil
+}
+
+// publicationReleaseWithAutomaticTranslationPending keeps the editable head's
+// derived values available for the automatic overwrite CAS, while the newly
+// committed public release records that every target needs a fresh AI result.
+// Historical releases are untouched; only an explicit Post/Page publish
+// creates this pending (stale) state.
+func publicationReleaseWithAutomaticTranslationPending(item domain.Post) domain.Post {
+	released := item
+	released.Meta.Locales = make(map[string]domain.LocaleContentState, len(item.Meta.Locales))
+	for locale, state := range item.Meta.Locales {
+		if locale != item.Meta.SourceLocale {
+			state.State = "stale"
+		}
+		released.Meta.Locales[locale] = state
+	}
+	return released
 }
 
 func (s *Service) writeContentLocale(descriptor contentDescriptor, id, locale string, value domain.LocalizedMarkdown) error {

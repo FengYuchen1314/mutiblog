@@ -18,6 +18,7 @@ import (
 	"github.com/FengYuchen1314/mutiblog/internal/content"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
+	"golang.org/x/text/language"
 	"gopkg.in/yaml.v3"
 )
 
@@ -82,6 +83,7 @@ type Runtime struct {
 	ModulePath        string
 	AssetsPath        string
 	Settings          map[string]any
+	LocalizedSettings map[string]map[string]string
 	PostTemplates     []ContentTemplate
 	PageTemplates     []ContentTemplate
 	CategoryTemplates []ContentTemplate
@@ -557,8 +559,7 @@ func (s *Service) UninstallWithSettings(id string, deleteSettings bool) error {
 		return err
 	}
 	if deleteSettings {
-		err := s.repository.RemoveFile(settingsPath(id))
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := s.removeSettingsFiles(id); err != nil {
 			return fmt.Errorf("%w: %v", ErrCleanupPending, err)
 		}
 	}
@@ -597,7 +598,7 @@ func (s *Service) recoverSettingDeletes() (int, error) {
 			// The process stopped before the package rename; no deletion was
 			// committed, so preserve both the package and its settings.
 		case errors.Is(targetErr, os.ErrNotExist) && errors.Is(stagingErr, os.ErrNotExist):
-			if err := s.repository.RemoveFile(settingsPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := s.removeSettingsFiles(id); err != nil {
 				return recovered, err
 			}
 		default:
@@ -629,7 +630,11 @@ func (s *Service) RuntimeFor(id string) (Runtime, error) {
 		if err != nil {
 			return Runtime{}, err
 		}
-		return Runtime{ID: "earth", Settings: settings.Values}, nil
+		localizedSettings, err := s.localizedSettings("earth")
+		if err != nil {
+			return Runtime{}, err
+		}
+		return Runtime{ID: "earth", Settings: settings.Values, LocalizedSettings: localizedSettings}, nil
 	}
 	manifest, err := s.readManifest(id)
 	if err != nil {
@@ -643,10 +648,15 @@ func (s *Service) RuntimeFor(id string) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
+	localizedSettings, err := s.localizedSettings(id)
+	if err != nil {
+		return Runtime{}, err
+	}
 	runtime := Runtime{
 		ID:                id,
 		ModulePath:        filepath.Join(root, filepath.FromSlash(manifest.Server)),
 		Settings:          settings.Values,
+		LocalizedSettings: localizedSettings,
 		PostTemplates:     append([]ContentTemplate(nil), manifest.PostTemplates...),
 		PageTemplates:     append([]ContentTemplate(nil), manifest.PageTemplates...),
 		CategoryTemplates: append([]ContentTemplate(nil), manifest.CategoryTemplates...),
@@ -699,6 +709,65 @@ func (s *Service) Settings(id string) (SettingsView, error) {
 		activeID = "earth"
 	}
 	return SettingsView{ThemeID: id, Active: activeID == id, Schema: schema, Values: values}, nil
+}
+
+// LocalizableText returns the non-empty effective setting values explicitly
+// marked as public, localizable text by the theme settings schema. Paths use
+// object property names and stable array indexes, for example
+// sidebar.socialLinks.0.name.
+func (s *Service) LocalizableText(id string) (map[string]string, error) {
+	view, err := s.Settings(id)
+	if err != nil {
+		return nil, err
+	}
+	values := map[string]string{}
+	if err := collectLocalizableText(view.Schema, view.Values, "", values); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+// WriteLocalizedText replaces one locale's complete set of translated theme
+// setting values. The submitted paths must exactly match the theme's current
+// non-empty localizable source values so a partial or stale translation cannot
+// be persisted as complete.
+func (s *Service) WriteLocalizedText(id, locale string, values map[string]string) error {
+	source, err := s.LocalizableText(id)
+	if err != nil {
+		return err
+	}
+	if len(source) == 0 || len(values) != len(source) {
+		return ErrInvalid
+	}
+	normalized := make(map[string]string, len(values))
+	for key := range source {
+		value, exists := values[key]
+		value = strings.TrimSpace(value)
+		if !exists || value == "" {
+			return ErrInvalid
+		}
+		normalized[key] = value
+	}
+	for key := range values {
+		if _, exists := source[key]; !exists {
+			return ErrInvalid
+		}
+	}
+	rawLocale := strings.TrimSpace(locale)
+	tag, err := language.Parse(rawLocale)
+	if err != nil || rawLocale == "" {
+		return ErrInvalid
+	}
+	locale = tag.String()
+	if locale == "zh-CN" {
+		return ErrInvalid
+	}
+	localized, err := s.localizedSettings(id)
+	if err != nil {
+		return err
+	}
+	localized[locale] = normalized
+	return s.repository.WriteYAML(localizedSettingsPath(id), localized, false)
 }
 
 func (s *Service) SaveSettings(id string, values map[string]any) (SettingsView, error) {
@@ -1060,6 +1129,19 @@ func settingsPath(id string) string {
 	return filepath.Join("themes", "settings", id+".yaml")
 }
 
+func localizedSettingsPath(id string) string {
+	return filepath.Join("themes", "settings", id+".locales.yaml")
+}
+
+func (s *Service) removeSettingsFiles(id string) error {
+	for _, path := range []string{settingsPath(id), localizedSettingsPath(id)} {
+		if err := s.repository.RemoveFile(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
 func deleteSettingsMarkerPath(id string) string {
 	return filepath.Join("themes", "settings", ".delete-"+id)
 }
@@ -1090,6 +1172,93 @@ func defaultsForSchema(schema map[string]any) map[string]any {
 		}
 	}
 	return values
+}
+
+func collectLocalizableText(schema map[string]any, value any, path string, destination map[string]string) error {
+	if localizable, _ := schema["x-localizable"].(bool); localizable {
+		text, ok := value.(string)
+		if schema["type"] != "string" || !ok || path == "" {
+			return ErrInvalid
+		}
+		if strings.TrimSpace(text) != "" {
+			destination[path] = text
+		}
+		return nil
+	}
+	switch schema["type"] {
+	case "object":
+		object, ok := value.(map[string]any)
+		if !ok {
+			return ErrInvalid
+		}
+		properties, _ := schema["properties"].(map[string]any)
+		keys := make([]string, 0, len(properties))
+		for key := range properties {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			childValue, exists := object[key]
+			if !exists {
+				continue
+			}
+			childSchema, ok := properties[key].(map[string]any)
+			if !ok {
+				return ErrInvalid
+			}
+			childPath := key
+			if path != "" {
+				childPath = path + "." + key
+			}
+			if err := collectLocalizableText(childSchema, childValue, childPath, destination); err != nil {
+				return err
+			}
+		}
+	case "array":
+		items, ok := value.([]any)
+		if !ok {
+			return ErrInvalid
+		}
+		itemSchema, ok := schema["items"].(map[string]any)
+		if !ok {
+			return ErrInvalid
+		}
+		for index, item := range items {
+			itemPath := strconv.Itoa(index)
+			if path != "" {
+				itemPath = path + "." + itemPath
+			}
+			if err := collectLocalizableText(itemSchema, item, itemPath, destination); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) localizedSettings(id string) (map[string]map[string]string, error) {
+	localized := map[string]map[string]string{}
+	if err := s.repository.ReadYAML(localizedSettingsPath(id), &localized); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return localized, nil
+		}
+		return nil, err
+	}
+	if localized == nil {
+		localized = map[string]map[string]string{}
+	}
+	for locale, values := range localized {
+		tag, err := language.Parse(locale)
+		if err != nil || tag.String() != locale || locale == "zh-CN" || values == nil {
+			return nil, ErrInvalid
+		}
+		for path, value := range values {
+			if strings.TrimSpace(path) == "" || strings.TrimSpace(value) == "" {
+				return nil, ErrInvalid
+			}
+		}
+	}
+	return localized, nil
 }
 
 func mergeSettings(destination, source map[string]any) {

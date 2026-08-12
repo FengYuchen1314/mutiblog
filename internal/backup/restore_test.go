@@ -362,8 +362,16 @@ func TestRestoreNormalizesLegacyLocaleFallbackBeforeSwap(t *testing.T) {
 	if err := repository.ReadYAML("config/locales.yaml", &locales); err != nil {
 		t.Fatal(err)
 	}
-	if len(locales.Fallback) != 1 || locales.Fallback[0] != "zh-CN" || locales.SourceLocale != "fr" || !localeDefinitionEnabled(locales.Enabled, "fr") || localeDefinitionEnabled(locales.Enabled, "en") || !localeDefinitionEnabled(locales.Enabled, "zh-CN") {
+	if len(locales.Fallback) != 1 || locales.Fallback[0] != "zh-CN" || locales.SourceLocale != "zh-CN" || !localeDefinitionEnabled(locales.Enabled, "fr") || localeDefinitionEnabled(locales.Enabled, "en") || !localeDefinitionEnabled(locales.Enabled, "zh-CN") {
 		t.Fatalf("restored locales = %#v", locales)
+	}
+	for _, definition := range locales.Enabled {
+		if definition.Code == "fr" && definition.Status != "" {
+			t.Fatalf("legacy restored target status = %#v, want compatibility state", definition)
+		}
+		if definition.Code == "zh-CN" && definition.Status != domain.LocaleStatusReady {
+			t.Fatalf("restored source status = %#v, want ready", definition)
+		}
 	}
 }
 

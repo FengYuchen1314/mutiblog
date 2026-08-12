@@ -41,6 +41,15 @@ type UpdateLocaleInput struct {
 	SEODescription   string
 }
 
+type ApplyAITranslationInput struct {
+	ExpectedSourceRevision int
+	ExpectedTargetRevision int
+	Name                   string
+	Description            string
+	SEOTitle               string
+	SEODescription         string
+}
+
 type UpdateStructureInput struct {
 	ExpectedRevision int
 	ParentID         string
@@ -196,6 +205,50 @@ func (s *Service) UpdateLocale(kind, id, rawLocale string, input UpdateLocaleInp
 		localized.SourceRevision = item.Locales[item.SourceLocale].Revision
 	}
 	item.Locales[locale] = localized
+	item.Revision++
+	item.UpdatedAt = time.Now().UTC()
+	path, _ := taxonomyPath(item.Kind, item.ID)
+	if err := s.repository.WriteYAML(path, item, false); err != nil {
+		return domain.Taxonomy{}, err
+	}
+	return item, nil
+}
+
+func (s *Service) ApplyAITranslation(kind, id, rawLocale string, input ApplyAITranslationInput) (domain.Taxonomy, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	locale, err := s.normalizeEnabledLocale(rawLocale)
+	if err != nil {
+		return domain.Taxonomy{}, err
+	}
+	item, err := s.Get(kind, id)
+	if err != nil {
+		return domain.Taxonomy{}, err
+	}
+	if locale == item.SourceLocale {
+		return domain.Taxonomy{}, content.ErrLocaleDisabled
+	}
+	source, exists := item.Locales[item.SourceLocale]
+	if !exists || source.Revision != input.ExpectedSourceRevision {
+		return domain.Taxonomy{}, content.ErrSourceChanged
+	}
+	target := item.Locales[locale]
+	if target.Revision != input.ExpectedTargetRevision {
+		return domain.Taxonomy{}, content.ErrTargetChanged
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return domain.Taxonomy{}, errors.New("translated name is required")
+	}
+	target.Name = name
+	target.Description = strings.TrimSpace(input.Description)
+	target.SEOTitle = strings.TrimSpace(input.SEOTitle)
+	target.SEODescription = strings.TrimSpace(input.SEODescription)
+	target.Revision++
+	target.State = "current"
+	target.Origin = domain.LocaleOriginAI
+	target.SourceRevision = source.Revision
+	item.Locales[locale] = target
 	item.Revision++
 	item.UpdatedAt = time.Now().UTC()
 	path, _ := taxonomyPath(item.Kind, item.ID)

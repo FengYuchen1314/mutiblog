@@ -2,7 +2,6 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
 import { ApiError, api, createBackupTaskId, type BackupRecord, type BackupTask } from "@/api/client";
 import TaskProgress from "@/components/TaskProgress.vue";
 import { useSessionStore } from "@/stores/session";
@@ -128,17 +127,17 @@ const taskError = (task: BackupTask) => {
 </script>
 <template>
   <div class="page">
-    <VPageHeader :title="t('backupPage.title')"
+    <MPageHeader :title="t('backupPage.title')"
       ><template #actions
-        ><input ref="picker" hidden type="file" accept=".gz,.tgz,application/gzip" @change="importBackup" /><VButton
+        ><input ref="picker" hidden type="file" accept=".gz,.tgz,application/gzip" @change="importBackup" /><MButton
           :disabled="busy"
           @click="picker?.click()"
-          >{{ t("backupPage.import") }}</VButton
-        ><VButton type="secondary" :loading="busy" @click="create">{{ t("backupPage.create") }}</VButton></template
-      ></VPageHeader
+          >{{ t("backupPage.import") }}</MButton
+        ><MButton variant="tonal" :loading="busy" @click="create">{{ t("backupPage.create") }}</MButton></template
+      ></MPageHeader
     >
     <div class="page-body settings-stack">
-      <VCard
+      <MSurface
         ><div class="form-success">{{ t("backupPage.guidance") }}</div>
         <div class="filter-bar">
           <input v-model="remoteURL" type="url" :placeholder="t('backupPage.remoteUrlPlaceholder')" /><button
@@ -152,8 +151,8 @@ const taskError = (task: BackupTask) => {
         <p class="theme-guidance">{{ t("backupPage.remoteUrlHelp") }}</p>
         <TaskProgress v-if="activeTaskId" :task-id="activeTaskId" />
         <div v-if="notice" class="form-success">{{ notice }}</div>
-        <div v-if="error" class="form-alert">{{ error }}</div></VCard
-      ><VCard v-if="tasks.length"
+        <div v-if="error" class="form-alert">{{ error }}</div></MSurface
+      ><MSurface v-if="tasks.length"
         ><div class="card-title">{{ t("backupPage.tasks") }}</div>
         <div class="post-rows">
           <article v-for="task in tasks" :key="task.id" class="post-row">
@@ -167,8 +166,8 @@ const taskError = (task: BackupTask) => {
             </div>
             <time>{{ new Date(task.completedAt ?? task.startedAt ?? task.createdAt).toLocaleString() }}</time>
           </article>
-        </div></VCard
-      ><VCard
+        </div></MSurface
+      ><MSurface
         ><div v-if="backups.length" class="post-rows">
           <article v-for="record in backups" :key="record.id" class="post-row">
             <div class="post-row-main">
@@ -176,7 +175,7 @@ const taskError = (task: BackupTask) => {
               ><span>{{ record.id }}</span>
             </div>
             <div class="post-row-tags">
-              <VTag>{{ size(record.size) }}</VTag
+              <MChip>{{ size(record.size) }}</MChip
               ><time>{{ new Date(record.createdAt).toLocaleString() }}</time
               ><a :href="`/api/v1/admin/backups/${encodeURIComponent(record.id)}/download`">{{
                 t("backupPage.download")
@@ -186,8 +185,8 @@ const taskError = (task: BackupTask) => {
             </div>
           </article>
         </div>
-        <VEmpty v-else :title="t('backupPage.empty')"
-      /></VCard>
+        <MEmptyState v-else :title="t('backupPage.empty')"
+      /></MSurface>
     </div>
   </div>
 </template>

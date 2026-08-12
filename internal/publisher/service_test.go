@@ -97,6 +97,10 @@ func TestBuildActivatesCompleteReleaseAndRecordsTask(t *testing.T) {
 	if localized.SEOTitle != "发布快照 SEO" || localized.SEODescription != "发布快照描述" {
 		t.Fatalf("SEO fields were not preserved in renderer input: %#v", localized)
 	}
+	sourceState := renderer.input.Posts[0].LocaleStates["zh-CN"]
+	if sourceState.State != "current" || sourceState.Origin != domain.LocaleOriginSource || sourceState.SourceRevision != sourceState.Revision {
+		t.Fatalf("content locale state was not preserved in renderer input: %#v", renderer.input.Posts[0].LocaleStates)
+	}
 	current := filepath.Join(repository.Root(), "generated", "current")
 	info, err := os.Lstat(current)
 	if err != nil {
@@ -683,6 +687,33 @@ func TestTaxonomySnapshotPreservesLocalizedSEO(t *testing.T) {
 	localized := result[0].Locales["en"]
 	if result[0].SourceLocale != "en" || result[0].Cover != "/media/engineering.webp" || result[0].Template != "masonry" || localized.SEOTitle != "Engineering articles" || localized.SEODescription != "Technical articles from the engineering team" {
 		t.Fatalf("localized taxonomy SEO was lost: %#v", localized)
+	}
+}
+
+func TestSnapshotExcludesUntranslatedLocalesAndRendersBuildingLocaleAsReady(t *testing.T) {
+	repository, contentService := publisherFixture(t)
+	locales := domain.LocalesConfig{
+		SchemaVersion: domain.SchemaVersion,
+		SourceLocale:  "zh-CN",
+		Enabled: []domain.LocaleDefinition{
+			{Code: "zh-CN", Label: "简体中文", Enabled: true, Status: domain.LocaleStatusReady},
+			{Code: "es", Label: "Español", Enabled: true},
+			{Code: "ja", Label: "日本語", Enabled: true, Status: domain.LocaleStatusProvisioning},
+			{Code: "fr", Label: "Français", Enabled: true, Status: domain.LocaleStatusFailed},
+			{Code: "de", Label: "Deutsch", Enabled: true, Status: domain.LocaleStatusBuilding},
+		},
+		Fallback: []string{"zh-CN"},
+	}
+	if err := repository.WriteYAML("config/locales.yaml", locales, false); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(repository, contentService, &fakeRenderer{})
+	input, err := service.snapshot("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(input.Locales) != 3 || input.Locales[0].Code != "de" || input.Locales[0].Status != domain.LocaleStatusReady || input.Locales[1].Code != "es" || input.Locales[1].Status != domain.LocaleStatusReady || input.Locales[2].Code != "zh-CN" {
+		t.Fatalf("public snapshot locales = %#v", input.Locales)
 	}
 }
 

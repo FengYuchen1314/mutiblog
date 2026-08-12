@@ -34,6 +34,11 @@ type UpdateLocaleInput struct {
 	ExpectedRevision int
 	Label            string
 }
+type ApplyAILocaleInput struct {
+	ExpectedSourceRevision int
+	ExpectedTargetRevision int
+	Label                  string
+}
 type UpdateItemInput struct {
 	ExpectedRevision          int
 	ParentID, TargetKind, URL string
@@ -305,6 +310,64 @@ func (s *Service) UpdateItemLocale(menuID, itemID, rawLocale string, input Updat
 	return menu, nil
 }
 
+func (s *Service) ApplyAIMenuLocale(id, rawLocale string, input ApplyAILocaleInput) (domain.Menu, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	menu, err := s.Get(id)
+	if err != nil {
+		return domain.Menu{}, err
+	}
+	locale, err := s.enabledLocale(rawLocale)
+	if err != nil {
+		return domain.Menu{}, err
+	}
+	value, err := aiLocalizedValue(menu.SourceLocale, locale, menu.Locales, input)
+	if err != nil {
+		return domain.Menu{}, err
+	}
+	menu.Locales[locale] = value
+	menu.Revision++
+	menu.UpdatedAt = time.Now().UTC()
+	if err := s.repository.WriteYAML(filepath.Join("content/menus", id+".yaml"), menu, false); err != nil {
+		return domain.Menu{}, err
+	}
+	return menu, nil
+}
+
+func (s *Service) ApplyAIItemLocale(menuID, itemID, rawLocale string, input ApplyAILocaleInput) (domain.Menu, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	menu, err := s.Get(menuID)
+	if err != nil {
+		return domain.Menu{}, err
+	}
+	locale, err := s.enabledLocale(rawLocale)
+	if err != nil {
+		return domain.Menu{}, err
+	}
+	index := -1
+	for itemIndex := range menu.Items {
+		if menu.Items[itemIndex].ID == itemID {
+			index = itemIndex
+			break
+		}
+	}
+	if index < 0 {
+		return domain.Menu{}, ErrNotFound
+	}
+	value, err := aiLocalizedValue(menu.SourceLocale, locale, menu.Items[index].Locales, input)
+	if err != nil {
+		return domain.Menu{}, err
+	}
+	menu.Items[index].Locales[locale] = value
+	menu.Revision++
+	menu.UpdatedAt = time.Now().UTC()
+	if err := s.repository.WriteYAML(filepath.Join("content/menus", menuID+".yaml"), menu, false); err != nil {
+		return domain.Menu{}, err
+	}
+	return menu, nil
+}
+
 func (s *Service) Delete(id string, expectedRevision int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -431,6 +494,29 @@ func updatedValue(source, locale string, values map[string]domain.LocalizedMenu,
 		value.Origin = domain.LocaleOriginManual
 		value.SourceRevision = values[source].Revision
 	}
+	return value, nil
+}
+func aiLocalizedValue(source, locale string, values map[string]domain.LocalizedMenu, input ApplyAILocaleInput) (domain.LocalizedMenu, error) {
+	if locale == source {
+		return domain.LocalizedMenu{}, content.ErrLocaleDisabled
+	}
+	sourceValue, exists := values[source]
+	if !exists || sourceValue.Revision != input.ExpectedSourceRevision {
+		return domain.LocalizedMenu{}, content.ErrSourceChanged
+	}
+	value := values[locale]
+	if value.Revision != input.ExpectedTargetRevision {
+		return domain.LocalizedMenu{}, content.ErrTargetChanged
+	}
+	label := strings.TrimSpace(input.Label)
+	if label == "" {
+		return domain.LocalizedMenu{}, ErrInvalid
+	}
+	value.Label = label
+	value.Revision++
+	value.State = "current"
+	value.Origin = domain.LocaleOriginAI
+	value.SourceRevision = sourceValue.Revision
 	return value, nil
 }
 func normalizeTarget(kind, raw string) (string, string, error) {

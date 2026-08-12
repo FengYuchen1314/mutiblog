@@ -27,10 +27,54 @@ renderer.inline.ruler.before("math_inline", "currency_amount", (state, silent) =
   // expressions such as $2+2$ on the normal MathJax path.
   const amount = /^\$(?:0|[1-9]\d*)(?:,\d{3})*(?:\.\d{1,2})?(?=$|[\s.,;:!?)}\]])/.exec(state.src.slice(state.pos));
   if (!amount) return false;
+  if (hasClosingMathDelimiter(state.src, state.pos, state.posMax)) return false;
   if (!silent) state.pending += amount[0];
   state.pos += amount[0].length;
   return true;
 });
+
+function hasClosingMathDelimiter(source: string, position: number, maximum: number) {
+  const match = findUnescapedDollar(source, position + 1, maximum);
+  if (match <= position + 1 || match >= maximum) return false;
+  const previous = source.charCodeAt(match - 1);
+  const next = match + 1 < maximum ? source.charCodeAt(match + 1) : -1;
+  return previous !== 32 && previous !== 9 && (next < 48 || next > 57);
+}
+
+function findUnescapedDollar(source: string, start: number, maximum: number) {
+  for (let match = start; match < maximum;) {
+    if (source[match] === "`") {
+      const codeEnd = findCodeSpanEnd(source, match, maximum);
+      if (codeEnd !== -1) {
+        match = codeEnd;
+        continue;
+      }
+    }
+    if (source[match] === "$") {
+      let previous = match - 1;
+      while (source[previous] === "\\") previous -= 1;
+      if ((match - previous) % 2 === 1) return match;
+    }
+    match += 1;
+  }
+  return -1;
+}
+
+function findCodeSpanEnd(source: string, start: number, maximum: number) {
+  let openingLength = 1;
+  while (start + openingLength < maximum && source[start + openingLength] === "`") openingLength += 1;
+  for (let position = start + openingLength; position < maximum;) {
+    if (source[position] !== "`") {
+      position += 1;
+      continue;
+    }
+    let closingLength = 1;
+    while (position + closingLength < maximum && source[position + closingLength] === "`") closingLength += 1;
+    if (closingLength === openingLength) return position + closingLength;
+    position += closingLength;
+  }
+  return -1;
+}
 
 export const markdownContentCSS = `
 mjx-container.MathJax {

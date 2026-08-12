@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VEmpty, VPageHeader } from "@halo-dev/components";
 import { api, type LocalesConfig, type MenuItem, type MenuRecord } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
@@ -232,13 +231,13 @@ async function removeSelected() {
 </script>
 <template>
   <div class="page">
-    <VPageHeader :title="t('menusPage.title')"
+    <MPageHeader :title="t('menusPage.title')"
       ><template #actions
-        ><VButton @click="load">{{ t("common.refresh") }}</VButton></template
-      ></VPageHeader
+        ><MButton @click="load">{{ t("common.refresh") }}</MButton></template
+      ></MPageHeader
     >
     <div class="page-body settings-grid">
-      <VCard
+      <MSurface
         ><h3>{{ t("menusPage.collections") }}</h3>
         <div class="provider-form">
           <label
@@ -247,16 +246,16 @@ async function removeSelected() {
           ><label
             ><span>{{ t("menusPage.name") }}</span
             ><input v-model="menuForm.label" /></label
-          ><VButton type="secondary" :loading="busy === 'create-menu'" :disabled="Boolean(busy)" @click="createMenu">{{
+          ><MButton variant="tonal" :loading="busy === 'create-menu'" :disabled="Boolean(busy)" @click="createMenu">{{
             t("menusPage.create")
-          }}</VButton>
+          }}</MButton>
         </div>
         <button v-for="menu in menus" :key="menu.id" class="provider-item" @click="choose(menu)">
           <strong>{{ menu.locales[menu.sourceLocale]?.label }}</strong
           ><span>{{ menu.id }}</span></button
-        ><VEmpty v-if="!menus.length" :title="t('menusPage.empty')"
-      /></VCard>
-      <VCard v-if="selected"
+        ><MEmptyState v-if="!menus.length" :title="t('menusPage.empty')"
+      /></MSurface>
+      <MSurface v-if="selected"
         ><h3>{{ selected.locales[selected.sourceLocale]?.label }} · {{ t("menusPage.items") }}</h3>
         <div class="provider-form">
           <label
@@ -284,16 +283,16 @@ async function removeSelected() {
             ><input v-model.number="itemForm.order" type="number" /></label
           ><label class="check-row"
             ><input v-model="itemForm.openInNew" type="checkbox" />{{ t("menusPage.newWindow") }}</label
-          ><VButton type="secondary" :loading="busy === 'add-item'" :disabled="Boolean(busy)" @click="addItem">{{
+          ><MButton variant="tonal" :loading="busy === 'add-item'" :disabled="Boolean(busy)" @click="addItem">{{
             t("menusPage.addItem")
-          }}</VButton>
+          }}</MButton>
         </div>
         <button v-for="item in selected.items" :key="item.id" class="provider-item" @click="editItem(item)">
           <strong>{{ item.locales[selected.sourceLocale]?.label }}</strong
           ><span>{{ item.url }}</span>
-        </button></VCard
+        </button></MSurface
       >
-      <VCard v-if="selected"
+      <MSurface v-if="selected"
         ><template v-if="selectedItem"
           ><h3>{{ t("menusPage.structure") }}</h3>
           <div class="provider-form">
@@ -323,12 +322,12 @@ async function removeSelected() {
               ><input v-model.number="editForm.order" type="number" /></label
             ><label class="check-row"
               ><input v-model="editForm.openInNew" type="checkbox" />{{ t("menusPage.newWindow") }}</label
-            ><VButton
-              type="secondary"
+            ><MButton
+              variant="tonal"
               :loading="busy === 'save-structure'"
               :disabled="Boolean(busy)"
               @click="saveStructure"
-              >{{ t("menusPage.saveStructure") }}</VButton
+              >{{ t("menusPage.saveStructure") }}</MButton
             >
           </div></template
         >
@@ -350,16 +349,16 @@ async function removeSelected() {
           <label
             ><span>{{ t("menusPage.label") }}</span
             ><input v-model="localeLabel" /></label
-          ><VButton type="secondary" :loading="busy === 'save-locale'" :disabled="Boolean(busy)" @click="saveLocale">{{
+          ><MButton variant="tonal" :loading="busy === 'save-locale'" :disabled="Boolean(busy)" @click="saveLocale">{{
             t("menusPage.saveTranslation")
-          }}</VButton
+          }}</MButton
           ><button type="button" class="text-danger" :disabled="Boolean(busy)" @click="removeSelected">
             {{ t("common.deleteForever") }}
           </button>
-        </div></VCard
-      ><VCard v-if="buildTaskIds.length"
+        </div></MSurface
+      ><MSurface v-if="buildTaskIds.length"
         ><TaskProgress v-for="taskId in buildTaskIds" :key="taskId" :task-id="taskId"
-      /></VCard>
+      /></MSurface>
       <div v-if="error" class="form-alert">{{ error }}</div>
     </div>
   </div>

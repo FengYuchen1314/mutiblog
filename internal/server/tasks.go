@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/FengYuchen1314/mutiblog/internal/backup"
+	"github.com/FengYuchen1314/mutiblog/internal/localization"
 	"github.com/FengYuchen1314/mutiblog/internal/projection"
 	"github.com/FengYuchen1314/mutiblog/internal/publisher"
 	"github.com/FengYuchen1314/mutiblog/internal/scheduled"
@@ -21,30 +22,60 @@ type adminTaskSubject struct {
 	ID   string `json:"id"`
 }
 
+// adminTaskTarget is the public, task-kind-independent projection of one
+// locale worker target. It deliberately excludes implementation receipts such
+// as content fingerprints and localization reports, which are useful for
+// recovery but are not part of the task-center contract.
+type adminTaskTarget struct {
+	Locale           string             `json:"locale"`
+	ExpectedRevision *int               `json:"expectedRevision,omitempty"`
+	Status           string             `json:"status"`
+	Progress         taskstore.Progress `json:"progress"`
+	Attempts         int                `json:"attempts"`
+	Error            string             `json:"error,omitempty"`
+	StartedAt        *time.Time         `json:"startedAt,omitempty"`
+	CompletedAt      *time.Time         `json:"completedAt,omitempty"`
+}
+
+const (
+	adminTaskRelationParent      = "parent"
+	adminTaskRelationStaticBuild = "static-build"
+	adminTaskRelationTranslation = "translation"
+)
+
+// adminTaskRelation links a task to a durable task it owns or is owned by.
+// Roles are directional from the current task: parent, static-build, or
+// translation.
+type adminTaskRelation struct {
+	ID   string `json:"id"`
+	Role string `json:"role"`
+}
+
 type adminTask struct {
-	SchemaVersion     int                      `json:"schemaVersion"`
-	ID                string                   `json:"id"`
-	Kind              string                   `json:"kind"`
-	Operation         string                   `json:"operation"`
-	Subject           *adminTaskSubject        `json:"subject,omitempty"`
-	ParentTaskID      string                   `json:"parentTaskId,omitempty"`
-	Status            string                   `json:"status"`
-	Progress          taskstore.Progress       `json:"progress"`
-	CreatedAt         time.Time                `json:"createdAt"`
-	StartedAt         *time.Time               `json:"startedAt,omitempty"`
-	CompletedAt       *time.Time               `json:"completedAt,omitempty"`
-	Error             string                   `json:"error,omitempty"`
-	ProviderID        string                   `json:"providerId,omitempty"`
-	Model             string                   `json:"model,omitempty"`
-	BackupID          string                   `json:"backupId,omitempty"`
-	DueAt             *time.Time               `json:"dueAt,omitempty"`
-	BuildStatus       string                   `json:"buildStatus,omitempty"`
-	BuildTaskID       string                   `json:"buildTaskId,omitempty"`
-	TranslationStatus string                   `json:"translationStatus,omitempty"`
-	TranslationTaskID string                   `json:"translationTaskId,omitempty"`
-	Outcome           string                   `json:"outcome,omitempty"`
-	Targets           []translation.TargetTask `json:"targets,omitempty"`
-	Report            *publisher.BuildReport   `json:"report,omitempty"`
+	SchemaVersion     int                    `json:"schemaVersion"`
+	ID                string                 `json:"id"`
+	Kind              string                 `json:"kind"`
+	Operation         string                 `json:"operation"`
+	Subject           *adminTaskSubject      `json:"subject,omitempty"`
+	ParentTaskID      string                 `json:"parentTaskId,omitempty"`
+	Status            string                 `json:"status"`
+	Progress          taskstore.Progress     `json:"progress"`
+	CreatedAt         time.Time              `json:"createdAt"`
+	StartedAt         *time.Time             `json:"startedAt,omitempty"`
+	CompletedAt       *time.Time             `json:"completedAt,omitempty"`
+	Error             string                 `json:"error,omitempty"`
+	ProviderID        string                 `json:"providerId,omitempty"`
+	Model             string                 `json:"model,omitempty"`
+	BackupID          string                 `json:"backupId,omitempty"`
+	DueAt             *time.Time             `json:"dueAt,omitempty"`
+	BuildStatus       string                 `json:"buildStatus,omitempty"`
+	BuildTaskID       string                 `json:"buildTaskId,omitempty"`
+	TranslationStatus string                 `json:"translationStatus,omitempty"`
+	TranslationTaskID string                 `json:"translationTaskId,omitempty"`
+	Outcome           string                 `json:"outcome,omitempty"`
+	Targets           []adminTaskTarget      `json:"targets,omitempty"`
+	Relations         []adminTaskRelation    `json:"relations,omitempty"`
+	Report            *publisher.BuildReport `json:"report,omitempty"`
 }
 
 type staticTaskReader interface {
@@ -117,6 +148,16 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			item = adminTaskFromScheduledPublish(task)
 		}
+	case taskstore.ValidLocaleProvisionID(id):
+		if s.localeTasks == nil {
+			err = localization.ErrLocaleProvisionTaskNotFound
+			break
+		}
+		var task localization.Task
+		task, err = s.localeTasks.Get(id)
+		if err == nil {
+			item = adminTaskFromLocaleProvision(task)
+		}
 	case taskstore.ValidIndexRebuildID(id):
 		if s.projection == nil {
 			err = projection.ErrTaskNotFound
@@ -178,7 +219,14 @@ func (s *Server) listAdminTasks() ([]adminTask, error) {
 			return nil, err
 		}
 	}
-	items := make([]adminTask, 0, len(translations)+len(backups)+len(builds)+len(scheduledTasks)+len(indexRebuilds))
+	localeProvisions := []localization.Task{}
+	if s.localeTasks != nil {
+		localeProvisions, err = s.localeTasks.List()
+		if err != nil {
+			return nil, err
+		}
+	}
+	items := make([]adminTask, 0, len(translations)+len(backups)+len(builds)+len(scheduledTasks)+len(indexRebuilds)+len(localeProvisions))
 	for _, task := range translations {
 		items = append(items, adminTaskFromTranslation(task))
 	}
@@ -194,16 +242,25 @@ func (s *Server) listAdminTasks() ([]adminTask, error) {
 	for _, task := range indexRebuilds {
 		items = append(items, adminTaskFromIndexRebuild(task))
 	}
+	for _, task := range localeProvisions {
+		items = append(items, adminTaskFromLocaleProvision(task))
+	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
 	return items, nil
 }
 
 func adminTaskFromTranslation(task translation.Task) adminTask {
+	operation := "translate"
+	if task.PublicationRevision > 0 {
+		operation = "publish-translate"
+	}
 	return adminTask{
-		SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind, Operation: "translate",
+		SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind, Operation: operation,
 		Subject: &adminTaskSubject{Kind: task.EntityKind, ID: task.EntityID}, Status: task.Status,
 		Progress: task.Progress, CreatedAt: task.CreatedAt, StartedAt: task.StartedAt, CompletedAt: task.CompletedAt,
-		Error: task.Error, ProviderID: task.ProviderID, Model: task.Model, Targets: task.Targets,
+		Error: task.Error, ProviderID: task.ProviderID, Model: task.Model, Targets: adminTaskTargetsFromTranslation(task.Targets),
+		BuildStatus: task.BuildStatus, BuildTaskID: task.BuildTaskID,
+		Relations: adminTaskRelations("", task.BuildTaskID, ""),
 	}
 }
 
@@ -225,6 +282,7 @@ func adminTaskFromStaticBuild(task publisher.Task) adminTask {
 		SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind, Operation: task.Operation,
 		Subject: subject, ParentTaskID: task.ParentTaskID, Status: task.Status, Progress: task.Progress,
 		CreatedAt: createdAt, StartedAt: startedAt, CompletedAt: task.CompletedAt, Error: task.Error, Report: task.Report,
+		Relations: adminTaskRelations(task.ParentTaskID, "", ""),
 	}
 }
 
@@ -244,6 +302,16 @@ func adminTaskFromIndexRebuild(task projection.Task) adminTask {
 	}
 }
 
+func adminTaskFromLocaleProvision(task localization.Task) adminTask {
+	return adminTask{
+		SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind, Operation: task.Operation,
+		Status: task.Status, Progress: task.Progress, CreatedAt: task.CreatedAt,
+		StartedAt: task.StartedAt, CompletedAt: task.CompletedAt, Error: task.Error,
+		BuildStatus: task.BuildStatus, BuildTaskID: task.BuildTaskID, Targets: adminTaskTargetsFromLocaleProvision(task.Targets),
+		Relations: adminTaskRelations("", task.BuildTaskID, ""),
+	}
+}
+
 func adminTaskFromScheduledPublish(task scheduled.Task) adminTask {
 	dueAt := task.DueAt
 	return adminTask{
@@ -252,8 +320,56 @@ func adminTaskFromScheduledPublish(task scheduled.Task) adminTask {
 		CreatedAt: task.CreatedAt, StartedAt: task.StartedAt, CompletedAt: task.CompletedAt, Error: task.Error,
 		DueAt: &dueAt, BuildStatus: task.BuildStatus, BuildTaskID: task.BuildTaskID,
 		TranslationStatus: task.TranslationStatus, TranslationTaskID: task.TranslationTaskID,
-		Outcome: task.Outcome,
+		Outcome: task.Outcome, Relations: adminTaskRelations("", task.BuildTaskID, task.TranslationTaskID),
 	}
+}
+
+func adminTaskTargetsFromTranslation(targets []translation.TargetTask) []adminTaskTarget {
+	projected := make([]adminTaskTarget, len(targets))
+	for index, target := range targets {
+		expectedRevision := target.ExpectedRevision
+		projected[index] = adminTaskTarget{
+			Locale:           target.Locale,
+			ExpectedRevision: &expectedRevision,
+			Status:           target.Status,
+			Progress:         target.Progress,
+			Attempts:         target.Attempts,
+			Error:            target.Error,
+			CompletedAt:      target.CompletedAt,
+		}
+	}
+	return projected
+}
+
+func adminTaskTargetsFromLocaleProvision(targets []localization.TargetTask) []adminTaskTarget {
+	projected := make([]adminTaskTarget, len(targets))
+	for index, target := range targets {
+		projected[index] = adminTaskTarget{
+			Locale:      target.Locale,
+			Status:      target.Status,
+			Progress:    target.Progress,
+			Attempts:    target.Attempts,
+			Error:       target.Error,
+			StartedAt:   target.StartedAt,
+			CompletedAt: target.CompletedAt,
+		}
+	}
+	return projected
+}
+
+func adminTaskRelations(parentTaskID, buildTaskID, translationTaskID string) []adminTaskRelation {
+	relations := make([]adminTaskRelation, 0, 3)
+	for _, relation := range []adminTaskRelation{
+		{ID: parentTaskID, Role: adminTaskRelationParent},
+		{ID: buildTaskID, Role: adminTaskRelationStaticBuild},
+		{ID: translationTaskID, Role: adminTaskRelationTranslation},
+	} {
+		if relation.ID == "" {
+			continue
+		}
+		relations = append(relations, relation)
+	}
+	return relations
 }
 
 func backupTaskSubject(task backup.Task) *adminTaskSubject {

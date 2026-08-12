@@ -35,6 +35,11 @@ type UpdateLocaleInput struct {
 	ExpectedRevision  int
 	Name, Description string
 }
+type ApplyAILocaleInput struct {
+	ExpectedSourceRevision int
+	ExpectedTargetRevision int
+	Name, Description      string
+}
 type UpdateGroupInput struct {
 	ExpectedRevision int
 	Order            int
@@ -233,6 +238,54 @@ func (s *Service) UpdateLinkLocale(id, rawLocale string, input UpdateLocaleInput
 	return item, nil
 }
 
+func (s *Service) ApplyAIGroupLocale(id, rawLocale string, input ApplyAILocaleInput) (domain.LinkGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.getGroup(id)
+	if err != nil {
+		return domain.LinkGroup{}, err
+	}
+	locale, err := s.enabledLocale(rawLocale)
+	if err != nil {
+		return domain.LinkGroup{}, err
+	}
+	value, err := aiLocalizedValue(item.SourceLocale, locale, item.Locales, input)
+	if err != nil {
+		return domain.LinkGroup{}, err
+	}
+	item.Locales[locale] = value
+	item.Revision++
+	item.UpdatedAt = time.Now().UTC()
+	if err := s.repository.WriteYAML(filepath.Join("content/links/groups", id+".yaml"), item, false); err != nil {
+		return domain.LinkGroup{}, err
+	}
+	return item, nil
+}
+
+func (s *Service) ApplyAILinkLocale(id, rawLocale string, input ApplyAILocaleInput) (domain.Link, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.getLink(id)
+	if err != nil {
+		return domain.Link{}, err
+	}
+	locale, err := s.enabledLocale(rawLocale)
+	if err != nil {
+		return domain.Link{}, err
+	}
+	value, err := aiLocalizedValue(item.SourceLocale, locale, item.Locales, input)
+	if err != nil {
+		return domain.Link{}, err
+	}
+	item.Locales[locale] = value
+	item.Revision++
+	item.UpdatedAt = time.Now().UTC()
+	if err := s.repository.WriteYAML(filepath.Join("content/links/items", id+".yaml"), item, false); err != nil {
+		return domain.Link{}, err
+	}
+	return item, nil
+}
+
 func (s *Service) DeleteGroup(id string, expectedRevision int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -351,6 +404,31 @@ func updateLocalized(source, locale string, locales map[string]domain.LocalizedL
 	}
 	locales[locale] = value
 	return locales, nil
+}
+
+func aiLocalizedValue(source, locale string, locales map[string]domain.LocalizedLink, input ApplyAILocaleInput) (domain.LocalizedLink, error) {
+	if locale == source {
+		return domain.LocalizedLink{}, content.ErrLocaleDisabled
+	}
+	sourceValue, exists := locales[source]
+	if !exists || sourceValue.Revision != input.ExpectedSourceRevision {
+		return domain.LocalizedLink{}, content.ErrSourceChanged
+	}
+	value := locales[locale]
+	if value.Revision != input.ExpectedTargetRevision {
+		return domain.LocalizedLink{}, content.ErrTargetChanged
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return domain.LocalizedLink{}, ErrInvalid
+	}
+	value.Name = name
+	value.Description = strings.TrimSpace(input.Description)
+	value.Revision++
+	value.State = "current"
+	value.Origin = domain.LocaleOriginAI
+	value.SourceRevision = sourceValue.Revision
+	return value, nil
 }
 
 func (s *Service) getGroup(id string) (domain.LinkGroup, error) {

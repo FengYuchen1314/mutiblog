@@ -40,26 +40,30 @@ type terminalRetry struct {
 }
 
 type Task struct {
-	SchemaVersion     int                `yaml:"schemaVersion" json:"schemaVersion"`
-	ID                string             `yaml:"id" json:"id"`
-	Kind              string             `yaml:"kind" json:"kind"`
-	Operation         string             `yaml:"operation" json:"operation"`
-	EntityKind        string             `yaml:"entityKind" json:"entityKind"`
-	EntityID          string             `yaml:"entityId" json:"entityId"`
-	Revision          int                `yaml:"revision" json:"revision"`
-	DueAt             time.Time          `yaml:"dueAt" json:"dueAt"`
-	FirstPublish      bool               `yaml:"firstPublish" json:"firstPublish"`
-	Status            string             `yaml:"status" json:"status"`
-	Progress          taskstore.Progress `yaml:"progress" json:"progress"`
-	BuildStatus       string             `yaml:"buildStatus,omitempty" json:"buildStatus,omitempty"`
-	BuildTaskID       string             `yaml:"buildTaskId,omitempty" json:"buildTaskId,omitempty"`
-	TranslationStatus string             `yaml:"translationStatus,omitempty" json:"translationStatus,omitempty"`
-	TranslationTaskID string             `yaml:"translationTaskId,omitempty" json:"translationTaskId,omitempty"`
-	Outcome           string             `yaml:"outcome,omitempty" json:"outcome,omitempty"`
-	CreatedAt         time.Time          `yaml:"createdAt" json:"createdAt"`
-	StartedAt         *time.Time         `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
-	CompletedAt       *time.Time         `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
-	Error             string             `yaml:"error,omitempty" json:"error,omitempty"`
+	SchemaVersion int    `yaml:"schemaVersion" json:"schemaVersion"`
+	ID            string `yaml:"id" json:"id"`
+	Kind          string `yaml:"kind" json:"kind"`
+	Operation     string `yaml:"operation" json:"operation"`
+	EntityKind    string `yaml:"entityKind" json:"entityKind"`
+	EntityID      string `yaml:"entityId" json:"entityId"`
+	Revision      int    `yaml:"revision" json:"revision"`
+	// PublicationGeneration is reserved when the schedule is created. The
+	// runner will accept only that exact explicit publication, preventing a
+	// completed older schedule from claiming a later same-source republish.
+	PublicationGeneration int                `yaml:"publicationGeneration,omitempty" json:"publicationGeneration,omitempty"`
+	DueAt                 time.Time          `yaml:"dueAt" json:"dueAt"`
+	FirstPublish          bool               `yaml:"firstPublish" json:"firstPublish"`
+	Status                string             `yaml:"status" json:"status"`
+	Progress              taskstore.Progress `yaml:"progress" json:"progress"`
+	BuildStatus           string             `yaml:"buildStatus,omitempty" json:"buildStatus,omitempty"`
+	BuildTaskID           string             `yaml:"buildTaskId,omitempty" json:"buildTaskId,omitempty"`
+	TranslationStatus     string             `yaml:"translationStatus,omitempty" json:"translationStatus,omitempty"`
+	TranslationTaskID     string             `yaml:"translationTaskId,omitempty" json:"translationTaskId,omitempty"`
+	Outcome               string             `yaml:"outcome,omitempty" json:"outcome,omitempty"`
+	CreatedAt             time.Time          `yaml:"createdAt" json:"createdAt"`
+	StartedAt             *time.Time         `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
+	CompletedAt           *time.Time         `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
+	Error                 string             `yaml:"error,omitempty" json:"error,omitempty"`
 }
 
 type StartInput struct {
@@ -157,7 +161,7 @@ func (s *Service) Start(input StartInput) (Task, error) {
 		if existing.EntityKind != input.EntityKind || existing.EntityID != input.EntityID || (existing.Status != "queued" && existing.Status != "running") {
 			continue
 		}
-		if existing.Revision == input.Revision && existing.DueAt.Equal(input.DueAt) {
+		if existing.Revision == input.Revision && existing.DueAt.Equal(input.DueAt) && existing.PublicationGeneration > 0 {
 			if _, err := s.content.SetScheduledPublish(input.EntityKind, input.EntityID, input.Revision, input.DueAt); err != nil {
 				return Task{}, err
 			}
@@ -227,8 +231,21 @@ func (s *Service) Reconcile() (int, error) {
 		s.cancelTimer(task.ID)
 		key := entityKey(task.EntityKind, task.EntityID)
 		item, exists := byEntity[key]
+		wasLegacyGeneration := task.PublicationGeneration <= 0
+		if exists && task.PublicationGeneration <= 0 {
+			if item.Meta.PublicationGeneration > 0 {
+				if err := s.finish(&task, "needs-review", "publication-generation-unavailable"); err != nil {
+					return recovered, err
+				}
+				continue
+			}
+			// A legacy queued task has no published effect yet, so it can be
+			// assigned the same deterministic reservation a fresh schedule would
+			// receive. Once a marker exists it is never rebound (above).
+			task.PublicationGeneration = scheduledPublicationGeneration(task.Revision, item.Meta.PublicationGeneration)
+		}
 		if exists && scheduledHeadCommitted(task, item) {
-			repaired, repairErr := s.content.CompleteScheduledPublish(task.EntityKind, task.EntityID, task.Revision, task.DueAt)
+			repaired, repairErr := s.content.CompleteScheduledPublishForPublication(task.EntityKind, task.EntityID, task.Revision, task.DueAt, task.PublicationGeneration)
 			if repairErr != nil {
 				return recovered, fmt.Errorf("complete interrupted scheduled publish %q: %w", task.ID, repairErr)
 			}
@@ -237,7 +254,7 @@ func (s *Service) Reconcile() (int, error) {
 		}
 		publishedAfterCrash := exists && publishedByScheduledTask(task, item)
 		exactIntent := exists && item.Meta.ScheduledRevision == task.Revision && item.Meta.Revision == task.Revision && samePublishTime(item.Meta.PublishedAt, task.DueAt)
-		legacyIntent := exists && item.Meta.ScheduledRevision == 0 && item.Meta.Revision == task.Revision && samePublishTime(item.Meta.PublishedAt, task.DueAt)
+		legacyIntent := wasLegacyGeneration && exists && item.Meta.ScheduledRevision == 0 && item.Meta.Revision == task.Revision && samePublishTime(item.Meta.PublishedAt, task.DueAt)
 		if covered[key] {
 			if err := s.supersedeTask(&task, "superseded-duplicate-schedule"); err != nil {
 				return recovered, err
@@ -490,10 +507,20 @@ func (s *Service) reflectPublishedChildState(task *Task) {
 				// The parent contains a durable child receipt, so a missing or
 				// unreadable child is a visible incomplete-publication warning.
 				task.TranslationStatus = "failed"
+			} else if translationTask.PublicationGeneration != task.PublicationGeneration {
+				// A receipt can outlive a later same-source publication. Never
+				// project that later child as evidence for this parent release.
+				task.TranslationStatus = "needs-review"
 			} else {
 				switch translationTask.Status {
-				case "queued", "running", "succeeded", "failed", "needs-review":
+				case "queued", "running", "succeeded", "needs-review":
 					task.TranslationStatus = translationTask.Status
+				case "failed":
+					if translationTask.Error == "provider-key-missing" || translationTask.Error == "provider-unavailable" {
+						task.TranslationStatus = "not-configured"
+					} else {
+						task.TranslationStatus = "failed"
+					}
 				default:
 					task.TranslationStatus = "failed"
 				}
@@ -507,7 +534,7 @@ func setPublishedOutcome(task *Task) {
 	if task.Status != "succeeded" || task.Outcome == "superseded" {
 		return
 	}
-	warning := task.BuildStatus == "failed" || task.BuildStatus == "unavailable"
+	warning := task.BuildStatus == "failed" || task.BuildStatus == "unavailable" || task.BuildStatus == "blocked"
 	switch task.TranslationStatus {
 	case "not-configured", "failed", "needs-review":
 		warning = true
@@ -602,7 +629,23 @@ func (s *Service) run(ctx context.Context, id string) {
 		s.finishBestEffort(&task, "failed", "content-unavailable")
 		return
 	}
+	if task.PublicationGeneration <= 0 {
+		if item.Meta.PublicationGeneration > 0 {
+			s.finishBestEffort(&task, "needs-review", "publication-generation-unavailable")
+			return
+		}
+		task.PublicationGeneration = scheduledPublicationGeneration(task.Revision, item.Meta.PublicationGeneration)
+	}
 	alreadyPublished := publishedByScheduledTask(task, item)
+	if !alreadyPublished && scheduledHeadCommitted(task, item) {
+		repaired, repairErr := s.content.CompleteScheduledPublishForPublication(task.EntityKind, task.EntityID, task.Revision, task.DueAt, task.PublicationGeneration)
+		if repairErr != nil {
+			s.finishBestEffort(&task, "needs-review", "scheduled-publish-recovery-failed")
+			return
+		}
+		item = repaired
+		alreadyPublished = publishedByScheduledTask(task, item)
+	}
 	publicationCommitted := alreadyPublished
 	now := time.Now().UTC()
 	task.Status = "running"
@@ -616,21 +659,39 @@ func (s *Service) run(ctx context.Context, id string) {
 		return
 	}
 	if !alreadyPublished {
-		if _, err := s.publishContent(task.EntityKind, task.EntityID, task.Revision); err != nil {
+		published, publishErr := s.publishContent(task.EntityKind, task.EntityID, task.Revision)
+		if publishErr != nil {
 			status := "failed"
 			message := "publish-failed"
-			if errors.Is(err, content.ErrConflict) {
+			if errors.Is(publishErr, content.ErrConflict) {
 				status = "needs-review"
 				message = "content-changed-before-scheduled-publish"
 			}
 			s.finishBestEffort(&task, status, message)
 			return
 		}
+		if published.Meta.PublicationGeneration != task.PublicationGeneration {
+			s.finishBestEffort(&task, "needs-review", "publication-generation-changed")
+			return
+		}
 		publicationCommitted = true
 	}
-	launchTranslationTaskID := s.prepareFirstPublishTranslation(&task)
-	task.Progress = taskstore.Advance(task.Progress, "scheduled-build", 1, 4, 35, "rebuilding-static-site")
-	if task.BuildTaskID == "" {
+	launchTranslationTaskID := s.preparePublishTranslation(&task)
+	translationOwnsBuild := task.TranslationStatus == "queued" || task.TranslationStatus == "running" || task.TranslationStatus == "succeeded"
+	translationBlocksBuild := task.TranslationStatus == "not-configured" || task.TranslationStatus == "failed" || task.TranslationStatus == "needs-review"
+	switch {
+	case translationOwnsBuild:
+		task.BuildStatus = "deferred"
+		task.BuildTaskID = ""
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 1, 4, 35, "waiting-for-publish-translation")
+	case translationBlocksBuild:
+		task.BuildStatus = "blocked"
+		task.BuildTaskID = ""
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 1, 4, 35, "translation-unavailable")
+	default:
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-build", 1, 4, 35, "rebuilding-static-site")
+	}
+	if !translationOwnsBuild && !translationBlocksBuild && task.BuildTaskID == "" {
 		buildTaskID, buildIDErr := newStaticBuildTaskID()
 		if buildIDErr != nil {
 			task.BuildStatus = "unavailable"
@@ -646,6 +707,25 @@ func (s *Service) run(ctx context.Context, id string) {
 	// mutate the scheduled content transaction and must not block the admin API.
 	releaseMutationGate()
 	buildFailure := ""
+	if launchTranslationTaskID != "" && !s.translator.LaunchPrepared(launchTranslationTaskID) {
+		slog.Warn("prepared translation task persisted for next-start recovery because service is closing", "task", launchTranslationTaskID, "parent", task.ID)
+	}
+	if translationOwnsBuild || translationBlocksBuild {
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 2, 4, 75, "publish-translation-deferred")
+		if !s.checkpointTask(&task, publicationCommitted, "translation-start") {
+			return
+		}
+		task.Progress = taskstore.Advance(task.Progress, "scheduled-finalize", 3, 4, 95, "finalizing-scheduled-publish")
+		if !s.checkpointTask(&task, publicationCommitted, "finalize") {
+			return
+		}
+		message := ""
+		if translationBlocksBuild {
+			message = "translation-unavailable"
+		}
+		s.finishBestEffort(&task, "succeeded", message)
+		return
+	}
 	if task.BuildStatus == "" {
 		if reader, ok := s.rebuilder.(buildTaskReader); ok {
 			if buildTask, readErr := reader.GetTask(task.BuildTaskID); readErr == nil {
@@ -703,10 +783,7 @@ func (s *Service) run(ctx context.Context, id string) {
 	} else if task.BuildStatus != "succeeded" {
 		buildFailure = "rebuild-failed"
 	}
-	if launchTranslationTaskID != "" && !s.translator.LaunchPrepared(launchTranslationTaskID) {
-		slog.Warn("prepared translation task persisted for next-start recovery because service is closing", "task", launchTranslationTaskID, "parent", task.ID)
-	}
-	task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 2, 4, 75, "starting-first-publish-translation")
+	task.Progress = taskstore.Advance(task.Progress, "scheduled-translation", 2, 4, 75, "publish-translation-not-needed")
 	if !s.checkpointTask(&task, publicationCommitted, "translation-start") {
 		return
 	}
@@ -725,22 +802,26 @@ func (s *Service) run(ctx context.Context, id string) {
 	s.finishBestEffort(&task, "succeeded", "")
 }
 
-// prepareFirstPublishTranslation persists the translation identity while the
-// scheduled publication still owns the mutation gate, but deliberately leaves
-// a newly created child dormant until the source-only static build completes.
-// The returned ID is non-empty only when this runner owns that later launch.
-func (s *Service) prepareFirstPublishTranslation(task *Task) string {
+// preparePublishTranslation persists the automatic translation identity while
+// the scheduled publication still owns the mutation gate. A newly created
+// child is launched after the parent receipt checkpoint and owns the only
+// public build for this release.
+func (s *Service) preparePublishTranslation(task *Task) string {
 	if task.TranslationStatus != "" {
 		return ""
 	}
 	task.TranslationStatus = "not-needed"
-	if !task.FirstPublish || s.translator == nil {
+	if s.translator == nil {
 		return ""
 	}
 	if task.TranslationTaskID != "" {
 		task.TranslationStatus = "queued"
 		if reader, ok := s.translator.(translationTaskReader); ok {
 			if translationTask, err := reader.Get(task.TranslationTaskID); err == nil {
+				if translationTask.PublicationGeneration != task.PublicationGeneration {
+					task.TranslationStatus = "needs-review"
+					return ""
+				}
 				switch translationTask.Status {
 				case "succeeded":
 					task.TranslationStatus = "succeeded"
@@ -751,9 +832,17 @@ func (s *Service) prepareFirstPublishTranslation(task *Task) string {
 		}
 		return ""
 	}
-	translationTask, created, err := s.translator.Prepare(translation.StartInput{EntityKind: task.EntityKind, PostID: task.EntityID, SkipManual: true})
+	translationTask, created, err := s.translator.Prepare(translation.StartInput{
+		EntityKind: task.EntityKind, PostID: task.EntityID, OverwriteManual: true,
+		PublishedRelease: true, PublicationGeneration: task.PublicationGeneration,
+		SkipCurrentAI: true, RecordPreflightFailure: true,
+	})
 	switch {
 	case err == nil:
+		if translationTask.PublicationGeneration != task.PublicationGeneration {
+			task.TranslationStatus = "needs-review"
+			return ""
+		}
 		task.TranslationStatus = "queued"
 		task.TranslationTaskID = translationTask.ID
 		if created {
@@ -763,6 +852,9 @@ func (s *Service) prepareFirstPublishTranslation(task *Task) string {
 		task.TranslationStatus = "not-needed"
 	case errors.Is(err, ai.ErrProviderNotFound), errors.Is(err, ai.ErrKeyMissing), errors.Is(err, ai.ErrInvalidProvider):
 		task.TranslationStatus = "not-configured"
+		task.TranslationTaskID = translationTask.ID
+	case errors.Is(err, content.ErrSourceChanged), errors.Is(err, translation.ErrPublicationGenerationUnavailable):
+		task.TranslationStatus = "needs-review"
 	default:
 		task.TranslationStatus = "failed"
 	}
@@ -795,7 +887,7 @@ func (s *Service) newTask(item domain.Post, revision int, dueAt time.Time) (Task
 	}
 	return Task{
 		SchemaVersion: domain.SchemaVersion, ID: id, Kind: "ScheduledPublish", Operation: "publish",
-		EntityKind: item.Meta.Kind, EntityID: item.Meta.ID, Revision: revision, DueAt: dueAt.UTC(),
+		EntityKind: item.Meta.Kind, EntityID: item.Meta.ID, Revision: revision, PublicationGeneration: scheduledPublicationGeneration(revision, item.Meta.PublicationGeneration), DueAt: dueAt.UTC(),
 		FirstPublish: item.Meta.ReleaseRevision == 0, Status: "queued",
 		Progress: taskstore.Progress{Phase: "scheduled", Total: 4, Message: "waiting-for-publish-time"}, CreatedAt: time.Now().UTC(),
 	}, nil
@@ -809,8 +901,15 @@ func samePublishTime(value *time.Time, dueAt time.Time) bool {
 	return value != nil && value.UTC().Equal(dueAt.UTC())
 }
 
+func scheduledPublicationGeneration(revision, currentGeneration int) int {
+	return max(revision+1, currentGeneration+1)
+}
+
 func scheduledHeadCommitted(task Task, item domain.Post) bool {
-	return item.Meta.Status == domain.ContentStatusPublished && item.Meta.Revision == task.Revision+1 && item.Meta.ScheduledRevision == 0 && samePublishTime(item.Meta.PublishedAt, task.DueAt)
+	if task.PublicationGeneration <= 0 || item.Meta.Status != domain.ContentStatusPublished || item.Meta.Revision != task.Revision+1 || item.Meta.ScheduledRevision != 0 || !samePublishTime(item.Meta.PublishedAt, task.DueAt) {
+		return false
+	}
+	return item.Meta.PublicationGeneration == task.PublicationGeneration
 }
 
 // publishedByScheduledTask recognizes the durable content effect even if no
@@ -821,7 +920,7 @@ func scheduledHeadCommitted(task Task, item domain.Post) bool {
 // without mistaking the pre-schedule public release for completed work.
 func publishedByScheduledTask(task Task, item domain.Post) bool {
 	publicationRevision := task.Revision + 1
-	if item.Meta.Status != domain.ContentStatusPublished || item.Meta.ScheduledRevision != 0 || item.Meta.Revision < publicationRevision || item.Meta.ReleaseRevision < publicationRevision || !samePublishTime(item.Meta.PublishedAt, task.DueAt) {
+	if task.PublicationGeneration <= 0 || item.Meta.Status != domain.ContentStatusPublished || item.Meta.ScheduledRevision != 0 || item.Meta.Revision < publicationRevision || item.Meta.ReleaseRevision < publicationRevision || !samePublishTime(item.Meta.PublishedAt, task.DueAt) || item.Meta.PublicationGeneration != task.PublicationGeneration {
 		return false
 	}
 	return true
@@ -974,14 +1073,14 @@ func (s *Service) writeTaskOnce(task Task) error {
 }
 
 func validStoredTask(task Task, expectedID string) bool {
-	if task.SchemaVersion != domain.SchemaVersion || task.ID != expectedID || task.Kind != "ScheduledPublish" || !validTaskID(task.ID) || (task.EntityKind != "Post" && task.EntityKind != "Page") || task.EntityID == "" || task.Revision < 1 || task.DueAt.IsZero() {
+	if task.SchemaVersion != domain.SchemaVersion || task.ID != expectedID || task.Kind != "ScheduledPublish" || !validTaskID(task.ID) || (task.EntityKind != "Post" && task.EntityKind != "Page") || task.EntityID == "" || task.Revision < 1 || task.PublicationGeneration < 0 || task.DueAt.IsZero() {
 		return false
 	}
 	if task.BuildTaskID != "" && !taskstore.ValidStaticBuildID(task.BuildTaskID) {
 		return false
 	}
 	switch task.BuildStatus {
-	case "", "succeeded", "failed", "unavailable":
+	case "", "succeeded", "failed", "unavailable", "deferred", "blocked":
 	default:
 		return false
 	}

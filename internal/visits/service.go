@@ -332,7 +332,7 @@ func (s *Service) enabledLocale(raw string) (string, domain.LocalesConfig, error
 		return "", domain.LocalesConfig{}, err
 	}
 	for _, definition := range config.Enabled {
-		if definition.Enabled && definition.Code == locale {
+		if definition.Enabled && (definition.Status == "" || definition.Status == domain.LocaleStatusReady) && definition.Code == locale {
 			return locale, config, nil
 		}
 	}
@@ -434,10 +434,31 @@ func validDigest(value string) bool {
 
 func selectLocalized(subject domain.Post, requested string, config domain.LocalesConfig) (domain.LocalizedMarkdown, bool) {
 	enabled := make(map[string]struct{}, len(config.Enabled))
+	exact := false
+	nonReady := false
 	for _, definition := range config.Enabled {
-		if definition.Enabled {
+		if definition.Enabled && (definition.Status == "" || definition.Status == domain.LocaleStatusReady) {
 			enabled[definition.Code] = struct{}{}
 		}
+		if definition.Code == requested && definition.Status == domain.LocaleStatusReady {
+			exact = true
+		}
+		if definition.Code == requested && definition.Status != "" && definition.Status != domain.LocaleStatusReady {
+			nonReady = true
+		}
+	}
+	if nonReady {
+		return domain.LocalizedMarkdown{}, false
+	}
+	if exact {
+		if localized, ok := subject.Content[requested]; ok {
+			return localized, true
+		}
+		if requested == config.SourceLocale && subject.Meta.SourceLocale != requested {
+			localized, ok := subject.Content[subject.Meta.SourceLocale]
+			return localized, ok
+		}
+		return domain.LocalizedMarkdown{}, false
 	}
 	chain := []string{requested}
 	chain = append(chain, localeconfig.FixedFallbackOrder()...)

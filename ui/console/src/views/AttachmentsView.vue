@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VEmpty, VPageHeader } from "@halo-dev/components";
 import { api, type MediaAsset } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 
@@ -108,7 +107,7 @@ onMounted(refresh);
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('attachmentsPage.title')">
+    <MPageHeader :title="t('attachmentsPage.title')">
       <template #actions>
         <input
           ref="picker"
@@ -118,14 +117,14 @@ onMounted(refresh);
           multiple
           @change="upload"
         />
-        <VButton type="secondary" :loading="uploading" @click="picker?.click()">{{
+        <MButton variant="tonal" :loading="uploading" @click="picker?.click()">{{
           t("attachmentsPage.upload")
-        }}</VButton>
+        }}</MButton>
       </template>
-    </VPageHeader>
+    </MPageHeader>
     <div class="page-body">
       <div v-if="error" class="form-alert">{{ error }}</div>
-      <VCard>
+      <MSurface>
         <div class="filter-bar">
           <input v-model="query" :placeholder="t('attachmentsPage.filenameSearch')" />
           <select v-model="mediaType" :aria-label="t('attachmentsPage.type')">
@@ -160,11 +159,11 @@ onMounted(refresh);
           </article>
         </div>
         <div v-else class="empty-resource">
-          <VEmpty
+          <MEmptyState
             :title="t(query.trim() || mediaType !== 'all' ? 'attachmentsPage.noMatches' : 'attachmentsPage.empty')"
           />
         </div>
-      </VCard>
+      </MSurface>
     </div>
   </div>
 </template>

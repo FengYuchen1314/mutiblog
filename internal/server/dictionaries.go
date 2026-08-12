@@ -6,7 +6,6 @@ import (
 
 	"github.com/FengYuchen1314/mutiblog/internal/dictionary"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
-	"golang.org/x/text/language"
 )
 
 type frameworkDictionaryView struct {
@@ -35,51 +34,7 @@ func (s *Server) handleUpdateFrameworkDictionary(w http.ResponseWriter, r *http.
 		s.writeError(w, http.StatusBadRequest, "invalid_json", "The request body is invalid.", nil)
 		return
 	}
-	tag, err := language.Parse(r.PathValue("locale"))
-	if err != nil || !s.frameworkLocaleEnabled(tag.String()) {
-		s.writeError(w, http.StatusUnprocessableEntity, "locale_disabled", "The locale is not enabled.", nil)
-		return
-	}
-	allowed := make(map[string]bool)
-	for _, key := range dictionary.RequiredKeys() {
-		allowed[key] = true
-	}
-	for key, value := range request.Values {
-		if !allowed[key] || len([]rune(value)) > 500 {
-			s.writeError(w, http.StatusUnprocessableEntity, "dictionary_invalid", "The framework dictionary contains an unsupported key or value.", nil)
-			return
-		}
-	}
-	if err := dictionary.Write(s.repository, tag.String(), request.Values); err != nil {
-		s.logger.Error("write framework dictionary failed", "locale", tag.String(), "error", err)
-		s.writeError(w, http.StatusInternalServerError, "dictionary_save_failed", "The framework dictionary could not be saved.", nil)
-		return
-	}
-	views, err := s.frameworkDictionaryViews()
-	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "dictionaries_unavailable", "The framework dictionaries are unavailable.", nil)
-		return
-	}
-	for _, view := range views {
-		if view.Locale == tag.String() {
-			s.writePublishedResource(w, r, http.StatusOK, view, "Dictionary", tag.String())
-			return
-		}
-	}
-	s.writeError(w, http.StatusInternalServerError, "dictionaries_unavailable", "The framework dictionary is unavailable.", nil)
-}
-
-func (s *Server) frameworkLocaleEnabled(locale string) bool {
-	var config domain.LocalesConfig
-	if err := s.repository.ReadYAML("config/locales.yaml", &config); err != nil {
-		return false
-	}
-	for _, item := range config.Enabled {
-		if item.Enabled && item.Code == locale {
-			return true
-		}
-	}
-	return false
+	s.writeError(w, http.StatusUnprocessableEntity, "dictionary_managed", "Framework dictionaries are managed by site-wide localization and cannot be edited directly.", nil)
 }
 
 func (s *Server) frameworkDictionaryViews() ([]frameworkDictionaryView, error) {

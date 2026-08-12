@@ -25,6 +25,7 @@ const (
 	translationTokensPerRune       = 2
 	translationOutputReserveTokens = 512
 	translationMetadataTokens      = 1536
+	googleCanaryReserveRunes       = 96
 )
 
 type translatedMetadata struct {
@@ -55,6 +56,14 @@ func (s *Service) translate(ctx context.Context, providerID, sourceLocale, targe
 	if err != nil {
 		return domain.LocalizedMarkdown{}, err
 	}
+	switch provider.Kind {
+	case ai.ProviderKindGoogleFree:
+		return s.translateGoogleFree(ctx, providerID, sourceLocale, targetLocale, source, provider, progress)
+	case ai.ProviderKindOpenAICompatible:
+		// Continue through the structured chat translation path below.
+	default:
+		return domain.LocalizedMarkdown{}, ai.ErrInvalidProvider
+	}
 	if err := reportTranslationProgress(progress, "metadata", 0, 2, "translating-metadata"); err != nil {
 		return domain.LocalizedMarkdown{}, err
 	}
@@ -83,7 +92,7 @@ func (s *Service) translate(ctx context.Context, providerID, sourceLocale, targe
 	markdown := ""
 	workTotal := 2
 	if strings.TrimSpace(source.Markdown) != "" {
-		protected, replacements, err := protectMarkdown(source.Markdown)
+		protected, replacements, err := protectMarkdownForTranslation(source.Markdown)
 		if err != nil {
 			return domain.LocalizedMarkdown{}, err
 		}
@@ -124,6 +133,181 @@ func (s *Service) translate(ctx context.Context, providerID, sourceLocale, targe
 		Title: metadata.Title, Summary: strings.TrimSpace(metadata.Summary), SEOTitle: strings.TrimSpace(metadata.SEOTitle),
 		SEODescription: strings.TrimSpace(metadata.SEODescription), Markdown: markdown,
 	}, nil
+}
+
+func (s *Service) translateGoogleFree(ctx context.Context, providerID, sourceLocale, targetLocale string, source domain.LocalizedMarkdown, provider domain.AIProviderConfig, progress translationProgressFunc) (domain.LocalizedMarkdown, error) {
+	if err := reportTranslationProgress(progress, "metadata", 0, 2, "translating-metadata"); err != nil {
+		return domain.LocalizedMarkdown{}, err
+	}
+	metadata := translatedMetadata{}
+	fields := []struct {
+		source      string
+		destination *string
+	}{
+		{source: source.Title, destination: &metadata.Title},
+		{source: source.Summary, destination: &metadata.Summary},
+		{source: source.SEOTitle, destination: &metadata.SEOTitle},
+		{source: source.SEODescription, destination: &metadata.SEODescription},
+	}
+	for _, field := range fields {
+		translated, err := s.translateGoogleText(ctx, providerID, sourceLocale, targetLocale, field.source, googleTranslationRuneLimit(provider))
+		if err != nil {
+			return domain.LocalizedMarkdown{}, err
+		}
+		*field.destination = translated
+	}
+	metadata.Title = strings.TrimSpace(metadata.Title)
+	if metadata.Title == "" {
+		return domain.LocalizedMarkdown{}, errors.New("Google returned an empty translated title")
+	}
+	if err := reportTranslationProgress(progress, "metadata", 1, 2, "metadata-complete"); err != nil {
+		return domain.LocalizedMarkdown{}, err
+	}
+
+	markdown := ""
+	workTotal := 2
+	if strings.TrimSpace(source.Markdown) != "" {
+		protected, replacements, err := protectMarkdownForTranslation(source.Markdown)
+		if err != nil {
+			return domain.LocalizedMarkdown{}, err
+		}
+		chunks := segmentMarkdownParts(protected, googleTranslationRuneLimit(provider))
+		workTotal = len(chunks) + 2
+		if err := reportTranslationProgress(progress, "chunks", 1, workTotal, "translating-markdown-chunks"); err != nil {
+			return domain.LocalizedMarkdown{}, err
+		}
+		translatedChunks := make([]string, 0, len(chunks))
+		for index, chunk := range chunks {
+			translated, err := s.translateGoogleProtectedText(ctx, providerID, sourceLocale, targetLocale, chunk.Text, googleTranslationRuneLimit(provider))
+			if err != nil {
+				return domain.LocalizedMarkdown{}, err
+			}
+			translatedChunks = append(translatedChunks, translated+chunk.Separator)
+			if err := reportTranslationProgress(progress, "chunks", index+2, workTotal, fmt.Sprintf("translated-chunk-%d-of-%d", index+1, len(chunks))); err != nil {
+				return domain.LocalizedMarkdown{}, err
+			}
+		}
+		markdown, err = restoreMarkdown(strings.Join(translatedChunks, ""), replacements)
+		if err != nil {
+			return domain.LocalizedMarkdown{}, err
+		}
+	}
+	if strings.TrimSpace(source.Markdown) != "" && strings.TrimSpace(markdown) == "" {
+		return domain.LocalizedMarkdown{}, errors.New("Google returned an empty Markdown translation")
+	}
+	if err := reportTranslationProgress(progress, "save", workTotal-1, workTotal, "translation-ready-to-save"); err != nil {
+		return domain.LocalizedMarkdown{}, err
+	}
+	return domain.LocalizedMarkdown{
+		Title: metadata.Title, Summary: strings.TrimSpace(metadata.Summary), SEOTitle: strings.TrimSpace(metadata.SEOTitle),
+		SEODescription: strings.TrimSpace(metadata.SEODescription), Markdown: markdown,
+	}, nil
+}
+
+func googleTranslationRuneLimit(provider domain.AIProviderConfig) int {
+	limit := translationChunkRuneLimit(provider.MaxOutputTokens)
+	googleLimit := ai.GoogleFreeMaxInputRunes - googleCanaryReserveRunes
+	if limit > googleLimit {
+		return googleLimit
+	}
+	return limit
+}
+
+func (s *Service) translateGoogleText(ctx context.Context, providerID, sourceLocale, targetLocale, input string, maxRunes int) (string, error) {
+	if input == "" || strings.TrimSpace(input) == "" {
+		return input, nil
+	}
+	parts := segmentMarkdownParts(input, maxRunes)
+	var translated strings.Builder
+	for _, part := range parts {
+		lines := strings.SplitAfter(part.Text, "\n")
+		for _, line := range lines {
+			lineEnding := ""
+			switch {
+			case strings.HasSuffix(line, "\r\n"):
+				line = strings.TrimSuffix(line, "\r\n")
+				lineEnding = "\r\n"
+			case strings.HasSuffix(line, "\n"):
+				line = strings.TrimSuffix(line, "\n")
+				lineEnding = "\n"
+			}
+			text, err := s.translateGoogleTextPart(ctx, providerID, sourceLocale, targetLocale, line)
+			if err != nil {
+				return "", err
+			}
+			translated.WriteString(text)
+			translated.WriteString(lineEnding)
+		}
+		translated.WriteString(part.Separator)
+	}
+	return translated.String(), nil
+}
+
+func (s *Service) translateGoogleProtectedText(ctx context.Context, providerID, sourceLocale, targetLocale, protected string, maxRunes int) (string, error) {
+	matches := protectedTokenPattern.FindAllStringIndex(protected, -1)
+	var translated strings.Builder
+	previous := 0
+	for _, match := range matches {
+		plain := protected[previous:match[0]]
+		text, err := s.translateGoogleText(ctx, providerID, sourceLocale, targetLocale, plain, maxRunes)
+		if err != nil {
+			return "", err
+		}
+		translated.WriteString(text)
+		token := protected[match[0]:match[1]]
+		translated.WriteString(token)
+		previous = match[1]
+	}
+	plain := protected[previous:]
+	text, err := s.translateGoogleText(ctx, providerID, sourceLocale, targetLocale, plain, maxRunes)
+	if err != nil {
+		return "", err
+	}
+	translated.WriteString(text)
+	return translated.String(), nil
+}
+
+func (s *Service) translateGoogleTextPart(ctx context.Context, providerID, sourceLocale, targetLocale, input string) (string, error) {
+	if input == "" || strings.TrimSpace(input) == "" {
+		return input, nil
+	}
+	leadingEnd := 0
+	for leadingEnd < len(input) && isGooglePreservedWhitespace(input[leadingEnd]) {
+		leadingEnd++
+	}
+	trailingStart := len(input)
+	for trailingStart > leadingEnd && isGooglePreservedWhitespace(input[trailingStart-1]) {
+		trailingStart--
+	}
+	leading, core, trailing := input[:leadingEnd], input[leadingEnd:trailingStart], input[trailingStart:]
+	prefix, err := randomTokenPrefix()
+	if err != nil {
+		return "", err
+	}
+	startCanary := "MUTIBLOG_CANARY_" + prefix + "_START"
+	endCanary := "MUTIBLOG_CANARY_" + prefix + "_END"
+	payload := startCanary + "\n" + core + "\n" + endCanary
+	if utf8.RuneCountInString(payload) > ai.GoogleFreeMaxInputRunes {
+		return "", ai.ErrTranslationInputTooLong
+	}
+	response, err := s.translateProviderWithRetry(ctx, providerID, sourceLocale, targetLocale, payload)
+	if err != nil {
+		return "", err
+	}
+	prefixMarker := startCanary + "\n"
+	suffixMarker := "\n" + endCanary
+	if strings.Count(response, startCanary) != 1 || strings.Count(response, endCanary) != 1 || !strings.HasPrefix(response, prefixMarker) || !strings.HasSuffix(response, suffixMarker) {
+		return "", ErrUnsafeOutput
+	}
+	translated := strings.TrimSuffix(strings.TrimPrefix(response, prefixMarker), suffixMarker)
+	if strings.TrimSpace(core) != "" && strings.TrimSpace(translated) == "" {
+		return "", ErrUnsafeOutput
+	}
+	return leading + translated + trailing, nil
+}
+
+func isGooglePreservedWhitespace(value byte) bool {
+	return value == ' ' || value == '\t' || value == '\r' || value == '\n'
 }
 
 func translationMetadataTokenBudget(providerMaxOutputTokens int) int {
@@ -187,15 +371,43 @@ func (s *Service) chatProviderWithRetry(ctx context.Context, providerID string, 
 		if !ai.RetryableProviderError(err) || attempt == 2 {
 			return "", err
 		}
-		timer := time.NewTimer(time.Duration(attempt+1) * time.Second)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return "", ctx.Err()
-		case <-timer.C:
+		if err := s.waitProviderRetry(ctx, time.Duration(attempt+1)*time.Second); err != nil {
+			return "", err
 		}
 	}
 	return "", lastErr
+}
+
+func (s *Service) translateProviderWithRetry(ctx context.Context, providerID, sourceLocale, targetLocale, input string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		response, _, err := s.ai.TranslateProvider(ctx, providerID, sourceLocale, targetLocale, input)
+		if err == nil {
+			return response, nil
+		}
+		lastErr = err
+		if !ai.RetryableProviderError(err) || attempt == 2 {
+			return "", err
+		}
+		if err := s.waitProviderRetry(ctx, time.Duration(attempt+1)*time.Second); err != nil {
+			return "", err
+		}
+	}
+	return "", lastErr
+}
+
+func (s *Service) waitProviderRetry(ctx context.Context, delay time.Duration) error {
+	if s.retryWait != nil {
+		return s.retryWait(ctx, delay)
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func translationSystemPrompt(sourceLocale, targetLocale string) string {
@@ -219,11 +431,20 @@ func decodeJSONObject(raw string, destination any) error {
 }
 
 type protectedValue struct {
-	Token string
-	Value string
+	Token         string
+	Value         string
+	TopLevelOrder int
 }
 
 func protectMarkdown(markdown string) (string, []protectedValue, error) {
+	return protectMarkdownMode(markdown, false)
+}
+
+func protectMarkdownForTranslation(markdown string) (string, []protectedValue, error) {
+	return protectMarkdownMode(markdown, true)
+}
+
+func protectMarkdownMode(markdown string, canonicalizeReferences bool) (string, []protectedValue, error) {
 	prefix, err := randomTokenPrefix()
 	if err != nil {
 		return "", nil, err
@@ -231,36 +452,140 @@ func protectMarkdown(markdown string) (string, []protectedValue, error) {
 	values := make([]protectedValue, 0)
 	add := func(value string) string {
 		token := fmt.Sprintf("MUTIBLOG_PROTECTED_%s_%06d", prefix, len(values)+1)
-		values = append(values, protectedValue{Token: token, Value: value})
+		values = append(values, protectedValue{Token: token, Value: value, TopLevelOrder: -1})
 		return token
 	}
 	protected := protectFencedBlocks(markdown, add)
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile("`[^`\\n]+`"),
-		regexp.MustCompile(`(?m)(!?\[[^\]]*\]\()([^\)\n]+)(\))`),
-		regexp.MustCompile(`\$[^$\n]+\$`),
+	protected = protectIndentedCodeBlocks(protected, add)
+	protected = protectInlineCodeSpans(protected, add)
+	protected = regexp.MustCompile(`(?s)\$\$.*?\$\$`).ReplaceAllStringFunc(protected, add)
+	protected = regexp.MustCompile(`\$[^$\r\n]+\$`).ReplaceAllStringFunc(protected, add)
+	protected = regexp.MustCompile(`<(?:https?://|mailto:)[^<>\r\n]+>|<[^<>\r\n]+@[^<>\r\n]+>`).ReplaceAllStringFunc(protected, add)
+	protected = regexp.MustCompile(`</?[A-Za-z][^<>\r\n]*>`).ReplaceAllStringFunc(protected, add)
+	referenceDefinition := regexp.MustCompile(`(?m)^[ \t]{0,3}\[([^\]\r\n]+)\]:[^\r\n]*(?:\r?\n|$)`)
+	referenceLabels := make([]string, 0)
+	for _, match := range referenceDefinition.FindAllStringSubmatch(protected, -1) {
+		referenceLabels = append(referenceLabels, match[1])
 	}
-	protected = patterns[0].ReplaceAllStringFunc(protected, add)
-	protected = patterns[1].ReplaceAllStringFunc(protected, func(match string) string {
-		parts := patterns[1].FindStringSubmatch(match)
-		return parts[1] + add(parts[2]) + parts[3]
+	protected = referenceDefinition.ReplaceAllStringFunc(protected, func(match string) string {
+		return protectBlockWithLineEnding(match, add)
 	})
-	protected = patterns[2].ReplaceAllStringFunc(protected, add)
+	if canonicalizeReferences {
+		protected = canonicalizeReferenceUsages(protected, referenceLabels, add)
+	} else {
+		protected = protectReferenceUsages(protected, referenceLabels, add)
+	}
+	protected = protectInlineLinkDestinations(protected, add)
+	referenceLink := regexp.MustCompile(`(?m)(!?\[[^\]\r\n]*\]\[)([^\]\r\n]+)(\])`)
+	protected = referenceLink.ReplaceAllStringFunc(protected, func(match string) string {
+		parts := referenceLink.FindStringSubmatch(match)
+		middle := strings.LastIndex(parts[1], "][")
+		labelStart := 1
+		if strings.HasPrefix(parts[1], "![") {
+			labelStart = 2
+		}
+		if middle < labelStart {
+			return add(match)
+		}
+		return add(parts[1][:labelStart]) + parts[1][labelStart:middle] + add(parts[1][middle:]) + add(parts[2]) + add(parts[3])
+	})
+	protected = protectBareURLs(protected, add)
+	protected = regexp.MustCompile(`(?m)[ \t]{2,}\r?$`).ReplaceAllStringFunc(protected, add)
+	valueIndexes := make(map[string]int, len(values))
+	for index := range values {
+		valueIndexes[values[index].Token] = index
+	}
+	for order, token := range protectedTokenPattern.FindAllString(protected, -1) {
+		index, exists := valueIndexes[token]
+		if !exists || values[index].TopLevelOrder >= 0 {
+			return "", nil, ErrUnsafeOutput
+		}
+		values[index].TopLevelOrder = order
+	}
 	return protected, values, nil
+}
+
+func protectReferenceUsages(markdown string, labels []string, add func(string) string) string {
+	for _, label := range labels {
+		fields := strings.Fields(label)
+		if len(fields) == 0 {
+			continue
+		}
+		for index := range fields {
+			fields[index] = regexp.QuoteMeta(fields[index])
+		}
+		labelPattern := strings.Join(fields, `[ \t\r\n]+`)
+		patterns := []string{
+			`(?i)!\[` + labelPattern + `\]\[\]`,
+			`(?i)\[` + labelPattern + `\]\[\]`,
+		}
+		for _, pattern := range patterns {
+			markdown = regexp.MustCompile(pattern).ReplaceAllStringFunc(markdown, add)
+		}
+		for _, pattern := range []string{
+			`(?i)(!\[` + labelPattern + `\])([^\(\[]|$)`,
+			`(?i)(\[` + labelPattern + `\])([^\(\[]|$)`,
+		} {
+			matcher := regexp.MustCompile(pattern)
+			markdown = matcher.ReplaceAllStringFunc(markdown, func(match string) string {
+				parts := matcher.FindStringSubmatch(match)
+				return add(parts[1]) + parts[2]
+			})
+		}
+	}
+	return markdown
+}
+
+// canonicalizeReferenceUsages turns shortcut/collapsed references into full
+// references for translated output. The visible label stays outside protected
+// tokens and can be translated, while the original definition label becomes a
+// protected explicit ID, so the translated text cannot break link resolution.
+func canonicalizeReferenceUsages(markdown string, labels []string, add func(string) string) string {
+	for _, definitionLabel := range labels {
+		fields := strings.Fields(definitionLabel)
+		if len(fields) == 0 {
+			continue
+		}
+		for index := range fields {
+			fields[index] = regexp.QuoteMeta(fields[index])
+		}
+		labelPattern := strings.Join(fields, `[ \t\r\n]+`)
+		for _, candidate := range []struct {
+			pattern string
+			opening string
+		}{
+			{pattern: `(?i)(^|[^\\])!\[(` + labelPattern + `)\]\[\]`, opening: `![`},
+			{pattern: `(?i)(^|[^\\!])\[(` + labelPattern + `)\]\[\]`, opening: `[`},
+		} {
+			matcher := regexp.MustCompile(candidate.pattern)
+			markdown = matcher.ReplaceAllStringFunc(markdown, func(match string) string {
+				parts := matcher.FindStringSubmatch(match)
+				return parts[1] + add(candidate.opening) + parts[2] + add(`][`) + add(definitionLabel) + add(`]`)
+			})
+		}
+		for _, candidate := range []struct {
+			pattern string
+			opening string
+		}{
+			{pattern: `(?i)(^|[^\\])!\[(` + labelPattern + `)\]([^\(\[]|$)`, opening: `![`},
+			{pattern: `(?i)(^|[^\]\\!])\[(` + labelPattern + `)\]([^\(\[]|$)`, opening: `[`},
+		} {
+			matcher := regexp.MustCompile(candidate.pattern)
+			markdown = matcher.ReplaceAllStringFunc(markdown, func(match string) string {
+				parts := matcher.FindStringSubmatch(match)
+				return parts[1] + add(candidate.opening) + parts[2] + add(`][`) + add(definitionLabel) + add(`]`) + parts[3]
+			})
+		}
+	}
+	return markdown
 }
 
 func protectFencedBlocks(markdown string, add func(string) string) string {
 	lines := strings.SplitAfter(markdown, "\n")
 	var output strings.Builder
 	for index := 0; index < len(lines); {
-		trimmed := strings.TrimSpace(lines[index])
-		fence := ""
-		if strings.HasPrefix(trimmed, "```") {
-			fence = "```"
-		} else if strings.HasPrefix(trimmed, "~~~") {
-			fence = "~~~"
-		}
-		if fence == "" {
+		fenceCharacter, fenceLength, ok := markdownFence(lines[index])
+		if !ok {
 			output.WriteString(lines[index])
 			index++
 			continue
@@ -268,24 +593,284 @@ func protectFencedBlocks(markdown string, add func(string) string) string {
 		start := index
 		index++
 		for index < len(lines) {
-			if strings.HasPrefix(strings.TrimSpace(lines[index]), fence) {
+			if closesMarkdownFence(lines[index], fenceCharacter, fenceLength) {
 				index++
 				break
 			}
 			index++
 		}
 		block := strings.Join(lines[start:index], "")
-		output.WriteString(add(block))
+		output.WriteString(protectBlockWithLineEnding(block, add))
+	}
+	return output.String()
+}
+
+func markdownFence(line string) (byte, int, bool) {
+	line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+	indent := 0
+	for indent < len(line) && line[indent] == ' ' && indent < 4 {
+		indent++
+	}
+	if indent > 3 || indent >= len(line) || line[indent] != '`' && line[indent] != '~' {
+		return 0, 0, false
+	}
+	character := line[indent]
+	end := indent
+	for end < len(line) && line[end] == character {
+		end++
+	}
+	if end-indent < 3 {
+		return 0, 0, false
+	}
+	return character, end - indent, true
+}
+
+func closesMarkdownFence(line string, character byte, minimumLength int) bool {
+	line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+	indent := 0
+	for indent < len(line) && line[indent] == ' ' && indent < 4 {
+		indent++
+	}
+	if indent > 3 {
+		return false
+	}
+	end := indent
+	for end < len(line) && line[end] == character {
+		end++
+	}
+	if end-indent < minimumLength {
+		return false
+	}
+	return strings.TrimSpace(line[end:]) == ""
+}
+
+func protectIndentedCodeBlocks(markdown string, add func(string) string) string {
+	lines := strings.SplitAfter(markdown, "\n")
+	var output strings.Builder
+	for index := 0; index < len(lines); {
+		previousBlank := index == 0 || strings.TrimSpace(lines[index-1]) == ""
+		if !previousBlank || !isIndentedCodeLine(lines[index]) {
+			output.WriteString(lines[index])
+			index++
+			continue
+		}
+		start := index
+		index++
+		for index < len(lines) && (isIndentedCodeLine(lines[index]) || strings.TrimSpace(lines[index]) == "") {
+			index++
+		}
+		output.WriteString(protectBlockWithLineEnding(strings.Join(lines[start:index], ""), add))
+	}
+	return output.String()
+}
+
+func isIndentedCodeLine(line string) bool {
+	return strings.HasPrefix(line, "\t") || strings.HasPrefix(line, "    ")
+}
+
+func protectBlockWithLineEnding(value string, add func(string) string) string {
+	switch {
+	case strings.HasSuffix(value, "\r\n"):
+		return add(strings.TrimSuffix(value, "\r\n")) + "\r\n"
+	case strings.HasSuffix(value, "\n"):
+		return add(strings.TrimSuffix(value, "\n")) + "\n"
+	default:
+		return add(value)
+	}
+}
+
+func protectInlineCodeSpans(markdown string, add func(string) string) string {
+	var output strings.Builder
+	for offset := 0; offset < len(markdown); {
+		start := strings.IndexByte(markdown[offset:], '`')
+		if start < 0 {
+			output.WriteString(markdown[offset:])
+			break
+		}
+		start += offset
+		endOfOpening := start
+		for endOfOpening < len(markdown) && markdown[endOfOpening] == '`' {
+			endOfOpening++
+		}
+		length := endOfOpening - start
+		closing := matchingBacktickRun(markdown, endOfOpening, length)
+		if closing < 0 {
+			output.WriteString(markdown[offset:endOfOpening])
+			offset = endOfOpening
+			continue
+		}
+		output.WriteString(markdown[offset:start])
+		output.WriteString(add(markdown[start : closing+length]))
+		offset = closing + length
+	}
+	return output.String()
+}
+
+func matchingBacktickRun(markdown string, offset, length int) int {
+	for offset < len(markdown) {
+		candidate := strings.IndexByte(markdown[offset:], '`')
+		if candidate < 0 {
+			return -1
+		}
+		candidate += offset
+		end := candidate
+		for end < len(markdown) && markdown[end] == '`' {
+			end++
+		}
+		if end-candidate == length {
+			return candidate
+		}
+		offset = end
+	}
+	return -1
+}
+
+func protectInlineLinkDestinations(markdown string, add func(string) string) string {
+	var output strings.Builder
+	for offset := 0; offset < len(markdown); {
+		marker := strings.Index(markdown[offset:], "](")
+		if marker < 0 {
+			output.WriteString(markdown[offset:])
+			break
+		}
+		markerStart := offset + marker
+		openingRelative := strings.LastIndex(markdown[offset:markerStart], "[")
+		if openingRelative < 0 {
+			output.WriteString(markdown[offset : markerStart+2])
+			offset = markerStart + 2
+			continue
+		}
+		opening := offset + openingRelative
+		syntaxStart := opening
+		if syntaxStart > offset && markdown[syntaxStart-1] == '!' {
+			syntaxStart--
+		}
+		destinationStart := markerStart + 2
+		depth := 1
+		escaped := false
+		destinationEnd := destinationStart
+		for destinationEnd < len(markdown) {
+			character := markdown[destinationEnd]
+			if escaped {
+				escaped = false
+				destinationEnd++
+				continue
+			}
+			if character == '\\' {
+				escaped = true
+				destinationEnd++
+				continue
+			}
+			if character == '(' {
+				depth++
+			} else if character == ')' {
+				depth--
+				if depth == 0 {
+					break
+				}
+			}
+			if character == '\n' || character == '\r' {
+				break
+			}
+			destinationEnd++
+		}
+		if destinationEnd >= len(markdown) || markdown[destinationEnd] != ')' || depth != 0 {
+			output.WriteString(markdown[offset:destinationStart])
+			offset = destinationStart
+			continue
+		}
+		labelStart := opening + 1
+		output.WriteString(markdown[offset:syntaxStart])
+		output.WriteString(add(markdown[syntaxStart:labelStart]))
+		output.WriteString(markdown[labelStart:markerStart])
+		output.WriteString(add(markdown[markerStart:destinationStart]))
+		output.WriteString(add(markdown[destinationStart:destinationEnd]))
+		output.WriteString(add(markdown[destinationEnd : destinationEnd+1]))
+		offset = destinationEnd + 1
+	}
+	return output.String()
+}
+
+func protectBareURLs(markdown string, add func(string) string) string {
+	var output strings.Builder
+	for offset := 0; offset < len(markdown); {
+		httpIndex := strings.Index(markdown[offset:], "http://")
+		httpsIndex := strings.Index(markdown[offset:], "https://")
+		start := httpIndex
+		if start < 0 || httpsIndex >= 0 && httpsIndex < start {
+			start = httpsIndex
+		}
+		if start < 0 {
+			output.WriteString(markdown[offset:])
+			break
+		}
+		start += offset
+		end := start
+		parentheses := 0
+		for end < len(markdown) {
+			character := markdown[end]
+			switch character {
+			case '(':
+				parentheses++
+			case ')':
+				if parentheses == 0 {
+					goto urlComplete
+				}
+				parentheses--
+			case ' ', '\t', '\r', '\n', '<', '>', '[', ']', '"', '\'':
+				goto urlComplete
+			}
+			end++
+		}
+	urlComplete:
+		for end > start && strings.ContainsRune(".,!?;:", rune(markdown[end-1])) {
+			end--
+		}
+		if end == start {
+			output.WriteString(markdown[offset : start+1])
+			offset = start + 1
+			continue
+		}
+		output.WriteString(markdown[offset:start])
+		output.WriteString(add(markdown[start:end]))
+		offset = end
 	}
 	return output.String()
 }
 
 func restoreMarkdown(markdown string, values []protectedValue) (string, error) {
+	expectedTopLevel := make([]string, 0)
 	for _, value := range values {
+		if value.TopLevelOrder >= 0 {
+			expectedTopLevel = append(expectedTopLevel, "")
+		}
+	}
+	for _, value := range values {
+		if value.TopLevelOrder >= 0 {
+			if value.TopLevelOrder >= len(expectedTopLevel) || expectedTopLevel[value.TopLevelOrder] != "" {
+				return "", ErrUnsafeOutput
+			}
+			expectedTopLevel[value.TopLevelOrder] = value.Token
+		}
+	}
+	actualTopLevel := protectedTokenPattern.FindAllString(markdown, -1)
+	if len(actualTopLevel) != len(expectedTopLevel) {
+		return "", ErrUnsafeOutput
+	}
+	for index := range expectedTopLevel {
+		if actualTopLevel[index] != expectedTopLevel[index] {
+			return "", ErrUnsafeOutput
+		}
+	}
+	for index := len(values) - 1; index >= 0; index-- {
+		value := values[index]
 		if strings.Count(markdown, value.Token) != 1 {
 			return "", ErrUnsafeOutput
 		}
 		markdown = strings.Replace(markdown, value.Token, value.Value, 1)
+	}
+	if protectedTokenPattern.MatchString(markdown) {
+		return "", ErrUnsafeOutput
 	}
 	return markdown, nil
 }

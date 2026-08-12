@@ -9,7 +9,7 @@ export interface BuildTasksTracker {
   track: (id?: string, label?: string) => string | undefined;
   untrack: (id: string) => void;
   createTask: (label?: string) => string;
-  trackTaskChildren: (task: Pick<UnifiedTask, "id" | "buildTaskId" | "translationTaskId">) => string[];
+  trackTaskChildren: (task: Pick<UnifiedTask, "id" | "buildTaskId" | "translationTaskId" | "relations">) => string[];
   discardIfMissing: (id: string) => Promise<void>;
   beginOperation: () => Promise<void>;
   reconcile: (provisionalId: string, ...actualIds: Array<string | undefined>) => Promise<void>;
@@ -46,11 +46,18 @@ export function useBuildTasks(): BuildTasksTracker {
     return id;
   }
 
-  function trackTaskChildren(task: Pick<UnifiedTask, "id" | "buildTaskId" | "translationTaskId">): string[] {
-    const childIds = [...new Set([task.buildTaskId, task.translationTaskId].filter((id): id is string => Boolean(id)))];
+  function trackTaskChildren(
+    task: Pick<UnifiedTask, "id" | "buildTaskId" | "translationTaskId" | "relations">,
+  ): string[] {
+    const childIds = [
+      task.buildTaskId,
+      task.translationTaskId,
+      ...(task.relations ?? []).filter((relation) => relation.role !== "parent").map((relation) => relation.id),
+    ].filter((id): id is string => Boolean(id && id !== task.id));
+    const uniqueChildIds = [...new Set(childIds)];
     const label = taskLabels.value[task.id];
-    for (const id of childIds) track(id, label);
-    return childIds;
+    for (const id of uniqueChildIds) track(id, label);
+    return uniqueChildIds;
   }
 
   async function discardIfMissing(id: string): Promise<void> {

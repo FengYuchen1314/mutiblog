@@ -49,6 +49,7 @@ type Service struct {
 	mu          sync.RWMutex
 	taskMu      sync.Mutex
 	lastHash    string
+	managedHash string
 	stats       Stats
 	cancelWatch context.CancelFunc
 	watchWG     sync.WaitGroup
@@ -124,11 +125,57 @@ func (s *Service) RebuildIfChanged() (bool, error) {
 	if err != nil {
 		return false, s.fail(err)
 	}
+	managed := s.managedHash != "" && s.managedHash == fingerprint
+	externalDivergence := s.managedHash != "" && !managed
+	if externalDivergence {
+		// A different hash contains an edit outside the exact managed mutation
+		// that previously failed to index. Never let a broad pending flag swallow
+		// that external change.
+		s.managedHash = ""
+	}
 	if fingerprint == s.lastHash && s.stats.Status == "ready" {
+		if managed {
+			s.managedHash = ""
+		}
+		// rebuildLocked may already have indexed a direct edit that raced the
+		// managed hash. It is still unpublished external state and must trigger
+		// the watcher callback even though no second index rebuild is needed.
+		return externalDivergence, nil
+	}
+	if err := s.rebuildLocked(); err != nil {
+		return false, err
+	}
+	if managed && s.lastHash == fingerprint {
+		s.managedHash = ""
+		// The watcher may be the first successful indexer after a managed task's
+		// checkpoint failure. Consume that exact hash without publishing it as an
+		// external edit; the owning task still controls the final static build.
+		return false, nil
+	}
+	return true, nil
+}
+
+// RebuildManagedChange claims the exact post-mutation source hash before
+// attempting to refresh the derived index. If rebuilding fails, the hash stays
+// pending so a later watcher retry can index it without treating the internal
+// batch as an external edit. A different subsequent hash is never suppressed.
+func (s *Service) RebuildManagedChange() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fingerprint, err := s.fingerprint()
+	if err != nil {
+		return false, s.fail(err)
+	}
+	s.managedHash = fingerprint
+	if fingerprint == s.lastHash && s.stats.Status == "ready" {
+		s.managedHash = ""
 		return false, nil
 	}
 	if err := s.rebuildLocked(); err != nil {
 		return false, err
+	}
+	if s.lastHash == fingerprint {
+		s.managedHash = ""
 	}
 	return true, nil
 }

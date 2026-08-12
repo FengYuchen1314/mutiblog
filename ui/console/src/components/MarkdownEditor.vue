@@ -3,13 +3,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { basicSetup } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { createPreviewMarkdownRenderer } from "./markdownPreview";
 import { typesetPreviewMath } from "./mathJaxPreview";
 
 const props = defineProps<{
   modelValue: string;
+  readonly?: boolean;
   uploading?: boolean;
   sourceComparison?: { locale: string; title: string; markdown: string };
 }>();
@@ -28,6 +29,7 @@ const comparisonOpen = ref(false);
 let editor: EditorView | undefined;
 let syncingExternalValue = false;
 let syncingScroll = false;
+const editingMode = new Compartment();
 
 // The shared renderer embeds MathJax's server-side SVG pipeline. The editor
 // instead uses a browser-only self-hosted component after Vue updates its own
@@ -45,16 +47,22 @@ onMounted(() => {
         basicSetup,
         markdown(),
         EditorView.lineWrapping,
+        editingMode.of([EditorState.readOnly.of(Boolean(props.readonly)), EditorView.editable.of(!props.readonly)]),
         keymap.of([
           { key: "Mod-b", run: (view) => wrapSelection(view, "**", "**", t("markdownEditor.boldPlaceholder")) },
           { key: "Mod-i", run: (view) => wrapSelection(view, "_", "_", t("markdownEditor.italicPlaceholder")) },
           { key: "Mod-k", run: (view) => insertLink(view) },
         ]),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged && !syncingExternalValue) emit("update:modelValue", update.state.doc.toString());
+          if (update.docChanged && !syncingExternalValue && !props.readonly)
+            emit("update:modelValue", update.state.doc.toString());
         }),
         EditorView.domEventHandlers({
           paste(event) {
+            if (props.readonly) {
+              event.preventDefault();
+              return true;
+            }
             const files = [...(event.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
             if (files.length === 0) return false;
             event.preventDefault();
@@ -62,6 +70,10 @@ onMounted(() => {
             return true;
           },
           drop(event) {
+            if (props.readonly) {
+              event.preventDefault();
+              return true;
+            }
             const files = [...(event.dataTransfer?.files ?? [])].filter((file) => file.type.startsWith("image/"));
             if (files.length === 0) return false;
             event.preventDefault();
@@ -83,6 +95,15 @@ watch(
     syncingExternalValue = true;
     editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: value } });
     syncingExternalValue = false;
+  },
+);
+
+watch(
+  () => props.readonly,
+  (value) => {
+    editor?.dispatch({
+      effects: editingMode.reconfigure([EditorState.readOnly.of(Boolean(value)), EditorView.editable.of(!value)]),
+    });
   },
 );
 
@@ -132,7 +153,7 @@ function synchronizeScroll(source: HTMLElement) {
 }
 
 function insertAtCursor(text: string) {
-  if (!editor) return;
+  if (!editor || props.readonly) return;
   const selection = editor.state.selection.main;
   editor.dispatch({
     changes: { from: selection.from, to: selection.to, insert: text },
@@ -142,6 +163,7 @@ function insertAtCursor(text: string) {
 }
 
 function wrapSelection(view: EditorView, before: string, after: string, placeholder: string) {
+  if (props.readonly) return false;
   const selection = view.state.selection.main;
   const selected = view.state.sliceDoc(selection.from, selection.to) || placeholder;
   view.dispatch({
@@ -153,7 +175,7 @@ function wrapSelection(view: EditorView, before: string, after: string, placehol
 }
 
 function prefixSelection(prefix: string) {
-  if (!editor) return;
+  if (!editor || props.readonly) return;
   const selection = editor.state.selection.main;
   const selected = editor.state.sliceDoc(selection.from, selection.to) || t("markdownEditor.textPlaceholder");
   const replacement = selected
@@ -168,7 +190,7 @@ function prefixSelection(prefix: string) {
 }
 
 function insertLink(view = editor) {
-  if (!view) return false;
+  if (!view || props.readonly) return false;
   const selection = view.state.selection.main;
   const selected = view.state.sliceDoc(selection.from, selection.to) || t("markdownEditor.linkPlaceholder");
   const replacement = `[${selected}](https://)`;
@@ -189,7 +211,12 @@ defineExpose({ insertAtCursor, showPreview });
 </script>
 
 <template>
-  <div ref="container" class="markdown-editor" :class="{ 'markdown-editor--fullscreen': fullscreen }">
+  <div
+    ref="container"
+    class="markdown-editor"
+    :class="{ 'markdown-editor--fullscreen': fullscreen, 'markdown-editor--readonly': readonly }"
+    :aria-readonly="readonly"
+  >
     <div class="editor-toolbar">
       <div class="mode-tabs">
         <button :class="{ active: mode === 'edit' }" type="button" @click="mode = 'edit'">
@@ -203,9 +230,12 @@ defineExpose({ insertAtCursor, showPreview });
         </button>
       </div>
       <div class="markdown-tools" :aria-label="t('markdownEditor.tools')">
-        <button type="button" :title="t('markdownEditor.heading')" @click="prefixSelection('## ')">H2</button>
+        <button type="button" :disabled="readonly" :title="t('markdownEditor.heading')" @click="prefixSelection('## ')">
+          H2
+        </button>
         <button
           type="button"
+          :disabled="readonly"
           :title="t('markdownEditor.bold')"
           @click="editor && wrapSelection(editor, '**', '**', t('markdownEditor.boldPlaceholder'))"
         >
@@ -213,22 +243,32 @@ defineExpose({ insertAtCursor, showPreview });
         </button>
         <button
           type="button"
+          :disabled="readonly"
           :title="t('markdownEditor.italic')"
           @click="editor && wrapSelection(editor, '_', '_', t('markdownEditor.italicPlaceholder'))"
         >
           <em>I</em>
         </button>
-        <button type="button" :title="t('markdownEditor.quote')" @click="prefixSelection('> ')">❯</button>
+        <button type="button" :disabled="readonly" :title="t('markdownEditor.quote')" @click="prefixSelection('> ')">
+          ❯
+        </button>
         <button
           type="button"
+          :disabled="readonly"
           :title="t('markdownEditor.code')"
           @click="editor && wrapSelection(editor, '`', '`', t('markdownEditor.codePlaceholder'))"
         >
           &lt;/&gt;
         </button>
-        <button type="button" :title="t('markdownEditor.link')" @click="insertLink()">↗</button>
+        <button type="button" :disabled="readonly" :title="t('markdownEditor.link')" @click="insertLink()">↗</button>
       </div>
-      <span>{{ uploading ? t("markdownEditor.uploading") : t("markdownEditor.imageHelp") }}</span>
+      <span>{{
+        readonly
+          ? t("markdownEditor.readOnly")
+          : uploading
+            ? t("markdownEditor.uploading")
+            : t("markdownEditor.imageHelp")
+      }}</span>
       <button
         v-if="sourceComparison"
         type="button"

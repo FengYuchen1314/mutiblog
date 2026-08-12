@@ -1,4 +1,5 @@
 import React from "react";
+import { createPageNavigationLifecycle, qualifiesPageNavigation } from "./page-navigation.js";
 import type { ThemeContext, ThemeLinkGroup, ThemeMenuItem, ThemePost, ThemeTaxonomySummary } from "./types.js";
 
 const e = (value: string) => encodeURIComponent(value);
@@ -9,7 +10,9 @@ function Shell({ context, children }: { context: ThemeContext; children: React.R
   const { site, currentPath, strings } = context;
   const title = context.pageTitle ? `${context.pageTitle} – ${site.title}` : site.title;
   const description = context.pageDescription ?? site.description ?? site.subtitle ?? site.title;
+  const pageLoadingLabel = strings.redirecting || "Loading page…";
   const accentColor = safeColor(stringSetting(context, "style.accentColor", "#4ccba0"));
+  const visualPreset = choiceSetting(context, "style.visualPreset", ["material-glass", "earth-classic"] as const, "material-glass");
   const defaultColorScheme = choiceSetting(context, "style.defaultColorScheme", ["system", "light", "dark"] as const, "system");
   const cardRadius = choiceSetting(context, "style.cardRadius", ["square", "soft", "round"] as const, "soft");
   const cardShadow = choiceSetting(context, "style.cardShadow", ["none", "subtle", "floating"] as const, "subtle");
@@ -47,6 +50,11 @@ function Shell({ context, children }: { context: ThemeContext; children: React.R
       subtle: "0 5px 18px rgb(14 23 49 / 4%)",
       floating: "0 16px 40px rgb(14 23 49 / 14%)",
     }[cardShadow],
+    "--material-surface-shadow": {
+      none: "none",
+      subtle: ".6rem .7rem 1.65rem rgb(44 39 56 / 10%), -.45rem -.45rem 1.2rem rgb(255 255 255 / 48%)",
+      floating: ".8rem .95rem 2rem rgb(44 39 56 / 15%), -.5rem -.5rem 1.4rem rgb(255 255 255 / 52%)",
+    }[cardShadow],
   } as React.CSSProperties;
 
   return (
@@ -54,6 +62,7 @@ function Shell({ context, children }: { context: ThemeContext; children: React.R
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="view-transition" content="same-origin" />
         <meta name="description" content={description} />
         <title>{title}</title>
         {context.canonicalUrl ? <link rel="canonical" href={context.canonicalUrl} /> : null}
@@ -68,7 +77,9 @@ function Shell({ context, children }: { context: ThemeContext; children: React.R
         {context.post?.cover ? <meta property="og:image" content={absoluteUrl(site.baseUrl, context.post.cover)} /> : null}
         <link rel="stylesheet" href="/assets/theme.css" />
       </head>
-      <body id="top" className={classes(`body-font-${bodyFont}`, !showCardBorder && "cards-borderless")}>
+      <body id="top" className={classes(`body-font-${bodyFont}`, !showCardBorder && "cards-borderless")} data-visual-preset={visualPreset} data-page-loading-label={pageLoadingLabel}>
+        <div className="site-navigation-progress" data-page-loading role="progressbar" aria-label={pageLoadingLabel} aria-valuetext={pageLoadingLabel} aria-hidden="true" hidden><span /></div>
+        <p className="visually-hidden" data-page-loading-status role="status" aria-live="polite" aria-atomic="true" />
         <header className={classes("site-header", !stickyHeader && "site-header-static")}>
           <div className="header-inner">
             <a className="site-brand" href={`/${site.locale}/`}>
@@ -735,6 +746,20 @@ const earthInteractionScript = `(()=>{
   const absolute=value=>{try{return new URL(value||location.href,location.href).href}catch{return location.href}};
   const copy=async value=>{const text=absolute(value);try{if(navigator.clipboard){await navigator.clipboard.writeText(text);return}const area=document.createElement('textarea');area.value=text;area.style.position='fixed';area.style.opacity='0';document.body.append(area);area.select();document.execCommand('copy');area.remove()}catch{}};
   const shareURL=(item,url,title)=>{const u=encodeURIComponent(absolute(url)),t=encodeURIComponent(title||document.title);if(item==='x')return 'https://x.com/intent/post?url='+u+'&text='+t;if(item==='telegram')return 'https://t.me/share/url?url='+u+'&text='+t;if(item==='facebook')return 'https://www.facebook.com/sharer/sharer.php?u='+u;if(item==='qq')return 'https://connect.qq.com/widget/shareqq/index.html?url='+u+'&title='+t;if(item==='qzone')return 'https://sns.qzone.qq.com/cgi-bin/qzshare/cgi_qzshare_onekey?url='+u+'&title='+t;if(item==='weibo')return 'https://service.weibo.com/share/share.php?url='+u+'&title='+t;if(item==='douban')return 'https://www.douban.com/share/service?href='+u+'&name='+t;return 'mailto:?subject='+t+'&body='+u};
+  const pageLoading=document.querySelector('[data-page-loading]'),pageLoadingStatus=document.querySelector('[data-page-loading-status]'),pageLoadingLabel=document.body.dataset.pageLoadingLabel||'Loading page…';
+  const pageNavigationQualifies=${qualifiesPageNavigation.toString()};
+  const createPageNavigation=${createPageNavigationLifecycle.toString()};
+  const pageNavigation=createPageNavigation({
+    qualifies:pageNavigationQualifies,
+    onPending:()=>{document.body.dataset.pageNavigation='pending';if(pageLoading instanceof HTMLElement){pageLoading.hidden=false;pageLoading.setAttribute('aria-hidden','false')}if(pageLoadingStatus instanceof HTMLElement)pageLoadingStatus.textContent=pageLoadingLabel},
+    onReset:()=>{delete document.body.dataset.pageNavigation;if(pageLoading instanceof HTMLElement){pageLoading.hidden=true;pageLoading.setAttribute('aria-hidden','true')}if(pageLoadingStatus instanceof HTMLElement)pageLoadingStatus.textContent=''},
+    schedule:(callback,delay)=>window.setTimeout(callback,delay),
+    cancel:timer=>window.clearTimeout(timer),
+  });
+  const pageNavigationClick=event=>{const source=event.target instanceof Element?event.target:null,link=source?.closest('a[href]');return{defaultPrevented:event.defaultPrevented,button:event.button,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,hasLink:Boolean(link),href:link?.href||null,imageLink:link?.dataset.imageLink==='true',download:link?.hasAttribute('download')===true,noPageTransition:link?.hasAttribute('data-no-page-transition')===true,target:link?.getAttribute('target')||null,currentURL:location.href}};
+  document.addEventListener('click',event=>pageNavigation.handleClick(pageNavigationClick(event)),true);
+  window.addEventListener('pageshow',pageNavigation.handlePageShow);
+  window.addEventListener('popstate',pageNavigation.handlePopState);
   document.querySelectorAll('[data-share-open]').forEach(button=>button.addEventListener('click',()=>{const dialog=document.getElementById(button.dataset.shareOpen||'');if(!(dialog instanceof HTMLDialogElement))return;const url=absolute(dialog.dataset.shareUrl);dialog.querySelectorAll('[data-share-url]').forEach(node=>{node.dataset.shareUrl=url});const input=dialog.querySelector('[data-share-copy-value]');if(input)input.value=url;dialog.showModal()}));
   document.querySelectorAll('[data-share-dialog]').forEach(dialog=>{dialog.querySelector('[data-share-close]')?.addEventListener('click',()=>dialog.close());dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close()})});
   document.querySelectorAll('[data-share-native]').forEach(button=>button.addEventListener('click',async()=>{const url=absolute(button.dataset.shareUrl),title=button.dataset.shareTitle||document.title;try{if(navigator.share)await navigator.share({title,url});else await copy(url)}catch{}}));
@@ -1026,6 +1051,7 @@ html[data-theme="dark"] {
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+@view-transition { navigation: auto; }
 body {
   margin: 0;
   background: var(--canvas);
@@ -1033,6 +1059,18 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   line-height: 1.65;
 }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.site-navigation-progress { position: fixed; inset: 0 0 auto; z-index: 100; height: .2rem; overflow: hidden; pointer-events: none; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.site-navigation-progress > span { display: block; width: 38%; height: 100%; border-radius: inherit; background: var(--accent); box-shadow: 0 0 .7rem color-mix(in srgb, var(--accent) 70%, transparent); transform: translateX(-115%); }
+body[data-page-navigation="pending"] { cursor: progress; }
+body[data-page-navigation="pending"] .site-navigation-progress > span { animation: site-navigation-progress 1.15s cubic-bezier(.35, .01, .25, 1) infinite; }
+@keyframes site-navigation-progress { from { transform: translateX(-115%); } to { transform: translateX(300%); } }
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) { animation: earth-page-exit 150ms ease-in both; }
+  ::view-transition-new(root) { animation: earth-page-enter 260ms cubic-bezier(.2, .8, .2, 1) both; }
+}
+@keyframes earth-page-exit { to { opacity: 0; transform: translateY(-.35rem); } }
+@keyframes earth-page-enter { from { opacity: 0; transform: translateY(.5rem); } }
 body.body-font-humanist { font-family: "Trebuchet MS", "Segoe UI", ui-sans-serif, system-ui, sans-serif; }
 body.body-font-serif { font-family: ui-serif, Georgia, "Times New Roman", serif; }
 a { color: inherit; text-decoration: none; }
@@ -1460,10 +1498,123 @@ a.comment-author:hover { color: var(--accent); }
 	.post-cursor-next { justify-content: flex-start; text-align: left; }
 	.post-cursor-next > span:first-child { order: 2; }
 }
+/* earth-classic intentionally inherits the original rules above. The default
+   preset below layers Material surfaces over the same durable page structure. */
+body[data-visual-preset="material-glass"] {
+  --canvas: #f7f7ff;
+  --card: rgb(255 255 255 / 72%);
+  --border: rgb(91 91 104 / 15%);
+  --ink: #1d1b20;
+  --muted: #625b71;
+  --material-focus-ring: color-mix(in srgb, var(--accent) 56%, #1d1b20);
+  color-scheme: light;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 8% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 28rem),
+    radial-gradient(circle at 96% 18%, rgb(216 208 255 / 58%), transparent 26rem),
+    var(--canvas);
+}
+html[data-theme="dark"] body[data-visual-preset="material-glass"] {
+  --canvas: #141218;
+  --card: rgb(43 40 49 / 75%);
+  --border: rgb(232 222 248 / 14%);
+  --ink: #e8e1e8;
+  --muted: #cac4d0;
+  --material-focus-ring: color-mix(in srgb, var(--accent) 64%, #f4eff8);
+  color-scheme: dark;
+  background:
+    radial-gradient(circle at 8% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 28rem),
+    radial-gradient(circle at 96% 18%, rgb(73 66 98 / 62%), transparent 26rem),
+    var(--canvas);
+}
+body[data-visual-preset="material-glass"] .site-header {
+  border-color: color-mix(in srgb, var(--border) 82%, transparent);
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+  box-shadow: 0 .45rem 1.6rem rgb(44 39 56 / 7%);
+  backdrop-filter: blur(1.35rem) saturate(1.18);
+}
+body[data-visual-preset="material-glass"] .brand-symbol {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: .8rem;
+  background: color-mix(in srgb, var(--accent) 17%, var(--card));
+  box-shadow: inset 1px 1px 0 rgb(255 255 255 / 36%), 0 .35rem .9rem rgb(44 39 56 / 10%);
+  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
+}
+body[data-visual-preset="material-glass"] :is(.icon-action, .locale-picker summary) {
+  border-radius: 999px;
+  padding: .34rem .5rem;
+  transition: background-color .18s ease, box-shadow .18s ease, color .18s ease;
+}
+body[data-visual-preset="material-glass"] :is(.icon-action, .locale-picker summary):hover,
+body[data-visual-preset="material-glass"] .locale-picker[open] summary {
+  background: color-mix(in srgb, var(--accent) 13%, var(--card));
+  box-shadow: inset 1px 1px 2px rgb(44 39 56 / 7%);
+  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
+}
+body[data-visual-preset="material-glass"] :is(.post-card, .sidebar-card, .article-card, .list-heading, .taxonomy-filter-tags, .comment-list article, .archive-group article, .share-dialog, .social-image-dialog) {
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+  background: linear-gradient(135deg, rgb(255 255 255 / 18%), transparent 62%), var(--card);
+  box-shadow: var(--material-surface-shadow);
+  backdrop-filter: blur(1rem) saturate(1.08);
+}
+html[data-theme="dark"] body[data-visual-preset="material-glass"] :is(.post-card, .sidebar-card, .article-card, .list-heading, .taxonomy-filter-tags, .comment-list article, .archive-group article, .share-dialog, .social-image-dialog) {
+  background: linear-gradient(135deg, rgb(255 255 255 / 7%), transparent 62%), var(--card);
+  box-shadow: var(--material-surface-shadow);
+}
+body.cards-borderless[data-visual-preset="material-glass"] :is(.post-card, .sidebar-card, .article-card) { border-color: transparent; }
+body[data-visual-preset="material-glass"] .sidebar-profile-plain {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+body[data-visual-preset="material-glass"] :is(.hero, .content-cover) {
+  background-color: #342d4b;
+  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 12%);
+}
+body[data-visual-preset="material-glass"] .hero {
+  background-image:
+    radial-gradient(circle at 24% 22%, color-mix(in srgb, var(--accent) 50%, transparent), transparent 32%),
+    radial-gradient(circle at 84% 12%, rgb(209 192 255 / 35%), transparent 26%),
+    linear-gradient(135deg, #252033, #463b63);
+}
+body[data-visual-preset="material-glass"] :is(.taxonomy-filter-tags a, .article-tags a, .sidebar-tags a) {
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+}
+body[data-visual-preset="material-glass"] :is(.pagination > a, .pagination > span, .pagination-pages > a, .pagination-pages > strong, .upvote-action button, .share-trigger, .share-actions a, .share-actions button, .comments-more, .scroll-top) {
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+  background: color-mix(in srgb, var(--card) 90%, transparent);
+  box-shadow: .28rem .32rem .9rem rgb(44 39 56 / 9%), -.2rem -.2rem .65rem rgb(255 255 255 / 40%);
+}
+body[data-visual-preset="material-glass"] :is(.comment-form input, .comment-form textarea, .search-card input[type="search"], .share-copy-row input) {
+  border-color: color-mix(in srgb, var(--border) 88%, transparent);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  box-shadow: inset .16rem .16rem .45rem rgb(44 39 56 / 6%), inset -.12rem -.12rem .35rem rgb(255 255 255 / 42%);
+}
+body[data-visual-preset="material-glass"] :is(.comment-form button, .share-copy-row button) {
+  border-radius: .85rem;
+  box-shadow: .3rem .35rem .8rem color-mix(in srgb, var(--accent) 22%, transparent), inset 1px 1px 0 rgb(255 255 255 / 26%);
+}
+body[data-visual-preset="material-glass"] :is(a, button, summary, input, textarea):focus-visible {
+  outline: 3px solid var(--material-focus-ring);
+  outline-offset: 3px;
+}
+@media (hover: hover) {
+  body[data-visual-preset="material-glass"] .post-card:hover {
+    transform: translateY(-.32rem);
+    box-shadow: var(--material-surface-shadow);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
+  @view-transition { navigation: none; }
   html { scroll-behavior: auto; }
+  .site-navigation-progress { display: none !important; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
 `;
 
 export type { ThemeContext, ThemeHeading, ThemeLink, ThemeLinkGroup, ThemeMenu, ThemeMenuItem, ThemePagination, ThemePaginationPage, ThemePost, ThemePostCursor, ThemeSite, ThemeTaxonomyCollection, ThemeTaxonomyCollections, ThemeTaxonomyKind, ThemeTaxonomySummary } from "./types.js";
+export { createPageNavigationLifecycle, qualifiesPageNavigation } from "./page-navigation.js";
+export type { PageNavigationClick, PageNavigationLifecycle, PageNavigationLifecycleOptions, PageNavigationTimer } from "./page-navigation.js";
