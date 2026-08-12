@@ -400,9 +400,22 @@ func TestEarthSettingsUseDefaultsValidateAndReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	style := settings.Values["style"].(map[string]any)
+	layout := settings.Values["layout"].(map[string]any)
+	post := settings.Values["post"].(map[string]any)
 	sidebar := settings.Values["sidebar"].(map[string]any)
 	widgets, widgetsOK := sidebar["widgets"].([]any)
-	if style["visualPreset"] != "material-glass" || style["accentColor"] != "#4ccba0" || !widgetsOK || len(widgets) != 3 || widgets[0] != "popular-posts" || widgets[1] != "categories" || widgets[2] != "tags" {
+	if style["visualPreset"] != "nature-glass" ||
+		style["accentColor"] != "#006699" ||
+		layout["showHero"] != true ||
+		layout["headerWidget"] != "latest-post" ||
+		layout["postListLayout"] != "grid-3" ||
+		layout["coverRatio"] != "landscape" ||
+		post["contentFont"] != "sans" ||
+		sidebar["position"] != "right" ||
+		sidebar["sticky"] != true ||
+		style["cardRadius"] != "square" ||
+		style["cardShadow"] != "subtle" ||
+		!widgetsOK || len(widgets) != 3 || widgets[0] != "popular-posts" || widgets[1] != "categories" || widgets[2] != "tags" {
 		t.Fatalf("default settings = %#v", settings.Values)
 	}
 	if _, err := service.SaveSettings("earth", map[string]any{"unknown": true}); !errors.Is(err, ErrInvalid) {
@@ -440,8 +453,56 @@ func TestEarthSettingsUseDefaultsValidateAndReset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reset.Values["style"].(map[string]any)["visualPreset"] != "material-glass" || reset.Values["style"].(map[string]any)["accentColor"] != "#4ccba0" {
+	if reset.Values["style"].(map[string]any)["visualPreset"] != "nature-glass" || reset.Values["style"].(map[string]any)["accentColor"] != "#006699" {
 		t.Fatalf("reset settings = %#v", reset.Values)
+	}
+}
+
+func TestEarthLegacyVisualPresetSettingsAreNormalized(t *testing.T) {
+	for _, legacyPreset := range []string{"material-glass", "telegram-web"} {
+		t.Run(legacyPreset, func(t *testing.T) {
+			service, repository := themeFixture(t)
+			if err := repository.WriteYAML(settingsPath("earth"), map[string]any{
+				"style": map[string]any{
+					"visualPreset": legacyPreset,
+					"accentColor":  "#ff0000",
+				},
+			}, false); err != nil {
+				t.Fatal(err)
+			}
+
+			settings, err := service.Settings("earth")
+			if err != nil {
+				t.Fatalf("read legacy settings: %v", err)
+			}
+			if style := settings.Values["style"].(map[string]any); style["visualPreset"] != "nature-glass" || style["accentColor"] != "#ff0000" {
+				t.Fatalf("normalized settings style = %#v", style)
+			}
+
+			runtime, err := service.Runtime()
+			if err != nil {
+				t.Fatalf("read legacy runtime: %v", err)
+			}
+			if style := runtime.Settings["style"].(map[string]any); style["visualPreset"] != "nature-glass" || style["accentColor"] != "#ff0000" {
+				t.Fatalf("normalized runtime style = %#v", style)
+			}
+
+			updated, err := service.SaveSettings("earth", map[string]any{"style": map[string]any{"cardRadius": "round"}})
+			if err != nil {
+				t.Fatalf("patch legacy settings: %v", err)
+			}
+			if style := updated.Values["style"].(map[string]any); style["visualPreset"] != "nature-glass" || style["accentColor"] != "#ff0000" || style["cardRadius"] != "round" {
+				t.Fatalf("patched settings style = %#v", style)
+			}
+
+			var persisted map[string]any
+			if err := repository.ReadYAML(settingsPath("earth"), &persisted); err != nil {
+				t.Fatal(err)
+			}
+			if style := persisted["style"].(map[string]any); style["visualPreset"] != "nature-glass" || style["accentColor"] != "#ff0000" || style["cardRadius"] != "round" {
+				t.Fatalf("persisted canonical style = %#v", style)
+			}
+		})
 	}
 }
 

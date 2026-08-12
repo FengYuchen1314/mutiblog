@@ -302,3 +302,25 @@ defineExpose({ insertAtCursor, showPreview });
     </div>
   </div>
 </template>
+
+<style scoped>
+/*
+ * `tex2svgPromise()` returns MathJax's assistive MathML alongside its SVG.
+ * Unlike MathJax's document-wide typesetter, that low-level API does not add
+ * the stylesheet which normally hides the assistive copy. Keep the MathML in
+ * the accessibility tree, but make it visually hidden so each formula only
+ * appears once in the editor preview.
+ */
+.markdown-preview :deep(mjx-assistive-mml) {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  border: 0 !important;
+  padding: 0 !important;
+  white-space: nowrap;
+}
+</style>

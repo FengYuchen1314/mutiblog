@@ -2,6 +2,9 @@
 
 import { mount } from "@vue/test-utils";
 import { createI18n } from "vue-i18n";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import en from "@/i18n/locales/en";
 import MarkdownEditor from "./MarkdownEditor.vue";
@@ -115,5 +118,14 @@ describe("MarkdownEditor read-only mode", () => {
     expect(wrapper.emitted("update:modelValue")).toBeUndefined();
     expect(wrapper.emitted("image-files")).toBeUndefined();
     wrapper.unmount();
+  });
+
+  test("keeps MathJax's assistive MathML visually hidden in the preview stylesheet", async () => {
+    const source = await readFile(join(dirname(fileURLToPath(import.meta.url)), "MarkdownEditor.vue"), "utf8");
+
+    expect(source).toContain(".markdown-preview :deep(mjx-assistive-mml)");
+    expect(source).toContain("position: absolute !important;");
+    expect(source).toContain("overflow: hidden !important;");
+    expect(source).toContain("clip-path: inset(50%);");
   });
 });

@@ -693,6 +693,7 @@ func (s *Service) Settings(id string) (SettingsView, error) {
 	values := defaultsForSchema(schema)
 	var saved map[string]any
 	if err := s.repository.ReadYAML(settingsPath(id), &saved); err == nil {
+		normalizeLegacyEarthSettings(id, saved)
 		mergeSettings(values, saved)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return SettingsView{}, err
@@ -790,7 +791,9 @@ func (s *Service) SaveSettings(id string, values map[string]any) (SettingsView, 
 	if overrides == nil {
 		overrides = map[string]any{}
 	}
+	normalizeLegacyEarthSettings(id, overrides)
 	mergeSettings(overrides, values)
+	normalizeLegacyEarthSettings(id, overrides)
 	effective := defaultsForSchema(view.Schema)
 	mergeSettings(effective, overrides)
 	if err := validateSettings(view.Schema, effective); err != nil {
@@ -1270,6 +1273,25 @@ func mergeSettings(destination, source map[string]any) {
 			}
 		}
 		destination[key] = value
+	}
+}
+
+// normalizeLegacyEarthSettings keeps the built-in theme's persisted settings
+// compatible across visual-preset renames. The former Material and Telegram
+// presets now share the editorial glass visual language, so existing
+// installations can keep reading their settings and are written back with the
+// canonical value on their next patch save.
+func normalizeLegacyEarthSettings(id string, values map[string]any) {
+	if id != "earth" {
+		return
+	}
+	style, ok := values["style"].(map[string]any)
+	if !ok {
+		return
+	}
+	switch visualPreset, _ := style["visualPreset"].(string); visualPreset {
+	case "material-glass", "telegram-web":
+		style["visualPreset"] = "nature-glass"
 	}
 }
 

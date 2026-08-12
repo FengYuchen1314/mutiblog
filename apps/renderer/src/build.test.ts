@@ -44,7 +44,7 @@ test("requires exact content and framework strings for ready locales", async () 
     },
     theme: {
       id: "earth",
-      settings: { layout: { heroKicker: "中文眉题" } },
+      settings: { layout: { showHero: true, headerWidget: "site-title", heroKicker: "中文眉题" } },
       localizableSettings: ["layout.heroKicker"],
       localizedSettings: { ja: { "layout.heroKicker": "日本語の眉題" } },
     },
@@ -710,8 +710,8 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
     theme: {
       id: "earth",
       settings: {
-        global: { sticky: false, showBrandSymbol: true, brandSymbol: "地", showSearch: false, showLanguageSwitcher: false, showColorSchemeToggle: false },
-        layout: { showHero: true, heroKicker: "自定义眉题", heroHeight: "compact", postListLayout: "single", showSidebar: true, showPostCovers: false, coverRatio: "square", showPostSummaries: false, showCategories: false, showPublishedAt: false },
+        global: { sticky: false, logoType: "symbol", showBrandSymbol: true, brandSymbol: "地", showSearch: false, showLanguageSwitcher: false, showColorSchemeToggle: false },
+        layout: { showHero: true, headerWidget: "site-title", heroKicker: "自定义眉题", heroHeight: "compact", postListLayout: "single", showSidebar: true, showPostCovers: false, coverRatio: "square", showPostSummaries: false, showCategories: false, showPublishedAt: false },
         post: { contentWidth: "wide", contentFont: "sans", showCover: false, showSummary: false, showCategories: false, showTags: false, showPublishedAt: false, showUpvoteButton: false },
         style: { accentColor: "#ff3366", defaultColorScheme: "dark", cardRadius: "square", cardShadow: "none", bodyFont: "serif", showCardBorder: false },
         comments: { showSection: true, showAvatars: false, showEmailField: false, showWebsiteField: false, formLayout: "stacked", showTimestamps: false },
@@ -746,11 +746,11 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
   expect(homepage).not.toContain("hidden-cover.webp");
   expect(homepage).not.toContain("不应显示的摘要");
   expect(homepage).toContain("body-font-serif cards-borderless");
-  expect(homepage).toContain('data-visual-preset="material-glass"');
+  expect(homepage).toContain('data-visual-preset="nature-glass"');
   expect(homepage).toContain("--accent:#ff3366");
   expect(homepage).toContain("--card-radius:0");
   expect(homepage).toContain("--card-shadow:none");
-  expect(homepage).toContain("--material-surface-shadow:none");
+  expect(homepage).toContain("--nature-surface-shadow:none");
   expect(homepage).toContain("site-footer site-footer-centered site-footer-style-1 site-footer-borderless");
   expect(homepage).toContain("保留所有权利");
   expect(homepage).not.toContain("由 MutiBlog 驱动");
@@ -790,9 +790,52 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
   expect(css).toContain("@view-transition { navigation: auto; }");
   expect(css).toContain(".site-navigation-progress");
   expect(css).toContain("@view-transition { navigation: none; }");
-  expect(css).toContain('body.cards-borderless[data-visual-preset="material-glass"]');
-  expect(css).toContain('body[data-visual-preset="material-glass"] .sidebar-profile-plain');
+  expect(css).toContain('body.cards-borderless[data-visual-preset="nature-glass"]');
+  expect(css).toContain('body.cards-borderless[data-visual-preset="nature-glass"] .post-card:hover');
+  expect(css).toContain('body[data-visual-preset="nature-glass"] .sidebar-profile-plain');
+  expect(css).toContain('body[data-visual-preset="nature-glass"] .site-footer.site-footer-borderless');
+  expect(css).toContain("box-shadow: var(--card-shadow)");
+  expect(css).toContain("--nature-glass");
+  expect(css).toContain("backdrop-filter: blur(18px) saturate(115%)");
+  expect(css).toContain("@media (max-width: 960px)");
   expect(css).toContain("mjx-container.MathJax");
+});
+
+test("uses editorial glass defaults when the built-in Earth settings are omitted", async () => {
+  const output = join("/tmp", `mutiblog-earth-defaults-${crypto.randomUUID()}`);
+  outputs.push(output);
+  const input: BuildInput = {
+    schemaVersion: 1,
+    sourceLocale: "zh-CN",
+    locales: [{ code: "zh-CN", label: "简体中文" }],
+    site: { locales: { "zh-CN": { title: "默认主题" } } },
+    dictionaries: { "zh-CN": { home: "首页", redirecting: "正在前往页面…" } },
+    posts: [
+      {
+        id: "theme-defaults",
+        status: "published",
+        cover: "/media/theme-defaults.webp",
+        locales: { "zh-CN": { title: "默认文章", markdown: "默认正文" } },
+      },
+    ],
+  };
+
+  await buildSite(input, output);
+
+  const homepage = await readFile(join(output, "zh-CN/index.html"), "utf8");
+  expect(homepage).toContain('data-visual-preset="nature-glass"');
+  expect(homepage).toContain("hero hero-standard hero-widget-latest-post");
+  expect(homepage).toContain("post-grid post-grid-grid-3");
+  expect(homepage).toContain("post-cover post-cover-landscape");
+  expect(homepage).toContain("earth-layout sidebar-right");
+  expect(homepage).toContain("sidebar-card sidebar-sticky");
+
+  const article = await readFile(
+    join(output, "zh-CN/posts/theme-defaults/index.html"),
+    "utf8",
+  );
+  expect(article).toContain("markdown-body markdown-font-sans");
+  expect(article).toContain("earth-layout sidebar-right");
 });
 
 test("maps the Halo Earth source settings to real header, content, sidebar, sharing, and footer output", async () => {
@@ -811,7 +854,7 @@ test("maps the Halo Earth source settings to real header, content, sidebar, shar
     menus: [{ id: "primary", locales: { "zh-CN": { label: "主菜单" } }, items: [{ id: "home", targetKind: "internal", url: "/", openInNew: false, order: 0, locales: { "zh-CN": { label: "主页" } } }] }, { id: "footer-links", locales: { "zh-CN": { label: "页脚链接" } }, items: [{ id: "about", targetKind: "internal", url: "/pages/about/", openInNew: false, order: 0, locales: { "zh-CN": { label: "关于" } } }] }],
     theme: { id: "earth", settings: {
       global: { logoType: "image", logoImage: "/media/header-logo.svg", showScrollButton: true },
-      layout: { headerWidget: "latest-post", headerBackgroundType: "image", headerBackgroundImage: "/media/hero.webp", headerTitleColor: "#ffeecc", contentHeader: true },
+      layout: { showHero: true, headerWidget: "latest-post", headerBackgroundType: "image", headerBackgroundImage: "/media/hero.webp", headerTitleColor: "#ffeecc", contentHeader: true },
       post: { showCover: true, titlePosition: "cover", coverHeight: "24rem", contentStyle: "typography", showUpvoteButton: true, showShareButton: true, shareItems: ["native", "x"] },
       style: { visualPreset: "earth-classic" },
       sidebar: { widgets: ["tags", "profile"], profileLogo: "/media/profile.webp", socialLinks: [{ icon: "github", name: "", url: "https://github.com/example", kind: "link" }] },
@@ -852,6 +895,38 @@ test("maps the Halo Earth source settings to real header, content, sidebar, shar
   expect(article).toContain("data-share-qr");
   expect(article).toContain("/api/v1/public/share-qr");
   expect(article).toContain("https://x.com/intent/post");
+});
+
+test("normalizes retired visual presets to the editorial glass language", async () => {
+  const output = join(
+    "/tmp",
+    `mutiblog-earth-legacy-glass-${crypto.randomUUID()}`,
+  );
+  outputs.push(output);
+  const input: BuildInput = {
+    schemaVersion: 1,
+    sourceLocale: "zh-CN",
+    locales: [{ code: "zh-CN", label: "简体中文" }],
+    site: { locales: { "zh-CN": { title: "Legacy visual preset" } } },
+    dictionaries: { "zh-CN": { home: "首页", redirecting: "正在前往页面…" } },
+    posts: [
+      {
+        id: "legacy-glass",
+        status: "published",
+        locales: { "zh-CN": { title: "旧预设", markdown: "正文" } },
+      },
+    ],
+    theme: { id: "earth" },
+  };
+
+  for (const preset of ["material-glass", "telegram-web"] as const) {
+    input.theme = { id: "earth", settings: { style: { visualPreset: preset } } };
+    await buildSite(input, output);
+
+    const homepage = await readFile(join(output, "zh-CN/index.html"), "utf8");
+    expect(homepage).toContain('data-visual-preset="nature-glass"');
+    expect(homepage).not.toContain(`data-visual-preset="${preset}"`);
+  }
 });
 
 test("rejects a declared theme template without a renderer", async () => {

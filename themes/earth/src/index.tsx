@@ -4,25 +4,37 @@ import type { ThemeContext, ThemeLinkGroup, ThemeMenuItem, ThemePost, ThemeTaxon
 
 const e = (value: string) => encodeURIComponent(value);
 type SocialLink = { icon: string; name?: string; url: string; kind: "link" | "image" };
-const defaultHeaderImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 700'%3E%3Cdefs%3E%3ClinearGradient id='s' x2='1' y2='1'%3E%3Cstop stop-color='%23071126'/%3E%3Cstop offset='1' stop-color='%231f4165'/%3E%3C/linearGradient%3E%3CradialGradient id='g'%3E%3Cstop stop-color='%235ad7bd' stop-opacity='.85'/%3E%3Cstop offset='.52' stop-color='%231d79a2' stop-opacity='.72'/%3E%3Cstop offset='1' stop-color='%23071126' stop-opacity='0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Cpath fill='url(%23s)' d='M0 0h1600v700H0z'/%3E%3Ccircle cx='1270' cy='565' r='520' fill='url(%23g)'/%3E%3Cg fill='%23fff' opacity='.68'%3E%3Ccircle cx='150' cy='110' r='2'/%3E%3Ccircle cx='390' cy='195' r='1.5'/%3E%3Ccircle cx='680' cy='85' r='2'/%3E%3Ccircle cx='980' cy='150' r='1.5'/%3E%3Ccircle cx='1420' cy='92' r='2'/%3E%3C/g%3E%3C/svg%3E";
+const defaultHeaderImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 700'%3E%3Cdefs%3E%3ClinearGradient id='paper' x2='1' y2='1'%3E%3Cstop stop-color='%2329303c'/%3E%3Cstop offset='1' stop-color='%23151d29'/%3E%3C/linearGradient%3E%3Cpattern id='lines' width='44' height='44' patternUnits='userSpaceOnUse'%3E%3Cpath d='M0 44 44 0' stroke='%23fff' stroke-opacity='.08'/%3E%3C/pattern%3E%3C/defs%3E%3Cpath fill='url(%23paper)' d='M0 0h1600v700H0z'/%3E%3Cpath fill='url(%23lines)' d='M0 0h1600v700H0z'/%3E%3Cpath d='M0 498c225-96 424-142 599-138 278 7 452 175 1001 16v324H0Z' fill='%23006699' fill-opacity='.22'/%3E%3C/svg%3E";
 
 function Shell({ context, children }: { context: ThemeContext; children: React.ReactNode }) {
   const { site, currentPath, strings } = context;
   const title = context.pageTitle ? `${context.pageTitle} – ${site.title}` : site.title;
   const description = context.pageDescription ?? site.description ?? site.subtitle ?? site.title;
   const pageLoadingLabel = strings.redirecting || "Loading page…";
-  const accentColor = safeColor(stringSetting(context, "style.accentColor", "#4ccba0"));
-  const visualPreset = choiceSetting(context, "style.visualPreset", ["material-glass", "earth-classic"] as const, "material-glass");
-  const defaultColorScheme = choiceSetting(context, "style.defaultColorScheme", ["system", "light", "dark"] as const, "system");
-  const cardRadius = choiceSetting(context, "style.cardRadius", ["square", "soft", "round"] as const, "soft");
+  const accentColor = safeColor(stringSetting(context, "style.accentColor", "#006699"));
+  // Both retired visual presets resolve to the editorial glass treatment at
+  // the rendering boundary, so direct legacy ThemeInput objects stay valid
+  // even before the settings service has a chance to normalise them.
+  const requestedVisualPreset = choiceSetting(
+    context,
+    "style.visualPreset",
+    ["nature-glass", "telegram-web", "material-glass", "earth-classic"] as const,
+    "nature-glass",
+  );
+  const visualPreset =
+    requestedVisualPreset === "material-glass" || requestedVisualPreset === "telegram-web"
+      ? "nature-glass"
+      : requestedVisualPreset;
+  const defaultColorScheme = choiceSetting(context, "style.defaultColorScheme", ["system", "light", "dark"] as const, "light");
+  const cardRadius = choiceSetting(context, "style.cardRadius", ["square", "soft", "round"] as const, "square");
   const cardShadow = choiceSetting(context, "style.cardShadow", ["none", "subtle", "floating"] as const, "subtle");
   const bodyFont = choiceSetting(context, "style.bodyFont", ["system", "humanist", "serif"] as const, "system");
   const showCardBorder = booleanSetting(context, "style.showCardBorder", true);
   const stickyHeader = booleanSetting(context, "global.sticky", true);
-  const logoType = choiceSetting(context, "global.logoType", ["text", "symbol", "image"] as const, "symbol");
+  const logoType = choiceSetting(context, "global.logoType", ["text", "symbol", "image"] as const, "text");
   const logoImage = safeAssetUrl(stringSetting(context, "global.logoImage", "")) || safeAssetUrl(site.logo ?? "");
   const showScrollButton = booleanSetting(context, "global.showScrollButton", true);
-  const showBrandSymbol = booleanSetting(context, "global.showBrandSymbol", true);
+  const showBrandSymbol = booleanSetting(context, "global.showBrandSymbol", false);
   const brandSymbol = shortText(stringSetting(context, "global.brandSymbol", "M"), "M", 3);
   const showSearch = booleanSetting(context, "global.showSearch", true);
   const showLanguageSwitcher = booleanSetting(context, "global.showLanguageSwitcher", true);
@@ -50,10 +62,10 @@ function Shell({ context, children }: { context: ThemeContext; children: React.R
       subtle: "0 5px 18px rgb(14 23 49 / 4%)",
       floating: "0 16px 40px rgb(14 23 49 / 14%)",
     }[cardShadow],
-    "--material-surface-shadow": {
+    "--nature-surface-shadow": {
       none: "none",
-      subtle: ".6rem .7rem 1.65rem rgb(44 39 56 / 10%), -.45rem -.45rem 1.2rem rgb(255 255 255 / 48%)",
-      floating: ".8rem .95rem 2rem rgb(44 39 56 / 15%), -.5rem -.5rem 1.4rem rgb(255 255 255 / 52%)",
+      subtle: "0 12px 36px rgb(20 30 36 / 10%)",
+      floating: "0 22px 48px rgb(20 30 36 / 17%)",
     }[cardShadow],
   } as React.CSSProperties;
 
@@ -158,7 +170,7 @@ function PostCard({ context, post }: { context: ThemeContext; post: ThemePost })
   const href = `/${context.site.locale}/posts/${e(post.id)}/`;
 
   return (
-    <article className="post-card">
+    <article className={classes("post-card", showCover && post.cover && "post-card-has-cover")}>
       {showCover && post.cover ? <a className={classes("post-cover", `post-cover-${coverRatio}`)} href={href}><img src={post.cover} alt="" /></a> : null}
       <div className="post-card-body">
         {showCategories && post.categories?.length ? <div className="post-taxonomy">{post.categories.map((category) => <a key={category.id} href={`/${context.site.locale}/categories/${e(category.id)}/`}>{category.name}</a>)}</div> : null}
@@ -192,7 +204,7 @@ export function renderIndex(context: ThemeContext) {
 
 function ListHero({ context }: { context: ThemeContext }) {
 	const showHero = booleanSetting(context, "layout.showHero", true);
-	const headerWidget = choiceSetting(context, "layout.headerWidget", ["none", "latest-post", "latest-post-grid", "site-title"] as const, "site-title");
+	const headerWidget = choiceSetting(context, "layout.headerWidget", ["none", "latest-post", "latest-post-grid", "site-title"] as const, "latest-post");
 	return showHero && headerWidget !== "none" ? <HomeHero context={context} widget={headerWidget} /> : null;
 }
 
@@ -262,8 +274,8 @@ function Pagination({ context }: { context: ThemeContext }) {
 function HomeHero({ context, widget }: { context: ThemeContext; widget: "latest-post" | "latest-post-grid" | "site-title" }) {
   const heroKicker = shortText(stringSetting(context, "layout.heroKicker", "MutiBlog"), "", 40);
   const heroHeight = choiceSetting(context, "layout.heroHeight", ["compact", "standard", "tall"] as const, "standard");
-  const backgroundType = choiceSetting(context, "layout.headerBackgroundType", ["gradient", "image"] as const, "image");
-  const background = safeBackground(stringSetting(context, "layout.headerBackground", "linear-gradient(145deg, #0e1731, #202d52)"));
+  const backgroundType = choiceSetting(context, "layout.headerBackgroundType", ["gradient", "image"] as const, "gradient");
+  const background = safeBackground(stringSetting(context, "layout.headerBackground", "linear-gradient(135deg, #29303c 0%, #151d29 100%)"));
   const backgroundImage = safeAssetUrl(stringSetting(context, "layout.headerBackgroundImage", "")) || defaultHeaderImage;
   const titleColor = safeColor(stringSetting(context, "layout.headerTitleColor", "#ffffff"), "#ffffff");
   const style = {
@@ -282,7 +294,7 @@ function HomeHero({ context, widget }: { context: ThemeContext; widget: "latest-
 }
 
 function Sidebar({ context }: { context: ThemeContext }) {
-  const sticky = booleanSetting(context, "sidebar.sticky", false);
+  const sticky = booleanSetting(context, "sidebar.sticky", true);
   const profileStyle = choiceSetting(context, "sidebar.profileStyle", ["card", "plain"] as const, "card");
   const showAbout = booleanSetting(context, "sidebar.showAbout", true);
   const showLanguages = booleanSetting(context, "sidebar.showLanguages", true);
@@ -330,7 +342,7 @@ export function renderPost(context: ThemeContext) {
   const showTags = booleanSetting(context, "post.showTags", true);
   const showPublishedAt = booleanSetting(context, "post.showPublishedAt", true);
   const contentWidth = choiceSetting(context, "post.contentWidth", ["narrow", "standard", "wide"] as const, "standard");
-  const contentFont = choiceSetting(context, "post.contentFont", ["serif", "sans"] as const, "serif");
+  const contentFont = choiceSetting(context, "post.contentFont", ["serif", "sans"] as const, "sans");
   const contentStyle = choiceSetting(context, "post.contentStyle", ["github", "tailwind", "typography"] as const, "github");
   const titlePosition = choiceSetting(context, "post.titlePosition", ["content", "cover"] as const, "content");
   const coverHeight = coverHeightSetting(context);
@@ -387,7 +399,7 @@ export function renderPage(context: ThemeContext) {
   const showCover = booleanSetting(context, "post.showCover", true);
   const showSummary = booleanSetting(context, "post.showSummary", true);
   const contentWidth = choiceSetting(context, "post.contentWidth", ["narrow", "standard", "wide"] as const, "standard");
-  const contentFont = choiceSetting(context, "post.contentFont", ["serif", "sans"] as const, "serif");
+  const contentFont = choiceSetting(context, "post.contentFont", ["serif", "sans"] as const, "sans");
   const contentStyle = choiceSetting(context, "post.contentStyle", ["github", "tailwind", "typography"] as const, "github");
   const titlePosition = choiceSetting(context, "post.titlePosition", ["content", "cover"] as const, "content");
   const coverHeight = coverHeightSetting(context);
@@ -649,7 +661,7 @@ function socialLinksSetting(context: ThemeContext, path: string): SocialLink[] {
   }).slice(0, 20);
 }
 
-function safeColor(value: string, fallback = "#4ccba0"): string {
+function safeColor(value: string, fallback = "#006699"): string {
   return /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) ? value : fallback;
 }
 
@@ -1499,112 +1511,220 @@ a.comment-author:hover { color: var(--accent); }
 	.post-cursor-next > span:first-child { order: 2; }
 }
 /* earth-classic intentionally inherits the original rules above. The default
-   preset below layers Material surfaces over the same durable page structure. */
-body[data-visual-preset="material-glass"] {
-  --canvas: #f7f7ff;
-  --card: rgb(255 255 255 / 72%);
-  --border: rgb(91 91 104 / 15%);
-  --ink: #1d1b20;
-  --muted: #625b71;
-  --material-focus-ring: color-mix(in srgb, var(--accent) 56%, #1d1b20);
+   is an original editorial treatment: dense publishing hierarchy, paper-like
+   reading surfaces, and glass reserved for navigation and utilities. */
+body[data-visual-preset="nature-glass"] {
+  --canvas: #f7f7f3;
+  --card: #fff;
+  --surface: rgb(255 255 255 / 78%);
+  --border: rgb(32 34 38 / 18%);
+  --ink: #202226;
+  --muted: #667078;
+  --nature-navy: #29303c;
+  --nature-soft: #e4f0f5;
+  --nature-glass: rgb(255 255 255 / 72%);
+  --nature-glass-border: rgb(255 255 255 / 66%);
+  --nature-hover: color-mix(in srgb, var(--accent) 10%, transparent);
+  --nature-focus: color-mix(in srgb, var(--accent) 24%, transparent);
+  --nature-focus-ring: color-mix(in srgb, var(--accent) 86%, #000);
+  --card-shadow: var(--nature-surface-shadow);
   color-scheme: light;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 8% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 28rem),
-    radial-gradient(circle at 96% 18%, rgb(216 208 255 / 58%), transparent 26rem),
+    radial-gradient(circle at 7% -8%, rgb(0 102 153 / 10%), transparent 25rem),
+    radial-gradient(circle at 93% 12%, rgb(41 48 60 / 7%), transparent 28rem),
     var(--canvas);
 }
-html[data-theme="dark"] body[data-visual-preset="material-glass"] {
-  --canvas: #141218;
-  --card: rgb(43 40 49 / 75%);
-  --border: rgb(232 222 248 / 14%);
-  --ink: #e8e1e8;
-  --muted: #cac4d0;
-  --material-focus-ring: color-mix(in srgb, var(--accent) 64%, #f4eff8);
+html[data-theme="dark"] body[data-visual-preset="nature-glass"] {
+  --canvas: #10171c;
+  --card: #172127;
+  --surface: rgb(23 33 39 / 82%);
+  --border: rgb(218 230 234 / 18%);
+  --ink: #f1f5f5;
+  --muted: #b7c1c5;
+  --nature-navy: #182229;
+  --nature-soft: rgb(48 92 111 / 38%);
+  --nature-glass: rgb(24 34 40 / 78%);
+  --nature-glass-border: rgb(220 238 242 / 14%);
+  --nature-hover: color-mix(in srgb, var(--accent) 20%, transparent);
+  --nature-focus: color-mix(in srgb, var(--accent) 38%, transparent);
+  --nature-focus-ring: color-mix(in srgb, var(--accent) 82%, #fff);
+  --card-shadow: var(--nature-surface-shadow);
   color-scheme: dark;
-  background:
-    radial-gradient(circle at 8% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 28rem),
-    radial-gradient(circle at 96% 18%, rgb(73 66 98 / 62%), transparent 26rem),
-    var(--canvas);
 }
-body[data-visual-preset="material-glass"] .site-header {
-  border-color: color-mix(in srgb, var(--border) 82%, transparent);
-  background: color-mix(in srgb, var(--card) 78%, transparent);
-  box-shadow: 0 .45rem 1.6rem rgb(44 39 56 / 7%);
-  backdrop-filter: blur(1.35rem) saturate(1.18);
+body[data-visual-preset="nature-glass"] {
+  font-family: Inter, "Noto Sans SC", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 1rem;
+  line-height: 1.62;
 }
-body[data-visual-preset="material-glass"] .brand-symbol {
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-  border-radius: .8rem;
-  background: color-mix(in srgb, var(--accent) 17%, var(--card));
-  box-shadow: inset 1px 1px 0 rgb(255 255 255 / 36%), 0 .35rem .9rem rgb(44 39 56 / 10%);
-  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
+body[data-visual-preset="nature-glass"] .site-header {
+  height: 4.5rem;
+  border-bottom: 4px solid var(--nature-navy);
+  background: var(--nature-glass);
+  box-shadow: 0 1px 0 rgb(32 34 38 / 10%);
+  backdrop-filter: blur(18px) saturate(115%);
 }
-body[data-visual-preset="material-glass"] :is(.icon-action, .locale-picker summary) {
-  border-radius: 999px;
-  padding: .34rem .5rem;
-  transition: background-color .18s ease, box-shadow .18s ease, color .18s ease;
+body[data-visual-preset="nature-glass"] .header-inner { max-width: 78rem; gap: 1.25rem; }
+body[data-visual-preset="nature-glass"] .site-brand strong,
+body[data-visual-preset="nature-glass"] :is(.hero h1, .list-heading h1, .post-card h2, .article-card h1, .markdown-body h1, .markdown-body h2, .markdown-body h3, .sidebar-card h3) {
+  font-family: "Iowan Old Style", Iowan, Georgia, "Noto Serif SC", ui-serif, serif;
 }
-body[data-visual-preset="material-glass"] :is(.icon-action, .locale-picker summary):hover,
-body[data-visual-preset="material-glass"] .locale-picker[open] summary {
-  background: color-mix(in srgb, var(--accent) 13%, var(--card));
-  box-shadow: inset 1px 1px 2px rgb(44 39 56 / 7%);
-  color: color-mix(in srgb, var(--accent) 82%, var(--ink));
-}
-body[data-visual-preset="material-glass"] :is(.post-card, .sidebar-card, .article-card, .list-heading, .taxonomy-filter-tags, .comment-list article, .archive-group article, .share-dialog, .social-image-dialog) {
-  border-color: color-mix(in srgb, var(--border) 88%, transparent);
-  background: linear-gradient(135deg, rgb(255 255 255 / 18%), transparent 62%), var(--card);
-  box-shadow: var(--material-surface-shadow);
-  backdrop-filter: blur(1rem) saturate(1.08);
-}
-html[data-theme="dark"] body[data-visual-preset="material-glass"] :is(.post-card, .sidebar-card, .article-card, .list-heading, .taxonomy-filter-tags, .comment-list article, .archive-group article, .share-dialog, .social-image-dialog) {
-  background: linear-gradient(135deg, rgb(255 255 255 / 7%), transparent 62%), var(--card);
-  box-shadow: var(--material-surface-shadow);
-}
-body.cards-borderless[data-visual-preset="material-glass"] :is(.post-card, .sidebar-card, .article-card) { border-color: transparent; }
-body[data-visual-preset="material-glass"] .sidebar-profile-plain {
-  border-color: transparent;
-  background: transparent;
+body[data-visual-preset="nature-glass"] .site-brand strong { font-size: 1.45rem; font-weight: 750; letter-spacing: -.025em; }
+body[data-visual-preset="nature-glass"] .brand-symbol {
+  min-width: 2.05rem;
+  height: 2.05rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, var(--nature-navy));
+  border-radius: .25rem;
+  background: var(--accent);
   box-shadow: none;
+  color: #fff;
+  font-family: Georgia, serif;
+  font-weight: 700;
+}
+body[data-visual-preset="nature-glass"] .main-nav { gap: .1rem; font-size: .84rem; font-weight: 670; }
+body[data-visual-preset="nature-glass"] .main-nav > a,
+body[data-visual-preset="nature-glass"] .menu-children > summary {
+  border-radius: .3rem;
+  padding: .45rem .6rem;
+  transition: background-color .16s ease, color .16s ease;
+}
+body[data-visual-preset="nature-glass"] .main-nav a:hover,
+body[data-visual-preset="nature-glass"] .menu-children summary:hover,
+body[data-visual-preset="nature-glass"] .menu-children[open] > summary { background: var(--nature-hover); color: var(--accent); }
+body[data-visual-preset="nature-glass"] .menu-children > div,
+body[data-visual-preset="nature-glass"] .locale-picker div,
+body[data-visual-preset="nature-glass"] .mobile-nav > nav,
+body[data-visual-preset="nature-glass"] .taxonomy-filter details > ul {
+  border-color: var(--nature-glass-border);
+  border-radius: .9rem;
+  background: var(--nature-glass);
+  box-shadow: var(--nature-surface-shadow);
+  backdrop-filter: blur(18px) saturate(115%);
+}
+body[data-visual-preset="nature-glass"] .menu-children > div a,
+body[data-visual-preset="nature-glass"] .locale-picker div a,
+body[data-visual-preset="nature-glass"] .mobile-nav > nav > a,
+body[data-visual-preset="nature-glass"] .mobile-nav .menu-children > summary,
+body[data-visual-preset="nature-glass"] .mobile-nav .menu-children a { border-radius: .5rem; }
+body[data-visual-preset="nature-glass"] :is(.menu-children > div a, .locale-picker div a, .mobile-nav > nav > a, .mobile-nav .menu-children > summary, .mobile-nav .menu-children a):hover { background: var(--nature-hover); color: var(--accent); }
+body[data-visual-preset="nature-glass"] :is(.icon-action, .locale-picker summary) {
+  display: grid;
+  width: 2.4rem;
+  height: 2.4rem;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: .5rem;
+  padding: 0;
+  transition: background-color .16s ease, color .16s ease;
+}
+body[data-visual-preset="nature-glass"] .locale-picker summary { width: auto; min-width: 2.4rem; padding: 0 .6rem; }
+body[data-visual-preset="nature-glass"] :is(.icon-action, .locale-picker summary):hover,
+body[data-visual-preset="nature-glass"] .locale-picker[open] summary { background: var(--nature-hover); color: var(--accent); }
+body[data-visual-preset="nature-glass"] .hero {
+  min-height: 23rem;
+  max-width: 78rem;
+  margin: 1.5rem auto 0;
+  border: 1px solid var(--nature-navy);
+  border-radius: .15rem;
+  padding: 0;
+  overflow: hidden;
+}
+body[data-visual-preset="nature-glass"] .hero-latest { display: grid; min-height: 23rem; grid-template-columns: minmax(0, 3fr) minmax(16rem, 2fr); align-items: stretch; }
+body[data-visual-preset="nature-glass"] .hero-latest img { width: 100%; height: 100%; min-height: 23rem; object-fit: cover; }
+body[data-visual-preset="nature-glass"] .hero-latest > div { display: grid; align-content: center; background: var(--nature-navy); color: #fff; padding: clamp(1.5rem, 4vw, 3.5rem); }
+body[data-visual-preset="nature-glass"] .hero-latest > div:only-child { grid-column: 1 / -1; }
+body[data-visual-preset="nature-glass"] .hero-kicker,
+body[data-visual-preset="nature-glass"] .post-taxonomy { color: var(--accent); font-size: .72rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+body[data-visual-preset="nature-glass"] .hero-latest .hero-kicker { color: color-mix(in srgb, var(--accent) 48%, #fff); }
+body[data-visual-preset="nature-glass"] .hero h1 { margin: .65rem 0; font-size: clamp(2.2rem, 4.2vw, 4rem); font-weight: 700; line-height: 1.06; }
+body[data-visual-preset="nature-glass"] .hero p { color: rgb(255 255 255 / 78%); }
+body[data-visual-preset="nature-glass"] .hero-widget-site-title { display: grid; align-content: center; background: var(--nature-navy); padding: clamp(2rem, 6vw, 5rem); }
+body[data-visual-preset="nature-glass"] .hero-widget-site-title .hero-kicker { color: color-mix(in srgb, var(--accent) 52%, #fff); }
+body[data-visual-preset="nature-glass"] .hero-post-grid { padding: clamp(1rem, 3vw, 2.5rem); }
+body[data-visual-preset="nature-glass"] .hero-post-grid a { border-color: rgb(255 255 255 / 26%); border-radius: .15rem; box-shadow: none; }
+body[data-visual-preset="nature-glass"] .earth-layout { max-width: 78rem; grid-template-columns: minmax(0, 1fr) minmax(0, 19rem); gap: clamp(2rem, 4vw, 4.25rem); margin: 2.6rem auto; }
+body[data-visual-preset="nature-glass"] .earth-layout.sidebar-left { grid-template-columns: minmax(0, 19rem) minmax(0, 1fr); }
+body[data-visual-preset="nature-glass"] .list-content { gap: 1.35rem; }
+body[data-visual-preset="nature-glass"] :is(.post-card, .article-card, .list-heading, .comment-list article, .archive-group article) {
+  border-color: var(--border);
+  background: var(--card);
+  box-shadow: var(--card-shadow);
   backdrop-filter: none;
 }
-body[data-visual-preset="material-glass"] :is(.hero, .content-cover) {
-  background-color: #342d4b;
-  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 12%);
+body[data-visual-preset="nature-glass"] :is(.sidebar-card, .taxonomy-filter-tags, .share-dialog, .social-image-dialog) {
+  border-color: var(--nature-glass-border);
+  background: var(--nature-glass);
+  box-shadow: var(--nature-surface-shadow);
+  backdrop-filter: blur(18px) saturate(115%);
 }
-body[data-visual-preset="material-glass"] .hero {
-  background-image:
-    radial-gradient(circle at 24% 22%, color-mix(in srgb, var(--accent) 50%, transparent), transparent 32%),
-    radial-gradient(circle at 84% 12%, rgb(209 192 255 / 35%), transparent 26%),
-    linear-gradient(135deg, #252033, #463b63);
+body.cards-borderless[data-visual-preset="nature-glass"] :is(.post-card, .sidebar-card, .article-card) { border-color: transparent; }
+body[data-visual-preset="nature-glass"] .sidebar-profile-plain { border-color: transparent; background: transparent; box-shadow: none; backdrop-filter: none; }
+body[data-visual-preset="nature-glass"] .list-heading { border-radius: var(--card-radius); border-top: 4px solid var(--nature-navy); padding: 1rem 0 0; }
+body[data-visual-preset="nature-glass"] .list-heading h1 { font-size: clamp(2rem, 4vw, 3.15rem); font-weight: 700; line-height: 1.08; }
+body[data-visual-preset="nature-glass"] .post-grid { gap: 1.5rem; }
+body[data-visual-preset="nature-glass"] .post-card { border-radius: var(--card-radius); transition: box-shadow .18s ease, border-color .18s ease; }
+body[data-visual-preset="nature-glass"] .post-card:hover { border-color: color-mix(in srgb, var(--accent) 48%, var(--border)); box-shadow: var(--nature-surface-shadow); transform: none; }
+body.cards-borderless[data-visual-preset="nature-glass"] .post-card:hover { border-color: transparent; }
+body[data-visual-preset="nature-glass"] .post-cover { border-radius: var(--card-radius); }
+body[data-visual-preset="nature-glass"] .post-card h2 { font-size: 1.35rem; font-weight: 700; line-height: 1.16; }
+body[data-visual-preset="nature-glass"] .post-card p { font-size: .92rem; line-height: 1.56; }
+body[data-visual-preset="nature-glass"] .post-meta { margin-top: .85rem; color: var(--muted); font-size: .74rem; font-variant-numeric: tabular-nums; letter-spacing: .035em; }
+body[data-visual-preset="nature-glass"] .sidebar-card { border-radius: var(--card-radius); padding: 1.1rem; }
+body[data-visual-preset="nature-glass"] .sidebar-card h3 { font-size: 1.08rem; font-weight: 700; }
+body[data-visual-preset="nature-glass"] .sidebar-card a { border-radius: .4rem; padding: .42rem .32rem; }
+body[data-visual-preset="nature-glass"] .sidebar-card a:hover,
+body[data-visual-preset="nature-glass"] .table-of-contents a:hover { background: var(--nature-hover); color: var(--accent); }
+body[data-visual-preset="nature-glass"] :is(.taxonomy-filter a, .taxonomy-filter summary) { border-radius: .3rem; }
+body[data-visual-preset="nature-glass"] .taxonomy-filter a:hover,
+body[data-visual-preset="nature-glass"] .taxonomy-filter a[aria-current="page"],
+body[data-visual-preset="nature-glass"] .taxonomy-filter summary:hover,
+body[data-visual-preset="nature-glass"] .taxonomy-filter details[open] > summary { background: var(--nature-hover); color: var(--accent); }
+body[data-visual-preset="nature-glass"] :is(.taxonomy-filter-tags a, .article-tags a, .sidebar-tags a) { border-radius: .35rem; background: var(--nature-soft); color: var(--accent); }
+body[data-visual-preset="nature-glass"] .article-card { border-radius: var(--card-radius); padding: clamp(1.5rem, 5vw, 4.25rem); }
+body[data-visual-preset="nature-glass"] .article-card > header { max-width: 48rem; margin-inline: auto; text-align: left; }
+body[data-visual-preset="nature-glass"] .article-card h1 { font-size: clamp(2.55rem, 5vw, 4.1rem); font-weight: 700; line-height: 1.04; }
+body[data-visual-preset="nature-glass"] .markdown-body { font-size: 1.075rem; }
+body[data-visual-preset="nature-glass"] .markdown-body h2,
+body[data-visual-preset="nature-glass"] .markdown-body h3 { line-height: 1.16; }
+body[data-visual-preset="nature-glass"] .markdown-body a { color: var(--accent); }
+body[data-visual-preset="nature-glass"] .markdown-body pre { border-radius: .35rem; background: #182229; }
+html[data-theme="dark"] body[data-visual-preset="nature-glass"] .markdown-body pre { background: #090e11; }
+body[data-visual-preset="nature-glass"] :is(.pagination > a, .pagination > span, .pagination-pages > a, .pagination-pages > strong, .upvote-action button, .share-trigger, .share-actions a, .share-actions button, .comments-more, .scroll-top) {
+  min-height: 2.45rem;
+  border-color: var(--border);
+  border-radius: .4rem;
+  background: var(--surface);
+  box-shadow: none;
 }
-body[data-visual-preset="material-glass"] :is(.taxonomy-filter-tags a, .article-tags a, .sidebar-tags a) {
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+body[data-visual-preset="nature-glass"] .pagination-pages > strong { border-color: var(--accent); background: var(--nature-soft); color: var(--accent); }
+body[data-visual-preset="nature-glass"] :is(.upvote-action button, .share-trigger, .share-actions a, .share-actions button, .comments-more):hover { background: var(--nature-hover); border-color: var(--accent); color: var(--accent); }
+body[data-visual-preset="nature-glass"] :is(.comment-form input, .comment-form textarea, .search-card input[type="search"], .share-copy-row input) {
+  min-height: 3rem;
+  border-color: var(--border);
+  border-radius: .35rem;
+  background: var(--card);
+  box-shadow: none;
 }
-body[data-visual-preset="material-glass"] :is(.pagination > a, .pagination > span, .pagination-pages > a, .pagination-pages > strong, .upvote-action button, .share-trigger, .share-actions a, .share-actions button, .comments-more, .scroll-top) {
-  border-color: color-mix(in srgb, var(--border) 88%, transparent);
-  background: color-mix(in srgb, var(--card) 90%, transparent);
-  box-shadow: .28rem .32rem .9rem rgb(44 39 56 / 9%), -.2rem -.2rem .65rem rgb(255 255 255 / 40%);
+body[data-visual-preset="nature-glass"] :is(.comment-form input, .comment-form textarea, .search-card input[type="search"], .share-copy-row input):focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--nature-focus); }
+body[data-visual-preset="nature-glass"] :is(.comment-form button, .share-copy-row button) { min-height: 3rem; border-radius: .35rem; background: var(--accent); box-shadow: none; color: #fff; font-weight: 700; }
+body[data-visual-preset="nature-glass"] :is(a, button, summary, input, textarea):focus-visible { outline: 3px solid var(--nature-focus-ring); outline-offset: 3px; }
+body[data-visual-preset="nature-glass"] .site-footer { max-width: 78rem; margin-top: 3.5rem; border-top: 4px solid var(--nature-navy); }
+body[data-visual-preset="nature-glass"] .site-footer.site-footer-borderless { border-top: 0; }
+@media (max-width: 960px) {
+  body[data-visual-preset="nature-glass"] .earth-layout,
+  body[data-visual-preset="nature-glass"] .earth-layout.sidebar-left { grid-template-columns: minmax(0, 1fr); }
+  body[data-visual-preset="nature-glass"] .sidebar-card { display: none; }
+  body[data-visual-preset="nature-glass"] .sidebar-card.sidebar-has-toc { display: block; }
 }
-body[data-visual-preset="material-glass"] :is(.comment-form input, .comment-form textarea, .search-card input[type="search"], .share-copy-row input) {
-  border-color: color-mix(in srgb, var(--border) 88%, transparent);
-  background: color-mix(in srgb, var(--card) 88%, transparent);
-  box-shadow: inset .16rem .16rem .45rem rgb(44 39 56 / 6%), inset -.12rem -.12rem .35rem rgb(255 255 255 / 42%);
-}
-body[data-visual-preset="material-glass"] :is(.comment-form button, .share-copy-row button) {
-  border-radius: .85rem;
-  box-shadow: .3rem .35rem .8rem color-mix(in srgb, var(--accent) 22%, transparent), inset 1px 1px 0 rgb(255 255 255 / 26%);
-}
-body[data-visual-preset="material-glass"] :is(a, button, summary, input, textarea):focus-visible {
-  outline: 3px solid var(--material-focus-ring);
-  outline-offset: 3px;
-}
-@media (hover: hover) {
-  body[data-visual-preset="material-glass"] .post-card:hover {
-    transform: translateY(-.32rem);
-    box-shadow: var(--material-surface-shadow);
-  }
+@media (max-width: 640px) {
+  body[data-visual-preset="nature-glass"] .site-header { height: 4rem; border-bottom-width: 3px; }
+  body[data-visual-preset="nature-glass"] .hero { min-height: 0; margin-top: 0; border-inline: 0; }
+  body[data-visual-preset="nature-glass"] .hero-latest { min-height: 0; grid-template-columns: 1fr; }
+  body[data-visual-preset="nature-glass"] .hero-latest img { min-height: 13rem; }
+  body[data-visual-preset="nature-glass"] .hero-latest > div { min-height: 16rem; }
+  body[data-visual-preset="nature-glass"] .hero h1 { font-size: clamp(2.2rem, 11vw, 3.1rem); }
+  body[data-visual-preset="nature-glass"] .article-card { margin-inline: -1.2rem; padding: 1.5rem 1.2rem; }
+  body[data-visual-preset="nature-glass"] .article-card h1 { font-size: clamp(2.25rem, 10vw, 3rem); }
 }
 @media (prefers-reduced-motion: reduce) {
   @view-transition { navigation: none; }
