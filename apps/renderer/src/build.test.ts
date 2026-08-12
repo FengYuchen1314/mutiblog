@@ -791,6 +791,7 @@ test("applies the built-in Earth setting groups to generated markup and CSS", as
   expect(css).toContain(".site-navigation-progress");
   expect(css).toContain("@view-transition { navigation: none; }");
   expect(css).toContain('body.cards-borderless[data-visual-preset="material-glass"]');
+  expect(css).toContain('body[data-visual-preset="material-glass"] .sidebar-profile-plain');
   expect(css).toContain("mjx-container.MathJax");
 });
 

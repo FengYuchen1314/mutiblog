@@ -1562,6 +1562,12 @@ html[data-theme="dark"] body[data-visual-preset="material-glass"] :is(.post-card
   box-shadow: var(--material-surface-shadow);
 }
 body.cards-borderless[data-visual-preset="material-glass"] :is(.post-card, .sidebar-card, .article-card) { border-color: transparent; }
+body[data-visual-preset="material-glass"] .sidebar-profile-plain {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
 body[data-visual-preset="material-glass"] :is(.hero, .content-cover) {
   background-color: #342d4b;
   box-shadow: inset 0 -1px 0 rgb(255 255 255 / 12%);
