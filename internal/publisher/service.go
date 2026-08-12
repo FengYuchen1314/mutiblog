@@ -799,13 +799,10 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 	if err != nil {
 		return BuildInput{}, err
 	}
-	input.LinkGroups = linkGroups
-	input.Links = linkItems
 	menuItems, err := menuservice.NewService(s.repository).List()
 	if err != nil {
 		return BuildInput{}, err
 	}
-	input.Menus = menuItems
 	dictionaries, err := dictionary.Read(s.repository)
 	if err != nil {
 		return BuildInput{}, err
@@ -857,6 +854,13 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 	}
 	input.Site.Logo = site.Logo
 	input.Site.Locales = site.Locales
+	// Resource mutations begin with only their source-language fields. Keep
+	// those pending entities out of every generated locale until their durable
+	// refresh has produced a complete, current translation set. The renderer
+	// remains strict for every entity it receives, while an unrelated build can
+	// still safely activate the last-known-good resource subset.
+	input.LinkGroups, input.Links = localizedLinksForBuild(linkGroups, linkItems, input.Locales)
+	input.Menus = localizedMenusForBuild(menuItems, input.Locales)
 	for _, post := range posts {
 		localized := make(map[string]LocalizedPost, len(post.Content))
 		for locale, value := range post.Content {
@@ -871,8 +875,8 @@ func (s *Service) snapshot(themeID string) (BuildInput, error) {
 		}
 		input.Pages = append(input.Pages, PostInput{ID: page.Meta.ID, SourceLocale: page.Meta.SourceLocale, Status: page.Meta.Status, Template: page.Meta.Template, Cover: page.Meta.Cover, PublishedAt: page.Meta.PublishedAt, Categories: []string{}, Tags: []string{}, CommentPolicy: page.Meta.CommentPolicy, Locales: localized, LocaleStates: cloneLocaleContentStates(page.Meta.Locales)})
 	}
-	input.Categories = toTaxonomyInputs(categories)
-	input.Tags = toTaxonomyInputs(tags)
+	input.Categories = toTaxonomyInputs(localizedTaxonomiesForBuild(categories, input.Locales))
+	input.Tags = toTaxonomyInputs(localizedTaxonomiesForBuild(tags, input.Locales))
 	sort.Slice(input.Locales, func(i, j int) bool { return input.Locales[i].Code < input.Locales[j].Code })
 	sort.SliceStable(input.Posts, func(i, j int) bool {
 		if input.Posts[i].Pinned != input.Posts[j].Pinned {
@@ -898,6 +902,241 @@ func cloneLocaleContentStates(states map[string]domain.LocaleContentState) map[s
 		cloned[locale] = state
 	}
 	return cloned
+}
+
+func localizedTaxonomiesForBuild(items []domain.Taxonomy, locales []domain.LocaleDefinition) []domain.Taxonomy {
+	candidates := make(map[string]domain.Taxonomy, len(items))
+	for _, item := range items {
+		if taxonomyLocalesCurrentForBuild(item, locales) {
+			candidates[item.ID] = item
+		}
+	}
+	included := make(map[string]bool, len(candidates))
+	visiting := make(map[string]bool, len(candidates))
+	var include func(string) bool
+	include = func(id string) bool {
+		if included[id] {
+			return true
+		}
+		if visiting[id] {
+			return false
+		}
+		item, exists := candidates[id]
+		if !exists {
+			return false
+		}
+		visiting[id] = true
+		valid := item.ParentID == "" || include(item.ParentID)
+		delete(visiting, id)
+		if valid {
+			included[id] = true
+		}
+		return valid
+	}
+	result := make([]domain.Taxonomy, 0, len(candidates))
+	for _, item := range items {
+		if include(item.ID) {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func taxonomyLocalesCurrentForBuild(item domain.Taxonomy, locales []domain.LocaleDefinition) bool {
+	source, exists := item.Locales[item.SourceLocale]
+	legacySource := isLegacyResourceSource(item.SourceLocale)
+	if !exists || (!legacySource && !sourceLocaleStateCurrent(source.State, source.Origin, source.Revision, source.SourceRevision)) {
+		return false
+	}
+	for _, definition := range locales {
+		target, exists := item.Locales[definition.Code]
+		if !exists {
+			// The renderer has the same narrow compatibility path for immutable
+			// pre-migration sources: only the newly-fixed Chinese global source
+			// may fall back to the entity's legacy source language.
+			if legacySource && definition.Code == localeconfig.FixedSourceLocale {
+				continue
+			}
+			return false
+		}
+		if legacySource {
+			if definition.Code != item.SourceLocale && !requiredStringFieldsPresent(
+				[][2]string{{source.Name, target.Name}, {source.Description, target.Description}, {source.SEOTitle, target.SEOTitle}, {source.SEODescription, target.SEODescription}},
+			) {
+				return false
+			}
+			continue
+		}
+		if !taxonomyLocaleCurrentForBuild(source, target, definition.Code == item.SourceLocale) {
+			return false
+		}
+	}
+	return true
+}
+
+func taxonomyLocaleCurrentForBuild(source, target domain.LocalizedTaxonomy, isSource bool) bool {
+	if isSource {
+		return sourceLocaleStateCurrent(target.State, target.Origin, target.Revision, target.SourceRevision)
+	}
+	if !targetLocaleStateCurrent(target.State, target.Origin, target.Revision, target.SourceRevision, source.Revision) {
+		return false
+	}
+	return requiredStringFieldsPresent(
+		[][2]string{{source.Name, target.Name}, {source.Description, target.Description}, {source.SEOTitle, target.SEOTitle}, {source.SEODescription, target.SEODescription}},
+	)
+}
+
+func localizedLinksForBuild(groups []domain.LinkGroup, links []domain.Link, locales []domain.LocaleDefinition) ([]domain.LinkGroup, []domain.Link) {
+	eligibleGroups := make(map[string]bool, len(groups))
+	filteredGroups := make([]domain.LinkGroup, 0, len(groups))
+	for _, group := range groups {
+		if !linkLocalesCurrentForBuild(group.SourceLocale, group.Locales, locales) {
+			continue
+		}
+		eligibleGroups[group.ID] = true
+		filteredGroups = append(filteredGroups, group)
+	}
+	filteredLinks := make([]domain.Link, 0, len(links))
+	for _, link := range links {
+		if eligibleGroups[link.GroupID] && linkLocalesCurrentForBuild(link.SourceLocale, link.Locales, locales) {
+			filteredLinks = append(filteredLinks, link)
+		}
+	}
+	return filteredGroups, filteredLinks
+}
+
+func linkLocalesCurrentForBuild(sourceLocale string, values map[string]domain.LocalizedLink, locales []domain.LocaleDefinition) bool {
+	source, exists := values[sourceLocale]
+	legacySource := isLegacyResourceSource(sourceLocale)
+	if !exists || (!legacySource && !sourceLocaleStateCurrent(source.State, source.Origin, source.Revision, source.SourceRevision)) {
+		return false
+	}
+	for _, definition := range locales {
+		target, exists := values[definition.Code]
+		if !exists {
+			if legacySource && definition.Code == localeconfig.FixedSourceLocale {
+				continue
+			}
+			return false
+		}
+		if legacySource {
+			if definition.Code != sourceLocale && !requiredStringFieldsPresent([][2]string{{source.Name, target.Name}, {source.Description, target.Description}}) {
+				return false
+			}
+			continue
+		}
+		if definition.Code == sourceLocale {
+			if !sourceLocaleStateCurrent(target.State, target.Origin, target.Revision, target.SourceRevision) {
+				return false
+			}
+			continue
+		}
+		if !targetLocaleStateCurrent(target.State, target.Origin, target.Revision, target.SourceRevision, source.Revision) ||
+			!requiredStringFieldsPresent([][2]string{{source.Name, target.Name}, {source.Description, target.Description}}) {
+			return false
+		}
+	}
+	return true
+}
+
+func localizedMenusForBuild(items []domain.Menu, locales []domain.LocaleDefinition) []domain.Menu {
+	result := make([]domain.Menu, 0, len(items))
+	for _, menu := range items {
+		if !menuLocalesCurrentForBuild(menu.SourceLocale, menu.Locales, locales) {
+			continue
+		}
+		eligibleItems := make(map[string]domain.MenuItem, len(menu.Items))
+		for _, item := range menu.Items {
+			if menuLocalesCurrentForBuild(menu.SourceLocale, item.Locales, locales) {
+				eligibleItems[item.ID] = item
+			}
+		}
+		included := make(map[string]bool, len(eligibleItems))
+		visiting := make(map[string]bool, len(eligibleItems))
+		var include func(string) bool
+		include = func(id string) bool {
+			if included[id] {
+				return true
+			}
+			if visiting[id] {
+				return false
+			}
+			item, exists := eligibleItems[id]
+			if !exists {
+				return false
+			}
+			visiting[id] = true
+			valid := item.ParentID == "" || include(item.ParentID)
+			delete(visiting, id)
+			if valid {
+				included[id] = true
+			}
+			return valid
+		}
+		filtered := menu
+		filtered.Items = make([]domain.MenuItem, 0, len(eligibleItems))
+		for _, item := range menu.Items {
+			if include(item.ID) {
+				filtered.Items = append(filtered.Items, item)
+			}
+		}
+		result = append(result, filtered)
+	}
+	return result
+}
+
+func menuLocalesCurrentForBuild(sourceLocale string, values map[string]domain.LocalizedMenu, locales []domain.LocaleDefinition) bool {
+	source, exists := values[sourceLocale]
+	legacySource := isLegacyResourceSource(sourceLocale)
+	if !exists || (!legacySource && !sourceLocaleStateCurrent(source.State, source.Origin, source.Revision, source.SourceRevision)) {
+		return false
+	}
+	for _, definition := range locales {
+		target, exists := values[definition.Code]
+		if !exists {
+			if legacySource && definition.Code == localeconfig.FixedSourceLocale {
+				continue
+			}
+			return false
+		}
+		if legacySource {
+			if definition.Code != sourceLocale && strings.TrimSpace(target.Label) == "" {
+				return false
+			}
+			continue
+		}
+		if definition.Code == sourceLocale {
+			if !sourceLocaleStateCurrent(target.State, target.Origin, target.Revision, target.SourceRevision) {
+				return false
+			}
+			continue
+		}
+		if !targetLocaleStateCurrent(target.State, target.Origin, target.Revision, target.SourceRevision, source.Revision) || strings.TrimSpace(target.Label) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func isLegacyResourceSource(sourceLocale string) bool {
+	return sourceLocale != "" && sourceLocale != localeconfig.FixedSourceLocale
+}
+
+func sourceLocaleStateCurrent(state string, origin domain.LocaleOrigin, revision, sourceRevision int) bool {
+	return state == "current" && origin == domain.LocaleOriginSource && revision > 0 && sourceRevision == revision
+}
+
+func targetLocaleStateCurrent(state string, origin domain.LocaleOrigin, revision, sourceRevision, expectedSourceRevision int) bool {
+	return state == "current" && (origin == domain.LocaleOriginAI || origin == domain.LocaleOriginManual) && revision > 0 && sourceRevision == expectedSourceRevision
+}
+
+func requiredStringFieldsPresent(fields [][2]string) bool {
+	for _, field := range fields {
+		if strings.TrimSpace(field[0]) != "" && strings.TrimSpace(field[1]) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func toTaxonomyInputs(items []domain.Taxonomy) []TaxonomyInput {

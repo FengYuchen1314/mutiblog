@@ -170,22 +170,32 @@ func testVisitServer(t *testing.T) (*Server, *fsrepo.Repository, string, string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.WriteYAML("config/site.yaml", domain.SiteConfig{SchemaVersion: 1, SourceLocale: "en", BaseURL: "https://blog.example.com", Locales: map[string]domain.LocalizedSite{"en": {Title: "Stats"}}}, false); err != nil {
+	if err := repository.WriteYAML("config/site.yaml", domain.SiteConfig{SchemaVersion: 1, SourceLocale: "zh-CN", BaseURL: "https://blog.example.com", Locales: map[string]domain.LocalizedSite{"zh-CN": {Title: "统计"}, "en": {Title: "Stats"}}}, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{SchemaVersion: 1, SourceLocale: "en", Enabled: []domain.LocaleDefinition{{Code: "en", Label: "English", Enabled: true}, {Code: "zh-CN", Label: "简体中文", Enabled: true}}, Fallback: []string{"zh-CN"}}, false); err != nil {
+	if err := repository.WriteYAML("config/locales.yaml", domain.LocalesConfig{SchemaVersion: 1, SourceLocale: "zh-CN", Enabled: []domain.LocaleDefinition{{Code: "zh-CN", Label: "简体中文", Enabled: true, Status: domain.LocaleStatusReady}, {Code: "en", Label: "English", Enabled: true, Status: domain.LocaleStatusReady}}, Fallback: []string{"zh-CN"}}, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := repository.WriteYAML("config/secrets.yaml", domain.SecretsConfig{SchemaVersion: 1, Providers: map[string]string{}, CommentHMACKey: strings.Repeat("2", 64)}, true); err != nil {
 		t.Fatal(err)
 	}
 	contentService := content.NewService(repository)
-	post, err := contentService.CreatePost(content.CreatePostInput{ID: "public-stats-post", Title: "Public post"})
+	post, err := contentService.CreatePost(content.CreatePostInput{ID: "public-stats-post", Title: "公开文章"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	post, err = contentService.PublishPost(post.Meta.ID, post.Meta.Revision)
 	if err != nil {
+		t.Fatal(err)
+	}
+	post, err = contentService.ApplyAITranslation(post.Meta.ID, "en", content.ApplyAITranslationInput{
+		ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "Public post"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contentService.PromoteAITranslation("Post", post.Meta.ID, "en", post.Meta.Locales[post.Meta.SourceLocale].Revision); err != nil {
 		t.Fatal(err)
 	}
 	draft, err := contentService.CreatePost(content.CreatePostInput{ID: "draft-stats-post", Title: "Draft post"})

@@ -207,7 +207,11 @@ func (s *Service) Provision(ctx context.Context, rawLocale string) (Report, erro
 	if err != nil {
 		return report, err
 	}
-	publicPosts, err := s.content.ListPostsForBuild()
+	// Localization must plan against the active immutable release, even while
+	// that release is pending and ordinary static builds deliberately fall back
+	// to the last complete snapshot. Otherwise a retry would translate an older
+	// release and could never complete the pending publication it owns.
+	publicPosts, err := s.content.ListPostsForLocalization()
 	if err != nil {
 		return report, err
 	}
@@ -219,7 +223,7 @@ func (s *Service) Provision(ctx context.Context, rawLocale string) (Report, erro
 	if err != nil {
 		return report, err
 	}
-	publicPages, err := s.content.ListPagesForBuild()
+	publicPages, err := s.content.ListPagesForLocalization()
 	if err != nil {
 		return report, err
 	}

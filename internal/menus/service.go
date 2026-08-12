@@ -221,8 +221,7 @@ func (s *Service) AddItem(menuID string, input AddItemInput) (domain.Menu, error
 	if label == "" {
 		return domain.Menu{}, ErrInvalid
 	}
-	sourceRevision := menu.Locales[menu.SourceLocale].Revision
-	menu.Items = append(menu.Items, domain.MenuItem{ID: id, ParentID: input.ParentID, TargetKind: kind, URL: target, OpenInNew: input.OpenInNew, Order: input.Order, Locales: map[string]domain.LocalizedMenu{menu.SourceLocale: {Label: label, State: "current", Origin: domain.LocaleOriginSource, Revision: 1, SourceRevision: sourceRevision}}})
+	menu.Items = append(menu.Items, domain.MenuItem{ID: id, ParentID: input.ParentID, TargetKind: kind, URL: target, OpenInNew: input.OpenInNew, Order: input.Order, Locales: map[string]domain.LocalizedMenu{menu.SourceLocale: {Label: label, State: "current", Origin: domain.LocaleOriginSource, Revision: 1, SourceRevision: 1}}})
 	menu.Revision++
 	menu.UpdatedAt = time.Now().UTC()
 	if err := s.repository.WriteYAML(filepath.Join("content/menus", menu.ID+".yaml"), menu, false); err != nil {

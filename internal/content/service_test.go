@@ -33,6 +33,22 @@ func testService(t *testing.T) (*Service, *fsrepo.Repository) {
 	return NewService(repository), repository
 }
 
+func hideTestTargetLocale(t *testing.T, repository *fsrepo.Repository) {
+	t.Helper()
+	var locales domain.LocalesConfig
+	if err := repository.ReadYAML("config/locales.yaml", &locales); err != nil {
+		t.Fatal(err)
+	}
+	for index := range locales.Enabled {
+		if locales.Enabled[index].Code == "en" {
+			locales.Enabled[index].Status = domain.LocaleStatusProvisioning
+		}
+	}
+	if err := repository.WriteYAML("config/locales.yaml", locales, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type contentReadResult struct {
 	item domain.Post
 	err  error
@@ -754,6 +770,20 @@ func TestPrivateReleaseIsExcludedFromPublicBuildAndComments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	post, err = service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{
+		ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "Private", Markdown: "Body"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.PromoteAITranslation("Post", post.Meta.ID, "en", post.Meta.Locales[post.Meta.SourceLocale].Revision); err != nil {
+		t.Fatal(err)
+	}
+	post, err = service.GetPost(post.Meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	visibility := domain.ContentVisibilityPrivate
 	post, err = service.UpdatePostSettings(post.Meta.ID, UpdatePostSettingsInput{ExpectedRevision: post.Meta.Revision, Visibility: &visibility})
 	if err != nil {
@@ -826,6 +856,20 @@ func TestPublishedReleaseIsolatedFromHeadEdits(t *testing.T) {
 	if post.Meta.BaseRevision != 1 || post.Meta.HeadRevision != post.Meta.Revision || post.Meta.ReleaseRevision != post.Meta.Revision || post.Meta.HasUnpublishedChanges {
 		t.Fatalf("published pointers = %#v", post.Meta)
 	}
+	post, err = service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{
+		ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "Public title", Markdown: "Public body"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.PromoteAITranslation("Post", post.Meta.ID, "en", post.Meta.Locales[post.Meta.SourceLocale].Revision); err != nil {
+		t.Fatal(err)
+	}
+	post, err = service.GetPost(post.Meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	post, err = service.UpdateLocale(post.Meta.ID, post.Meta.SourceLocale, UpdateLocaleInput{ExpectedRevision: post.Meta.Revision, Title: "Unpublished head", Markdown: "Draft body"})
 	if err != nil {
 		t.Fatal(err)
@@ -841,6 +885,9 @@ func TestPublishedReleaseIsolatedFromHeadEdits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(buildPosts) != 1 {
+		t.Fatalf("public release count = %d, want 1", len(buildPosts))
+	}
 	if got := buildPosts[0].Content[post.Meta.SourceLocale].Title; got != "Public title" {
 		t.Fatalf("public release leaked head title %q", got)
 	}
@@ -855,8 +902,11 @@ func TestPublishedReleaseIsolatedFromHeadEdits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := buildPosts[0].Content[post.Meta.SourceLocale].Title; got != "Unpublished head" {
-		t.Fatalf("explicit publish kept old title %q", got)
+	if len(buildPosts) != 1 {
+		t.Fatalf("pending publication release count = %d, want 1 fallback", len(buildPosts))
+	}
+	if got := buildPosts[0].Content[post.Meta.SourceLocale].Title; got != "Public title" {
+		t.Fatalf("pending publication escaped the complete release fallback: %q", got)
 	}
 }
 
@@ -1049,6 +1099,20 @@ func TestAITranslationFromUnpublishedSourceStaysOnHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	post, err = service.ApplyAITranslation(post.Meta.ID, "en", ApplyAITranslationInput{
+		ExpectedSourceRevision: post.Meta.Locales[post.Meta.SourceLocale].Revision,
+		Content:                domain.LocalizedMarkdown{Title: "Published translation", Markdown: "First"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.PromoteAITranslation("Post", post.Meta.ID, "en", post.Meta.Locales[post.Meta.SourceLocale].Revision); err != nil {
+		t.Fatal(err)
+	}
+	post, err = service.GetPost(post.Meta.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	post, err = service.UpdateLocale(post.Meta.ID, post.Meta.SourceLocale, UpdateLocaleInput{ExpectedRevision: post.Meta.Revision, Title: "未发布源文", Markdown: "第二版"})
 	if err != nil {
 		t.Fatal(err)
@@ -1068,13 +1132,17 @@ func TestAITranslationFromUnpublishedSourceStaysOnHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, exists := buildPosts[0].Content["en"]; exists || buildPosts[0].Content["zh-CN"].Title != "已发布源文" {
+	if len(buildPosts) != 1 {
+		t.Fatalf("public release count = %d, want 1", len(buildPosts))
+	}
+	if buildPosts[0].Content["en"].Title != "Published translation" || buildPosts[0].Content["zh-CN"].Title != "已发布源文" {
 		t.Fatalf("unpublished source translation leaked into release: %#v", buildPosts[0].Content)
 	}
 }
 
 func TestInitializePublishedReleasesMigratesLegacyHead(t *testing.T) {
 	service, repository := testService(t)
+	hideTestTargetLocale(t, repository)
 	post, err := service.CreatePost(CreatePostInput{ID: "legacy-release", Title: "Legacy public", Markdown: "Body"})
 	if err != nil {
 		t.Fatal(err)
@@ -1402,7 +1470,8 @@ func TestInitializePublishedReleasesMigratesExactHistoryIdentityWithoutOverwriti
 }
 
 func TestRestoreRevisionCreatesHeadWithoutChangingRelease(t *testing.T) {
-	service, _ := testService(t)
+	service, repository := testService(t)
+	hideTestTargetLocale(t, repository)
 	post, err := service.CreatePost(CreatePostInput{ID: "restore-head", Title: "First", Markdown: "One"})
 	if err != nil {
 		t.Fatal(err)

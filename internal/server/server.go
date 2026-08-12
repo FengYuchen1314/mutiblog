@@ -70,6 +70,7 @@ type localeProvisioner interface {
 }
 
 type localeTaskCoordinator interface {
+	Start(localization.LocaleProvisionStartInput) (localization.Task, error)
 	Prepare(localization.LocaleProvisionStartInput) (localization.Task, bool, error)
 	FailPrepared(string, string) error
 	LaunchPrepared(string) bool
