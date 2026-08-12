@@ -1498,7 +1498,7 @@ a.comment-author:hover { color: var(--accent); }
 	.post-cursor-next { justify-content: flex-start; text-align: left; }
 	.post-cursor-next > span:first-child { order: 2; }
 }
-/* `earth-classic` intentionally inherits the original rules above. The default
+/* earth-classic intentionally inherits the original rules above. The default
    preset below layers Material surfaces over the same durable page structure. */
 body[data-visual-preset="material-glass"] {
   --canvas: #f7f7ff;
