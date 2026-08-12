@@ -33,6 +33,7 @@ type adminTaskTarget struct {
 	Progress         taskstore.Progress `json:"progress"`
 	Attempts         int                `json:"attempts"`
 	Error            string             `json:"error,omitempty"`
+	ErrorDetail      string             `json:"errorDetail,omitempty"`
 	StartedAt        *time.Time         `json:"startedAt,omitempty"`
 	CompletedAt      *time.Time         `json:"completedAt,omitempty"`
 }
@@ -64,6 +65,7 @@ type adminTask struct {
 	StartedAt         *time.Time             `json:"startedAt,omitempty"`
 	CompletedAt       *time.Time             `json:"completedAt,omitempty"`
 	Error             string                 `json:"error,omitempty"`
+	ErrorDetail       string                 `json:"errorDetail,omitempty"`
 	ProviderID        string                 `json:"providerId,omitempty"`
 	Model             string                 `json:"model,omitempty"`
 	BackupID          string                 `json:"backupId,omitempty"`
@@ -306,7 +308,7 @@ func adminTaskFromLocaleProvision(task localization.Task) adminTask {
 	return adminTask{
 		SchemaVersion: task.SchemaVersion, ID: task.ID, Kind: task.Kind, Operation: task.Operation,
 		Status: task.Status, Progress: task.Progress, CreatedAt: task.CreatedAt,
-		StartedAt: task.StartedAt, CompletedAt: task.CompletedAt, Error: task.Error,
+		StartedAt: task.StartedAt, CompletedAt: task.CompletedAt, Error: task.Error, ErrorDetail: task.ErrorDetail,
 		BuildStatus: task.BuildStatus, BuildTaskID: task.BuildTaskID, Targets: adminTaskTargetsFromLocaleProvision(task.Targets),
 		Relations: adminTaskRelations("", task.BuildTaskID, ""),
 	}
@@ -350,6 +352,7 @@ func adminTaskTargetsFromLocaleProvision(targets []localization.TargetTask) []ad
 			Progress:    target.Progress,
 			Attempts:    target.Attempts,
 			Error:       target.Error,
+			ErrorDetail: target.ErrorDetail,
 			StartedAt:   target.StartedAt,
 			CompletedAt: target.CompletedAt,
 		}

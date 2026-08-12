@@ -49,6 +49,16 @@ function mountView() {
         MEmptyState: { props: ["title"], template: "<p>{{ title }}</p>" },
         MPageHeader: { template: "<header><slot /><slot name='actions' /></header>" },
         MChip: { template: "<span><slot /></span>" },
+        MButton: {
+          emits: ["click"],
+          template: "<button v-bind='$attrs' @click='$emit(\"click\")'><slot /></button>",
+        },
+        MSelect: {
+          props: ["modelValue"],
+          emits: ["update:modelValue"],
+          template:
+            "<span class='m-select'><select v-bind='$attrs' :value='modelValue' @change='$emit(\"update:modelValue\", $event.target.value)'><slot /></select></span>",
+        },
         RouterLink: { props: ["to"], template: "<a><slot /></a>" },
       },
     },
@@ -80,6 +90,7 @@ describe("TaskCenterView", () => {
           status: "failed",
           attempts: 2,
           error: "translation-failed",
+          errorDetail: "HTTP 429",
           progress: { phase: "translation-target", current: 1, total: 1, percent: 100 },
         },
       ],
@@ -99,6 +110,7 @@ describe("TaskCenterView", () => {
     expect(wrapper.findAll(".task-center-row")).toHaveLength(2);
     expect(wrapper.text()).toContain("ja · Failed");
     expect(wrapper.text()).toContain("2 attempts");
+    expect(wrapper.text()).toContain("HTTP 429");
 
     await wrapper.findAll(".task-center-expand")[1].trigger("click");
     await flushPromises();

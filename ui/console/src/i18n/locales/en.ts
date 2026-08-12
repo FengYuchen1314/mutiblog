@@ -359,6 +359,7 @@ export default {
       "provider-key-missing": "The OpenAI-compatible provider API key is missing.",
       "provider-request-failed": "The Provider request failed.",
       "provider-unavailable": "The Provider configuration is unavailable.",
+      "provider-input-too-large": "The translation input exceeds the selected Provider's per-request limit.",
       "unsafe-output": "The Provider did not preserve protected Markdown.",
       "translation-timeout": "This target language exceeded the 15-minute translation limit.",
       "translation-failed": "Translation failed.",

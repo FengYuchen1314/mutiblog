@@ -346,6 +346,7 @@ export default {
       "provider-key-missing": "OpenAI-compatible Provider API Key 尚未配置。",
       "provider-request-failed": "Provider 请求失败。",
       "provider-unavailable": "Provider 配置不可用。",
+      "provider-input-too-large": "翻译内容超过所选 Provider 的单次输入限制。",
       "unsafe-output": "Provider 没有完整保留受保护的 Markdown。",
       "translation-timeout": "该目标语言超过 15 分钟翻译时限。",
       "translation-failed": "翻译失败。",

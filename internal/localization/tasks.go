@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/FengYuchen1314/mutiblog/internal/ai"
 	"github.com/FengYuchen1314/mutiblog/internal/content"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
@@ -88,6 +89,7 @@ type TargetTask struct {
 	Attempts    int                `yaml:"attempts" json:"attempts"`
 	Report      *Report            `yaml:"report,omitempty" json:"report,omitempty"`
 	Error       string             `yaml:"error,omitempty" json:"error,omitempty"`
+	ErrorDetail string             `yaml:"errorDetail,omitempty" json:"errorDetail,omitempty"`
 	StartedAt   *time.Time         `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
 	CompletedAt *time.Time         `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
 }
@@ -109,6 +111,7 @@ type Task struct {
 	StartedAt     *time.Time         `yaml:"startedAt,omitempty" json:"startedAt,omitempty"`
 	CompletedAt   *time.Time         `yaml:"completedAt,omitempty" json:"completedAt,omitempty"`
 	Error         string             `yaml:"error,omitempty" json:"error,omitempty"`
+	ErrorDetail   string             `yaml:"errorDetail,omitempty" json:"errorDetail,omitempty"`
 }
 
 type TaskService struct {
@@ -318,6 +321,7 @@ func (s *TaskService) FailPrepared(taskID, errorCode string) error {
 		}
 		target.Status = "failed"
 		target.Error = errorCode
+		target.ErrorDetail = ""
 		target.CompletedAt = &now
 		target.Progress = taskstore.Advance(target.Progress, "preparing-site-localization", 0, 1, 0, errorCode)
 	}
@@ -459,13 +463,14 @@ func (s *TaskService) run(taskID string, runGeneration uint64) {
 		target.Attempts++
 		target.StartedAt = &now
 		target.Error = ""
+		target.ErrorDetail = ""
 		target.Progress = taskstore.Advance(target.Progress, "localizing-site", 0, 1, 5, "localizing-site")
 		task.Progress = taskstore.Advance(task.Progress, "localizing-site", completedTargetCount(task.Targets), taskTotal(&task), task.Progress.Percent, "localizing-site")
 		if !s.checkpoint(&task, "target-start") {
 			return
 		}
 		if s.provisioner == nil {
-			s.recordTargetFailure(&task, index, "failed", "site-localization-failed")
+			s.recordTargetFailure(&task, index, "failed", "site-localization-failed", "")
 			if !s.checkpoint(&task, "target-unavailable") {
 				return
 			}
@@ -488,8 +493,11 @@ func (s *TaskService) run(taskID string, runGeneration uint64) {
 			return
 		}
 		if provisionErr != nil {
-			status, message := provisionFailure(provisionErr)
-			s.recordTargetFailure(&task, index, status, message)
+			status, message, detail := provisionFailure(provisionErr)
+			s.recordTargetFailure(&task, index, status, message, detail)
+			if detail != "" {
+				slog.Warn("locale provisioning target failed", "task", task.ID, "locale", target.Locale, "reason", message, "detail", detail)
+			}
 			if !s.checkpoint(&task, "target-failed") {
 				return
 			}
@@ -715,11 +723,12 @@ func (s *TaskService) finalizeFailedBuild(task *Task, successful []string) {
 	s.finishBestEffort(task, "failed", "localization-build-failed")
 }
 
-func (s *TaskService) recordTargetFailure(task *Task, index int, status, message string) {
+func (s *TaskService) recordTargetFailure(task *Task, index int, status, message, detail string) {
 	now := time.Now().UTC()
 	target := &task.Targets[index]
 	target.Status = status
 	target.Error = message
+	target.ErrorDetail = detail
 	target.CompletedAt = &now
 	target.Progress = taskstore.Advance(target.Progress, "localizing-site", target.Progress.Current, 1, target.Progress.Percent, message)
 	task.Progress = taskstore.Advance(task.Progress, "localizing-site", completedTargetCount(task.Targets), taskTotal(task), task.Progress.Percent, message)
@@ -743,7 +752,8 @@ func (s *TaskService) finishFromTargetResults(task *Task) {
 	case needsReview:
 		s.finishBestEffort(task, "needs-review", "source-changed")
 	case failed:
-		s.finishBestEffort(task, "failed", "site-localization-failed")
+		message, detail := localeProvisionFailureSummary(task.Targets)
+		s.finishBestEffortWithDetail(task, "failed", message, detail)
 	default:
 		s.finishBestEffort(task, "succeeded", "site-localization-complete")
 	}
@@ -761,20 +771,30 @@ func (s *TaskService) checkpoint(task *Task, checkpoint string) bool {
 }
 
 func (s *TaskService) finishBestEffort(task *Task, status, message string) {
-	if err := s.finish(task, status, message); err != nil {
+	s.finishBestEffortWithDetail(task, status, message, "")
+}
+
+func (s *TaskService) finishBestEffortWithDetail(task *Task, status, message, detail string) {
+	if err := s.finishWithDetail(task, status, message, detail); err != nil {
 		slog.Error("persist terminal locale provisioning task failed; task remains recoverable", "task", task.ID, "status", status, "error", err)
 	}
 }
 
 func (s *TaskService) finish(task *Task, status, message string) error {
+	return s.finishWithDetail(task, status, message, "")
+}
+
+func (s *TaskService) finishWithDetail(task *Task, status, message, detail string) error {
 	now := time.Now().UTC()
 	task.Status = status
 	task.CompletedAt = &now
 	task.Error = ""
+	task.ErrorDetail = ""
 	if status == "succeeded" {
 		task.Progress = taskstore.Complete(task.Progress, "site-localization-complete")
 	} else {
 		task.Error = message
+		task.ErrorDetail = detail
 		task.Progress = taskstore.Advance(task.Progress, task.Progress.Phase, task.Progress.Current, taskTotal(task), task.Progress.Percent, message)
 	}
 	return s.writeTask(*task)
@@ -944,11 +964,58 @@ func taskTotal(task *Task) int {
 	return len(task.Targets) + 2
 }
 
-func provisionFailure(err error) (status, message string) {
+func provisionFailure(err error) (status, message, detail string) {
 	if errors.Is(err, ErrSourceChanged) || errors.Is(err, content.ErrSourceChanged) || errors.Is(err, content.ErrTargetChanged) {
-		return "needs-review", "source-changed"
+		return "needs-review", "source-changed", ""
 	}
-	return "failed", "site-localization-failed"
+	switch {
+	case errors.Is(err, ai.ErrKeyMissing):
+		return "failed", "provider-key-missing", ""
+	case errors.Is(err, ai.ErrProviderFailed):
+		return "failed", "provider-request-failed", safeProviderFailureDetail(err)
+	case errors.Is(err, ai.ErrInvalidProvider), errors.Is(err, ai.ErrProviderNotFound):
+		return "failed", "provider-unavailable", ""
+	case errors.Is(err, ai.ErrTranslationInputTooLong):
+		return "failed", "provider-input-too-large", ""
+	case errors.Is(err, ErrLocaleUnavailable):
+		return "failed", "locale-target-unavailable", ""
+	default:
+		return "failed", "site-localization-failed", ""
+	}
+}
+
+// safeProviderFailureDetail contains only the bounded, secret-redacted detail
+// emitted by the AI client. Never surface arbitrary wrapped error text here:
+// localization errors can contain private site content or filesystem paths.
+func safeProviderFailureDetail(err error) string {
+	message := strings.TrimSpace(ai.SafeProviderErrorMessage(err))
+	if detail, found := strings.CutPrefix(message, ai.ErrProviderFailed.Error()+":"); found {
+		return strings.TrimSpace(detail)
+	}
+	return ""
+}
+
+func localeProvisionFailureSummary(targets []TargetTask) (message, detail string) {
+	message = "site-localization-failed"
+	found := false
+	for _, target := range targets {
+		if target.Status != "failed" || target.Error == "" {
+			continue
+		}
+		if !found {
+			found = true
+			message = target.Error
+			detail = target.ErrorDetail
+			continue
+		}
+		if target.Error != message {
+			return "site-localization-failed", ""
+		}
+		if target.ErrorDetail != detail {
+			detail = ""
+		}
+	}
+	return message, detail
 }
 
 func validLocaleProvisionTask(task Task, expectedID string) bool {

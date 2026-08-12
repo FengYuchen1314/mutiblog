@@ -3,10 +3,13 @@ package localization
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/FengYuchen1314/mutiblog/internal/ai"
 	"github.com/FengYuchen1314/mutiblog/internal/content"
 	"github.com/FengYuchen1314/mutiblog/internal/domain"
 	"github.com/FengYuchen1314/mutiblog/internal/platform/fsrepo"
@@ -220,6 +223,48 @@ func TestLocaleProvisionTaskLeavesFailedTargetsHiddenAndBuildsSuccessfulTargets(
 	defer lifecycleMu.Unlock()
 	if len(lifecycle) != 3 || lifecycle[0].Status != "failed" || lifecycle[0].Locales[0] != "ja" || lifecycle[1].Status != "building" || lifecycle[2].Status != "ready" {
 		t.Fatalf("partial lifecycle = %#v", lifecycle)
+	}
+}
+
+func TestLocaleProvisionTaskPersistsSafeProviderFailureDetail(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"Bearer locale-task-secret"}`))
+	}))
+	defer upstream.Close()
+	_, providerErr := (ai.Client{HTTPClient: upstream.Client()}).GoogleTranslate(context.Background(), domain.AIProviderConfig{
+		Kind: ai.ProviderKindGoogleFree, BaseURL: upstream.URL + "/translate_a/single", Model: ai.GoogleFreeDefaultModel, TimeoutSeconds: 5,
+	}, "zh-CN", "en", "待翻译内容")
+	if providerErr == nil {
+		t.Fatal("GoogleTranslate() unexpectedly succeeded")
+	}
+
+	repository := localeTaskRepository(t)
+	provisioner := &localeTaskProvisioner{failures: map[string]error{"ja": providerErr}}
+	builder := &localeTaskBuilder{children: make(map[string]publisher.Task)}
+	service := NewTaskService(repository, provisioner, builder)
+	defer service.Close()
+
+	task, err := service.Start(LocaleProvisionStartInput{Locales: []string{"ja"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := waitLocaleTask(t, service, task.ID)
+	if completed.Status != "failed" || completed.Error != "provider-request-failed" || completed.ErrorDetail != "HTTP 429" {
+		t.Fatalf("provider failure parent = %#v", completed)
+	}
+	if len(completed.Targets) != 1 || completed.Targets[0].Error != "provider-request-failed" || completed.Targets[0].ErrorDetail != "HTTP 429" {
+		t.Fatalf("provider failure target = %#v", completed.Targets)
+	}
+	if completed.Targets[0].ErrorDetail == "Bearer locale-task-secret" {
+		t.Fatalf("provider failure leaked secret: %#v", completed.Targets[0])
+	}
+}
+
+func TestProvisionFailureNeverUsesArbitraryWrappedProviderText(t *testing.T) {
+	status, message, detail := provisionFailure(errors.Join(ai.ErrProviderFailed, errors.New("Bearer locale-task-secret")))
+	if status != "failed" || message != "provider-request-failed" || detail != "" {
+		t.Fatalf("provider failure classification = %q, %q, %q", status, message, detail)
 	}
 }
 

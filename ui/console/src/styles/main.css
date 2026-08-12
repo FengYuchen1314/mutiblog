@@ -1416,6 +1416,360 @@ a {
   font-size: 0.75rem;
 }
 
+/*
+ * Material 3 compatibility layer for the console's incremental migration.
+ *
+ * A few older views still render plain HTML form elements instead of a
+ * component primitive.  Keeping this layer here gives those controls the
+ * same M3 surface, outline, state and focus treatment while their views are
+ * migrated one by one.  More specific component styles can still opt out.
+ */
+:where(.console-layout, .auth-page, .editor-page)
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]), select, textarea) {
+  min-height: 2.5rem;
+  border: 1px solid var(--m-sys-color-outline);
+  border-radius: var(--m-sys-shape-corner-small);
+  background-color: var(--m-sys-color-surface-container-lowest);
+  box-shadow: inset 0 1px 0 rgb(25 28 32 / 0.03);
+  color: var(--m-sys-color-on-surface);
+  line-height: var(--m-sys-typescale-body-medium-line-height);
+  transition:
+    border-color var(--m-sys-motion-duration-short4) var(--m-sys-motion-easing-standard),
+    background-color var(--m-sys-motion-duration-short4) var(--m-sys-motion-easing-standard),
+    box-shadow var(--m-sys-motion-duration-short4) var(--m-sys-motion-easing-standard);
+}
+
+:where(.console-layout, .auth-page, .editor-page)
+  :where(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]),
+    select,
+    textarea
+  ):hover:not(:disabled) {
+  border-color: var(--m-sys-color-on-surface-variant);
+}
+
+:where(.console-layout, .auth-page, .editor-page)
+  :where(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]),
+    select,
+    textarea
+  ):focus-visible {
+  border-color: var(--m-sys-color-primary);
+  outline: none;
+  box-shadow: var(--m-sys-focus-ring);
+}
+
+:where(.console-layout, .auth-page, .editor-page) :where(input, select, textarea):disabled {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--m-sys-color-on-surface) 8%, transparent);
+  box-shadow: none;
+  color: color-mix(in srgb, var(--m-sys-color-on-surface) 42%, transparent);
+  cursor: not-allowed;
+}
+
+:where(.console-layout, .auth-page, .editor-page) :where(select:not([multiple])) {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentcolor 50%),
+    linear-gradient(135deg, currentcolor 50%, transparent 50%);
+  background-position:
+    calc(100% - 1rem) calc(50% - 0.13rem),
+    calc(100% - 0.68rem) calc(50% - 0.13rem);
+  background-repeat: no-repeat;
+  background-size:
+    0.34rem 0.34rem,
+    0.34rem 0.34rem;
+  padding-right: 2.2rem;
+}
+
+:where(.console-layout, .auth-page, .editor-page) :where(input[type="checkbox"], input[type="radio"]) {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  accent-color: var(--m-sys-color-primary);
+  cursor: pointer;
+}
+
+:where(.console-layout, .auth-page, .editor-page) :where(button:not(.m-button)) {
+  min-height: 2.25rem;
+  border: 1px solid transparent;
+  border-radius: var(--m-sys-shape-corner-full);
+  background: var(--m-sys-color-secondary-container);
+  color: var(--m-sys-color-on-secondary-container);
+  cursor: pointer;
+  font-family: var(--m-sys-font-family);
+  font-size: var(--m-sys-typescale-label-large-size);
+  font-weight: 650;
+  line-height: var(--m-sys-typescale-label-large-line-height);
+  padding: 0.45rem 0.8rem;
+  transition:
+    background-color var(--m-sys-motion-duration-short4) var(--m-sys-motion-easing-standard),
+    box-shadow var(--m-sys-motion-duration-short4) var(--m-sys-motion-easing-standard),
+    transform var(--m-sys-motion-duration-short4) var(--m-sys-motion-easing-standard);
+}
+
+:where(.console-layout, .auth-page, .editor-page) :where(button:not(.m-button)):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--m-sys-color-secondary-container) 82%, var(--m-sys-color-secondary));
+}
+
+:where(.console-layout, .auth-page, .editor-page) :where(button:not(.m-button)):active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+:where(.console-layout, .auth-page, .editor-page) :where(button:not(.m-button)):disabled {
+  background: color-mix(in srgb, var(--m-sys-color-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--m-sys-color-on-surface) 38%, transparent);
+  cursor: not-allowed;
+}
+
+/* Reusable filters and list actions still used by resource and task screens. */
+.filter-bar,
+.bulk-bar,
+.pagination-bar {
+  border-color: var(--m-sys-color-outline-variant);
+  background: color-mix(in srgb, var(--m-sys-color-surface-container-low) 78%, transparent);
+}
+
+.filter-bar :is(input, select),
+.provider-form :is(input:not([type="checkbox"]), select, textarea),
+.locale-add-form input,
+.content-settings-fields :is(input:not([type="checkbox"]), select, textarea),
+.theme-settings-fields :is(input:not([type="checkbox"]), select, textarea),
+.field :is(input:not([type="checkbox"]), select, textarea) {
+  border-color: var(--m-sys-color-outline);
+  border-radius: var(--m-sys-shape-corner-small);
+  background-color: var(--m-sys-color-surface-container-lowest);
+  box-shadow: inset 0 1px 0 rgb(25 28 32 / 0.03);
+  color: var(--m-sys-color-on-surface);
+}
+
+.filter-bar :is(input, select),
+.provider-form :is(input:not([type="checkbox"]), select, textarea),
+.locale-add-form input,
+.content-settings-fields :is(input:not([type="checkbox"]), select, textarea),
+.theme-settings-fields :is(input:not([type="checkbox"]), select, textarea),
+.field :is(input:not([type="checkbox"]), select, textarea) {
+  min-height: 2.5rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.filter-bar :is(input, select):focus-visible,
+.provider-form :is(input:not([type="checkbox"]), select, textarea):focus-visible,
+.locale-add-form input:focus-visible,
+.content-settings-fields :is(input:not([type="checkbox"]), select, textarea):focus-visible,
+.theme-settings-fields :is(input:not([type="checkbox"]), select, textarea):focus-visible,
+.field :is(input:not([type="checkbox"]), select, textarea):focus-visible {
+  border-color: var(--m-sys-color-primary);
+  box-shadow: var(--m-sys-focus-ring);
+}
+
+.filter-bar button,
+.bulk-bar button,
+.pagination-bar button {
+  min-height: 2.25rem;
+  border: 0;
+  border-radius: var(--m-sys-shape-corner-full);
+  background: var(--m-sys-color-secondary-container);
+  color: var(--m-sys-color-on-secondary-container);
+  font-family: var(--m-sys-font-family);
+  font-weight: 650;
+}
+
+.filter-bar button:hover:not(:disabled),
+.bulk-bar button:hover:not(:disabled),
+.pagination-bar button:hover:not(:disabled),
+.filter-bar button.active {
+  background: var(--m-sys-color-primary);
+  color: var(--m-sys-color-on-primary);
+}
+
+.bulk-bar,
+.pagination-bar {
+  color: var(--m-sys-color-on-surface-variant);
+}
+
+.check-row,
+.provider-check {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--m-sys-color-on-surface-variant);
+  font-size: var(--m-sys-typescale-body-medium-size);
+}
+
+.provider-check.text-danger {
+  color: var(--m-sys-color-error);
+}
+
+.bulk-bar button.text-danger,
+.theme-setting-array__actions button.text-danger {
+  border-color: transparent;
+  background: var(--m-sys-color-error-container);
+  color: var(--m-sys-color-on-error-container);
+}
+
+.bulk-bar button.text-danger:hover:not(:disabled),
+.theme-setting-array__actions button.text-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--m-sys-color-error-container) 78%, var(--m-sys-color-error));
+  color: var(--m-sys-color-on-error);
+}
+
+/* The former template hooks below had no matching rules, exposing browser buttons. */
+.resource-list {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.6rem;
+}
+
+.provider-item {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.18rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: var(--m-sys-shape-corner-medium);
+  background: transparent;
+  color: var(--m-sys-color-on-surface);
+  padding: 0.75rem 0.8rem;
+  text-align: left;
+}
+
+.provider-item:hover,
+.provider-item:focus-visible {
+  border-color: color-mix(in srgb, var(--m-sys-color-primary) 32%, transparent);
+  background: var(--m-sys-color-primary-container);
+  color: var(--m-sys-color-on-primary-container);
+  outline: none;
+}
+
+.provider-item > strong,
+.provider-item > span {
+  min-width: 0;
+  grid-column: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-item > strong {
+  font-family: var(--m-sys-font-family);
+  font-size: var(--m-sys-typescale-title-medium-size);
+}
+
+.provider-item > span {
+  color: var(--m-sys-color-on-surface-variant);
+  font-size: var(--m-sys-typescale-label-medium-size);
+}
+
+.provider-item > .m-chip {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.comment-admin-list {
+  display: grid;
+}
+
+.comment-admin-item {
+  display: grid;
+  gap: 0.7rem;
+  border-bottom: 1px solid var(--m-sys-color-outline-variant);
+  padding: 1rem;
+}
+
+.comment-admin-item:last-child {
+  border-bottom: 0;
+}
+
+.comment-admin-item > header,
+.comment-admin-item > footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.comment-admin-item > header {
+  color: var(--m-sys-color-on-surface-variant);
+  font-size: var(--m-sys-typescale-label-medium-size);
+}
+
+.comment-admin-item > header strong {
+  color: var(--m-sys-color-on-surface);
+  font-family: var(--m-sys-font-family);
+  font-size: var(--m-sys-typescale-title-medium-size);
+}
+
+.comment-admin-item > header time {
+  margin-left: auto;
+}
+
+.comment-admin-item > p {
+  margin: 0;
+  color: var(--m-sys-color-on-surface);
+  line-height: var(--m-sys-typescale-body-large-line-height);
+  overflow-wrap: anywhere;
+}
+
+.comment-admin-item > small {
+  color: var(--m-sys-color-on-surface-variant);
+}
+
+/* Dialogs and schema settings share the same elevated Material surface. */
+.content-settings-backdrop {
+  background: color-mix(in srgb, var(--m-sys-color-scrim) 42%, transparent);
+}
+
+.content-settings-modal {
+  border-color: var(--m-sys-color-outline-variant);
+  border-radius: var(--m-sys-shape-corner-extra-large);
+  background: var(--m-sys-color-surface-container-high);
+  box-shadow: var(--m-sys-elevation-level4);
+}
+
+.content-settings-header,
+.content-settings-footer,
+.content-settings-group,
+.settings-section-title,
+.theme-actions,
+.provider-actions {
+  border-color: var(--m-sys-color-outline-variant);
+}
+
+.content-settings-group h3,
+.content-settings-fields > label:not(.provider-check),
+.provider-form label:not(.provider-check),
+.locale-add-form label,
+.field > span {
+  color: var(--m-sys-color-on-surface-variant);
+}
+
+.content-settings-fields fieldset,
+.theme-settings-group,
+.theme-setting-object--nested,
+.theme-setting-array,
+.theme-setting-array__item {
+  border-color: var(--m-sys-color-outline-variant);
+  background: var(--m-sys-color-surface-container-low);
+}
+
+.theme-setting-array__header button,
+.theme-setting-array__actions button {
+  border-color: var(--m-sys-color-outline);
+  border-radius: var(--m-sys-shape-corner-full);
+  background: var(--m-sys-color-secondary-container);
+  color: var(--m-sys-color-on-secondary-container);
+}
+
+.theme-setting-array__header button:hover:not(:disabled),
+.theme-setting-array__actions button:hover:not(:disabled) {
+  background: var(--m-sys-color-primary-container);
+  color: var(--m-sys-color-on-primary-container);
+}
+
 @media (max-width: 960px) {
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

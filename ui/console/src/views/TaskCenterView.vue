@@ -202,27 +202,32 @@ onBeforeUnmount(() => {
       <div v-if="error" class="form-alert">{{ error }}</div>
       <MSurface>
         <div class="filter-bar task-center-filter-bar">
-          <span class="task-center-guidance">{{ t("taskCenter.guidance") }}</span>
-          <label class="task-center-sr-only" for="task-kind-filter">{{ t("taskCenter.typeFilter") }}</label>
-          <select id="task-kind-filter" v-model="kind">
-            <option value="">{{ t("taskCenter.allTypes") }}</option>
-            <option value="Translation">{{ kindLabel("Translation") }}</option>
-            <option value="LocaleProvision">{{ kindLabel("LocaleProvision") }}</option>
-            <option value="StaticBuild">{{ kindLabel("StaticBuild") }}</option>
-            <option value="IndexRebuild">{{ kindLabel("IndexRebuild") }}</option>
-            <option value="Backup">{{ kindLabel("Backup") }}</option>
-            <option value="ScheduledPublish">{{ kindLabel("ScheduledPublish") }}</option>
-          </select>
-          <label class="task-center-sr-only" for="task-status-filter">{{ t("taskCenter.statusFilter") }}</label>
-          <select id="task-status-filter" v-model="status">
-            <option value="">{{ t("taskCenter.allStatuses") }}</option>
-            <option value="queued">{{ codeLabel("queued") }}</option>
-            <option value="running">{{ codeLabel("running") }}</option>
-            <option value="succeeded">{{ codeLabel("succeeded") }}</option>
-            <option value="failed">{{ codeLabel("failed") }}</option>
-            <option value="needs-review">{{ codeLabel("needs-review") }}</option>
-          </select>
-          <button type="button" @click="reloadFiltered">{{ t("common.refresh") }}</button>
+          <div class="task-center-filter-copy">
+            <span class="task-center-filter-overline">{{ t("taskCenter.title") }}</span>
+            <span class="task-center-guidance">{{ t("taskCenter.guidance") }}</span>
+          </div>
+          <div class="task-center-filter-controls">
+            <label class="task-center-sr-only" for="task-kind-filter">{{ t("taskCenter.typeFilter") }}</label>
+            <MSelect id="task-kind-filter" v-model="kind">
+              <option value="">{{ t("taskCenter.allTypes") }}</option>
+              <option value="Translation">{{ kindLabel("Translation") }}</option>
+              <option value="LocaleProvision">{{ kindLabel("LocaleProvision") }}</option>
+              <option value="StaticBuild">{{ kindLabel("StaticBuild") }}</option>
+              <option value="IndexRebuild">{{ kindLabel("IndexRebuild") }}</option>
+              <option value="Backup">{{ kindLabel("Backup") }}</option>
+              <option value="ScheduledPublish">{{ kindLabel("ScheduledPublish") }}</option>
+            </MSelect>
+            <label class="task-center-sr-only" for="task-status-filter">{{ t("taskCenter.statusFilter") }}</label>
+            <MSelect id="task-status-filter" v-model="status">
+              <option value="">{{ t("taskCenter.allStatuses") }}</option>
+              <option value="queued">{{ codeLabel("queued") }}</option>
+              <option value="running">{{ codeLabel("running") }}</option>
+              <option value="succeeded">{{ codeLabel("succeeded") }}</option>
+              <option value="failed">{{ codeLabel("failed") }}</option>
+              <option value="needs-review">{{ codeLabel("needs-review") }}</option>
+            </MSelect>
+            <MButton variant="tonal" size="sm" @click="reloadFiltered">{{ t("common.refresh") }}</MButton>
+          </div>
         </div>
         <p class="task-center-summary">{{ t("taskCenter.summary", { total, active: activeTaskCount }) }}</p>
         <p class="task-center-sr-only" aria-live="polite">{{ announcedSummary }}</p>
@@ -235,6 +240,7 @@ onBeforeUnmount(() => {
             class="task-center-row"
             :class="{
               'task-center-row--focused': row.node.task.id === focusedTaskId,
+              'task-center-row--failed': row.node.task.status === 'failed' || row.node.task.status === 'needs-review',
               'task-center-row--warning':
                 row.node.task.outcome === 'published-with-warning' || taskWarnings(row.node.task).length,
             }"
@@ -244,10 +250,12 @@ onBeforeUnmount(() => {
             <div class="task-center-heading">
               <div class="task-center-copy">
                 <div class="task-center-title-line">
-                  <button
+                  <MButton
                     v-if="row.hasChildren"
-                    type="button"
                     class="task-center-expand"
+                    variant="outlined"
+                    size="xs"
+                    circle
                     :aria-expanded="expandedTaskIDs.has(row.node.task.id)"
                     :aria-label="
                       t(expandedTaskIDs.has(row.node.task.id) ? 'taskCenter.collapseTask' : 'taskCenter.expandTask')
@@ -255,15 +263,15 @@ onBeforeUnmount(() => {
                     @click="toggleExpanded(row.node.task.id)"
                   >
                     {{ expandedTaskIDs.has(row.node.task.id) ? "−" : "+" }}
-                  </button>
+                  </MButton>
                   <span v-else class="task-center-branch" aria-hidden="true"></span>
                   <strong>{{ taskTitle(row.node.task) }}</strong>
                 </div>
                 <span>
                   {{ kindLabel(row.node.task.kind) }} · {{ operationLabel(row.node.task.operation) }}
                   <template v-if="row.node.task.providerId">
-                    · {{ row.node.task.providerId }} / {{ row.node.task.model }}</template
-                  >
+                    · {{ row.node.task.providerId }} / {{ row.node.task.model }}
+                  </template>
                 </span>
                 <span v-if="row.node.relationRole" class="task-center-relation">
                   {{ relationLabel(row.node.relationRole) }}
@@ -288,7 +296,9 @@ onBeforeUnmount(() => {
                 class="task-center-track"
                 role="progressbar"
                 :aria-label="taskTitle(row.node.task)"
-                :aria-valuetext="`${progressLabel(row.node.task.progress.message || row.node.task.progress.phase || row.node.task.status)} ${progressPercent(row.node.task.progress.percent)}%`"
+                :aria-valuetext="`${progressLabel(
+                  row.node.task.progress.message || row.node.task.progress.phase || row.node.task.status,
+                )} ${progressPercent(row.node.task.progress.percent)}%`"
                 :aria-valuenow="progressPercent(row.node.task.progress.percent)"
                 aria-valuemin="0"
                 aria-valuemax="100"
@@ -324,6 +334,7 @@ onBeforeUnmount(() => {
                 <span v-if="target.error" class="translation-target-error">
                   {{ taskErrorLabel(target.error, "tasksPage.errors.unknown") }}
                 </span>
+                <span v-if="target.errorDetail" class="translation-error-detail">{{ target.errorDetail }}</span>
               </div>
             </div>
             <details v-if="row.node.task.report" class="task-center-report">
@@ -339,13 +350,18 @@ onBeforeUnmount(() => {
             <div v-if="row.node.task.error" class="translation-task-error">
               {{ taskErrorLabel(row.node.task.error, "taskCenter.taskFailed") }}
             </div>
-            <RouterLink
+            <div v-if="row.node.task.errorDetail" class="translation-error-detail">
+              {{ row.node.task.errorDetail }}
+            </div>
+            <MButton
               v-if="taskDestination(row.node.task)"
               class="task-center-action"
               :to="taskDestination(row.node.task)!"
+              variant="text"
+              size="sm"
             >
               {{ taskActionLabel(row.node.task) }}
-            </RouterLink>
+            </MButton>
           </article>
         </div>
         <div v-else class="empty-resource"><MEmptyState :title="t('taskCenter.empty')" /></div>
@@ -356,17 +372,48 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .task-center-filter-bar {
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--m-sys-color-surface-container-low);
+  padding: 1rem;
+}
+.task-center-filter-copy {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 0.2rem;
+}
+.task-center-filter-overline {
+  color: var(--m-sys-color-primary);
+  font-size: var(--m-sys-typescale-label-medium-size);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: var(--m-sys-typescale-label-medium-line-height);
+  text-transform: uppercase;
+}
+.task-center-filter-controls {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 .task-center-guidance {
-  margin-right: auto;
   color: var(--m-sys-color-on-surface-variant);
-  font-size: 0.74rem;
+  font-size: var(--m-sys-typescale-body-medium-size);
+  line-height: var(--m-sys-typescale-body-medium-line-height);
 }
 .task-center-summary {
-  margin: 0.25rem 1rem 0.75rem;
+  margin: 0;
+  border-bottom: 1px solid var(--m-sys-color-outline-variant);
+  background: var(--m-sys-color-surface-container);
+  padding: 0.65rem 1rem;
   color: var(--m-sys-color-on-surface-variant);
-  font-size: 0.72rem;
+  font-size: var(--m-sys-typescale-label-large-size);
+  font-weight: 600;
+  line-height: var(--m-sys-typescale-label-large-line-height);
 }
 .task-center-sr-only {
   position: absolute;
@@ -379,27 +426,46 @@ onBeforeUnmount(() => {
 .task-center-list {
   display: flex;
   flex-direction: column;
+  gap: 0.7rem;
+  background: var(--m-sys-color-surface-container);
+  padding: 0.75rem;
 }
 .task-center-row {
   display: grid;
   gap: 0.65rem;
-  border-bottom: 1px solid #eceef2;
+  border: 1px solid var(--m-sys-color-outline-variant);
+  border-radius: var(--m-sys-shape-corner-large);
+  background: var(--m-sys-color-surface-container-lowest);
+  box-shadow: var(--m-sys-elevation-level0);
   padding: 1rem;
   overflow-wrap: anywhere;
+  transition:
+    background-color var(--m-sys-motion-duration-short4) var(--m-sys-motion-easing-standard),
+    box-shadow var(--m-sys-motion-duration-short4) var(--m-sys-motion-easing-standard),
+    border-color var(--m-sys-motion-duration-short4) var(--m-sys-motion-easing-standard);
+}
+.task-center-row:hover {
+  background: var(--m-sys-color-surface-container-low);
+  box-shadow: var(--m-sys-elevation-level1);
 }
 .task-center-row:focus-visible {
-  outline: 2px solid #4f46e5;
-  outline-offset: -2px;
+  outline: none;
+  box-shadow: var(--m-sys-focus-ring), var(--m-sys-elevation-level1);
 }
 .task-center-row--focused {
-  background: #f5f7ff;
-  box-shadow: inset 3px 0 #4f46e5;
+  border-color: var(--m-sys-color-primary);
+  background: color-mix(in srgb, var(--m-sys-color-primary-container) 42%, var(--m-sys-color-surface-container-lowest));
+  box-shadow:
+    inset 3px 0 var(--m-sys-color-primary),
+    var(--m-sys-elevation-level1);
 }
 .task-center-row--warning {
-  background: #fffbeb;
+  border-color: color-mix(in srgb, var(--m-sys-color-warning) 55%, var(--m-sys-color-outline-variant));
+  background: color-mix(in srgb, var(--m-sys-color-warning-container) 42%, var(--m-sys-color-surface-container-lowest));
 }
-.task-center-row:last-child {
-  border-bottom: 0;
+.task-center-row--failed {
+  border-color: color-mix(in srgb, var(--m-sys-color-error) 55%, var(--m-sys-color-outline-variant));
+  background: color-mix(in srgb, var(--m-sys-color-error-container) 36%, var(--m-sys-color-surface-container-lowest));
 }
 .task-center-heading,
 .task-center-progress-line,
@@ -423,27 +489,25 @@ onBeforeUnmount(() => {
   gap: 0.45rem;
 }
 .task-center-title-line strong {
+  color: var(--m-sys-color-on-surface);
+  font-family: var(--m-sys-font-family);
+  font-size: var(--m-sys-typescale-title-medium-size);
+  line-height: var(--m-sys-typescale-title-medium-line-height);
   overflow-wrap: anywhere;
 }
 .task-center-expand,
 .task-center-branch {
   display: inline-grid;
-  flex: 0 0 1.45rem;
-  width: 1.45rem;
-  height: 1.45rem;
+  flex: 0 0 1.875rem;
+  width: 1.875rem;
+  height: 1.875rem;
   place-items: center;
 }
 .task-center-expand {
-  border: 1px solid #d7dce6;
-  border-radius: 999px;
-  background: #fff;
-  color: #394150;
-  font-size: 1rem;
+  min-width: 1.875rem;
+  padding: 0;
+  font-size: 1.1rem;
   line-height: 1;
-}
-.task-center-expand:hover {
-  border-color: #4f46e5;
-  color: #4338ca;
 }
 .task-center-copy span,
 .task-center-copy code,
@@ -451,14 +515,16 @@ onBeforeUnmount(() => {
 .task-center-phase,
 .task-center-target,
 .task-center-report {
-  color: #818a9a;
-  font-size: 0.68rem;
+  color: var(--m-sys-color-on-surface-variant);
+  font-size: var(--m-sys-typescale-label-medium-size);
+  line-height: var(--m-sys-typescale-label-medium-line-height);
 }
 .task-center-copy code {
   white-space: normal;
 }
 .task-center-relation {
-  color: #596579 !important;
+  color: var(--m-sys-color-secondary) !important;
+  font-weight: 600;
 }
 .task-center-status {
   display: grid;
@@ -466,27 +532,30 @@ onBeforeUnmount(() => {
   justify-items: end;
   gap: 0.3rem;
 }
+.task-center-status time {
+  font-variant-numeric: tabular-nums;
+}
 .task-center-track {
   overflow: hidden;
   width: 100%;
-  height: 0.55rem;
-  border-radius: 999px;
-  background: #edf0f5;
+  height: 0.6rem;
+  border-radius: var(--m-sys-shape-corner-full);
+  background: var(--m-sys-color-surface-container-highest);
 }
 .task-center-track span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #4f46e5;
-  transition: width 0.55s ease;
+  background: var(--m-sys-color-primary);
+  transition: width var(--m-sys-motion-duration-medium2) var(--m-sys-motion-easing-emphasized);
 }
 .task-center-track span.failed {
-  background: #dc2626;
+  background: var(--m-sys-color-error);
 }
 .task-center-progress-line > strong {
   width: 2.8rem;
-  color: #293244;
-  font-size: 0.72rem;
+  color: var(--m-sys-color-on-surface);
+  font-size: var(--m-sys-typescale-label-large-size);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -496,8 +565,8 @@ onBeforeUnmount(() => {
 .task-center-targets {
   display: grid;
   gap: 0.35rem;
-  border-left: 2px solid #e1e6f0;
-  padding-left: 0.75rem;
+  border-left: 3px solid var(--m-sys-color-secondary-container);
+  padding: 0.5rem 0 0.5rem 0.75rem;
 }
 .task-center-target {
   justify-content: flex-start;
@@ -506,42 +575,51 @@ onBeforeUnmount(() => {
 .task-center-report {
   align-items: flex-start;
   flex-wrap: wrap;
-  border: 1px solid #e5e8ef;
-  border-radius: 0.45rem;
+  border: 1px solid var(--m-sys-color-outline-variant);
+  border-radius: var(--m-sys-shape-corner-medium);
+  background: var(--m-sys-color-surface-container-low);
   padding: 0.55rem 0.65rem;
 }
 .task-center-report summary {
   cursor: pointer;
-  color: #394150;
+  color: var(--m-sys-color-on-surface);
+  font-weight: 650;
 }
 .translation-target-error,
 .translation-task-error {
-  color: #b91c1c;
-  font-size: 0.7rem;
+  color: var(--m-sys-color-error);
+  font-size: var(--m-sys-typescale-label-medium-size);
+}
+.translation-error-detail {
+  border-radius: var(--m-sys-shape-corner-small);
+  background: var(--m-sys-color-error-container);
+  color: var(--m-sys-color-on-error-container);
+  font-size: var(--m-sys-typescale-label-medium-size);
+  line-height: var(--m-sys-typescale-label-medium-line-height);
+  padding: 0.35rem 0.5rem;
 }
 .task-center-warning {
-  color: #8a5b08;
-  font-size: 0.72rem;
+  border-radius: var(--m-sys-shape-corner-small);
+  background: var(--m-sys-color-warning-container);
+  color: var(--m-sys-color-on-warning-container);
+  font-size: var(--m-sys-typescale-label-medium-size);
+  font-weight: 600;
+  padding: 0.5rem 0.65rem;
 }
 .task-center-action {
   justify-self: start;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #4338ca;
-  padding: 0.4rem 0.7rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-decoration: none;
-}
-.task-center-action:hover {
-  background: #e0e7ff;
 }
 @media (max-width: 720px) {
   .task-center-filter-bar {
     align-items: stretch;
+    flex-direction: column;
   }
-  .task-center-guidance {
-    margin-right: 0;
+  .task-center-filter-controls {
+    justify-content: stretch;
+  }
+  .task-center-filter-controls > :deep(.m-select),
+  .task-center-filter-controls > :deep(.m-button) {
+    flex: 1 1 9rem;
   }
   .task-center-heading {
     align-items: flex-start;

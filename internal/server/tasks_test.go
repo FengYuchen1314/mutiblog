@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -166,6 +167,32 @@ func TestAdminTaskAggregationIncludesEverySupportedKindAndRejectsUnknownHeaders(
 	}
 	if _, err := app.listAdminTasks(); err == nil {
 		t.Fatal("aggregate task list accepted an unknown shared task header")
+	}
+}
+
+func TestAdminTaskFromLocaleProvisionProjectsSafeFailureDetails(t *testing.T) {
+	projected := adminTaskFromLocaleProvision(localization.Task{
+		SchemaVersion: domain.SchemaVersion,
+		ID:            "locale-provision-20260812T010203.000000000Z-aabbccdd",
+		Kind:          "LocaleProvision",
+		Operation:     "localize-site",
+		Status:        "failed",
+		Progress:      taskstore.Progress{Phase: "localizing-site", Current: 1, Total: 3, Percent: 5},
+		CreatedAt:     time.Now().UTC(),
+		Error:         "provider-request-failed",
+		ErrorDetail:   "HTTP 429",
+		Targets: []localization.TargetTask{{
+			Locale: "ja", Status: "failed", Attempts: 1,
+			Progress: taskstore.Progress{Phase: "localizing-site", Current: 0, Total: 1, Percent: 5},
+			Error:    "provider-request-failed", ErrorDetail: "HTTP 429",
+		}},
+	})
+	if projected.ErrorDetail != "HTTP 429" || len(projected.Targets) != 1 || projected.Targets[0].ErrorDetail != "HTTP 429" {
+		t.Fatalf("locale provisioning diagnostics = %#v", projected)
+	}
+	payload, err := json.Marshal(projected)
+	if err != nil || !bytes.Contains(payload, []byte(`"errorDetail":"HTTP 429"`)) {
+		t.Fatalf("locale provisioning diagnostics JSON = %s, %v", payload, err)
 	}
 }
 

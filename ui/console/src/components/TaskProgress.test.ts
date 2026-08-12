@@ -49,7 +49,7 @@ describe("TaskProgress", () => {
   beforeEach(() => taskMock.mockReset());
 
   test("shows a durable locale-provision failure and emits its build child metadata", async () => {
-    const durableTask = task();
+    const durableTask = task({ errorDetail: "HTTP 429" });
     taskMock.mockResolvedValue(durableTask);
 
     const wrapper = mountProgress(durableTask.id);
@@ -57,6 +57,7 @@ describe("TaskProgress", () => {
 
     expect(wrapper.text()).toContain("Failed");
     expect(wrapper.text()).toContain("Whole-site localization failed.");
+    expect(wrapper.text()).toContain("HTTP 429");
     expect(wrapper.emitted("update")).toEqual([[durableTask]]);
     expect(wrapper.emitted("terminal")).toEqual([[durableTask]]);
     wrapper.unmount();

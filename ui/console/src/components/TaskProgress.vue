@@ -41,6 +41,7 @@ const statusLabel = computed(() => (task.value ? codeLabel(task.value.status) : 
 const taskFailure = computed(() =>
   task.value?.error ? taskErrorLabel(task.value.error, "taskCenter.taskFailed") : "",
 );
+const taskFailureDetail = computed(() => task.value?.errorDetail ?? "");
 const progressValueText = computed(() => `${label.value} ${percent.value}%`);
 
 function stopPolling() {
@@ -158,6 +159,7 @@ onBeforeUnmount(() => {
     </div>
     <p v-for="warning in warnings" :key="warning" class="task-progress__warning">{{ warning }}</p>
     <p v-if="taskFailure" class="task-progress__error">{{ taskFailure }}</p>
+    <p v-if="taskFailureDetail" class="task-progress__error-detail">{{ taskFailureDetail }}</p>
     <p v-if="error" class="task-progress__error">{{ error }}</p>
     <p v-if="terminal && (taskFailure || warnings.length)" class="task-progress__live" aria-live="polite">
       {{ taskFailure || warnings[0] }}
@@ -169,9 +171,10 @@ onBeforeUnmount(() => {
 .task-progress {
   display: grid;
   gap: 0.45rem;
-  border: 1px solid #e3e7ef;
-  border-radius: 0.55rem;
-  background: #fff;
+  border: 1px solid var(--m-sys-color-outline-variant);
+  border-radius: var(--m-sys-shape-corner-medium);
+  background: var(--m-sys-color-surface-container-lowest);
+  box-shadow: var(--m-sys-elevation-level0);
   padding: 0.75rem;
 }
 .task-progress__header,
@@ -187,48 +190,69 @@ onBeforeUnmount(() => {
   gap: 0.45rem;
 }
 .task-progress__header {
-  color: #394150;
-  font-size: 0.76rem;
+  color: var(--m-sys-color-on-surface);
+  font-size: var(--m-sys-typescale-label-large-size);
+  font-weight: 600;
   text-transform: capitalize;
 }
 .task-progress__header strong {
-  color: #111827;
+  color: var(--m-sys-color-on-surface);
   font-variant-numeric: tabular-nums;
 }
 .task-progress__status {
-  color: #687386;
-  font-size: 0.68rem;
+  color: var(--m-sys-color-on-surface-variant);
+  font-size: var(--m-sys-typescale-label-medium-size);
   text-transform: none;
 }
 .task-progress__track {
   overflow: hidden;
   height: 0.5rem;
-  border-radius: 999px;
-  background: #edf0f5;
+  border-radius: var(--m-sys-shape-corner-full);
+  background: var(--m-sys-color-surface-container-highest);
 }
 .task-progress__track span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #4f46e5;
-  transition: width 0.55s ease;
+  background: var(--m-sys-color-primary);
+  transition: width var(--m-sys-motion-duration-medium2) var(--m-sys-motion-easing-emphasized);
 }
 .task-progress--failed .task-progress__track span {
-  background: #dc2626;
+  background: var(--m-sys-color-error);
+}
+.task-progress--failed {
+  border-color: color-mix(in srgb, var(--m-sys-color-error) 55%, var(--m-sys-color-outline-variant));
+  background: color-mix(in srgb, var(--m-sys-color-error-container) 32%, var(--m-sys-color-surface-container-lowest));
 }
 .task-progress__meta {
-  color: #818a9a;
-  font-size: 0.68rem;
+  color: var(--m-sys-color-on-surface-variant);
+  font-size: var(--m-sys-typescale-label-medium-size);
 }
 .task-progress__warning {
   margin: 0;
-  color: #8a5b08;
-  font-size: 0.7rem;
+  border-radius: var(--m-sys-shape-corner-small);
+  background: var(--m-sys-color-warning-container);
+  color: var(--m-sys-color-on-warning-container);
+  font-size: var(--m-sys-typescale-label-medium-size);
+  padding: 0.45rem 0.6rem;
 }
 .task-progress__error {
   margin: 0;
-  color: #b91c1c;
-  font-size: 0.7rem;
+  border-radius: var(--m-sys-shape-corner-small);
+  background: var(--m-sys-color-error-container);
+  color: var(--m-sys-color-on-error-container);
+  font-size: var(--m-sys-typescale-label-medium-size);
+  padding: 0.45rem 0.6rem;
+}
+.task-progress__error-detail {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--m-sys-color-error) 32%, var(--m-sys-color-outline-variant));
+  border-radius: var(--m-sys-shape-corner-small);
+  background: var(--m-sys-color-surface-container-lowest);
+  color: var(--m-sys-color-on-error-container);
+  font-size: var(--m-sys-typescale-label-medium-size);
+  line-height: var(--m-sys-typescale-label-medium-line-height);
+  padding: 0.45rem 0.6rem;
 }
 .task-progress__live {
   position: absolute;

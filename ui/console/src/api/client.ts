@@ -390,6 +390,7 @@ export interface TaskTarget {
   attempts?: number;
   expectedRevision?: number;
   error?: string;
+  errorDetail?: string;
   startedAt?: string;
   completedAt?: string;
 }
@@ -407,6 +408,7 @@ export interface UnifiedTask {
   startedAt?: string;
   completedAt?: string;
   error?: string;
+  errorDetail?: string;
   providerId?: string;
   model?: string;
   backupId?: string;
