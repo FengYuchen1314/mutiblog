@@ -423,7 +423,7 @@ func (s *TaskService) run(taskID string, runGeneration uint64) {
 		now := time.Now().UTC()
 		task.Status = "running"
 		task.StartedAt = &now
-		task.Progress = taskstore.Advance(task.Progress, "preparing-site-localization", 0, taskTotal(task), 1, "preparing-site-localization")
+		task.Progress = taskstore.Advance(task.Progress, "preparing-site-localization", 0, taskTotal(&task), 1, "preparing-site-localization")
 		if !s.checkpoint(&task, "start") {
 			return
 		}
@@ -460,7 +460,7 @@ func (s *TaskService) run(taskID string, runGeneration uint64) {
 		target.StartedAt = &now
 		target.Error = ""
 		target.Progress = taskstore.Advance(target.Progress, "localizing-site", 0, 1, 5, "localizing-site")
-		task.Progress = taskstore.Advance(task.Progress, "localizing-site", completedTargetCount(task.Targets), taskTotal(task), task.Progress.Percent, "localizing-site")
+		task.Progress = taskstore.Advance(task.Progress, "localizing-site", completedTargetCount(task.Targets), taskTotal(&task), task.Progress.Percent, "localizing-site")
 		if !s.checkpoint(&task, "target-start") {
 			return
 		}
@@ -515,7 +515,7 @@ func (s *TaskService) run(taskID string, runGeneration uint64) {
 		target.CompletedAt = &completed
 		target.Error = ""
 		target.Progress = taskstore.Complete(target.Progress, localeProvisionTargetComplete)
-		task.Progress = taskstore.Advance(task.Progress, "localizing-site", completedTargetCount(task.Targets), taskTotal(task), task.Progress.Percent, "localizing-site")
+		task.Progress = taskstore.Advance(task.Progress, "localizing-site", completedTargetCount(task.Targets), taskTotal(&task), task.Progress.Percent, "localizing-site")
 		if !s.checkpoint(&task, "target-succeeded") {
 			return
 		}
@@ -544,7 +544,7 @@ func (s *TaskService) run(taskID string, runGeneration uint64) {
 	}
 	task.BuildTaskID = buildTaskID
 	task.BuildStatus = "queued"
-	task.Progress = taskstore.Advance(task.Progress, "starting-localization-build", completedTargetCount(task.Targets), taskTotal(task), 70, "starting-localization-build")
+	task.Progress = taskstore.Advance(task.Progress, "starting-localization-build", completedTargetCount(task.Targets), taskTotal(&task), 70, "starting-localization-build")
 	if !s.checkpoint(&task, "build-receipt") {
 		return
 	}
