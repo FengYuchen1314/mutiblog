@@ -27,6 +27,10 @@ vi.mock("@halo-dev/components", () => ({
   VTag: { template: "<span><slot /></span>" },
 }));
 
+vi.mock("vue-router", () => ({
+  useRoute: () => ({ query: {} }),
+}));
+
 const tasksMock = vi.mocked(api.tasks);
 
 function task(id: string, overrides: Partial<UnifiedTask> = {}): UnifiedTask {
