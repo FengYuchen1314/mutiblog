@@ -2,7 +2,6 @@
 import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { VButton } from "@halo-dev/components";
 import { ApiError, api, createStaticBuildTaskId } from "@/api/client";
 import { markSetupComplete } from "@/router";
 import { useSessionStore } from "@/stores/session";
@@ -105,9 +104,9 @@ async function submit() {
           <small v-if="fields.password" class="field-error">{{ fields.password }}</small>
         </label>
         <div v-if="error" class="form-alert field--wide">{{ error }}</div>
-        <VButton class="field--wide" type="secondary" block :loading="submitting" @click="submit">
+        <MButton class="field--wide" variant="tonal" block :loading="submitting" @click="submit">
           {{ t("setupPage.submit") }}
-        </VButton>
+        </MButton>
       </form>
     </div>
   </div>

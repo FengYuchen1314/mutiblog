@@ -2,7 +2,6 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { VButton, VPageHeader } from "@halo-dev/components";
 import {
   api,
   ApiError,
@@ -516,7 +515,7 @@ function localeIsEditable(locale: string) {
 
 <template>
   <div class="editor-page">
-    <VPageHeader
+    <MPageHeader
       :title="
         post
           ? form.title || t('editorPage.untitled', { entity: entityLabel() })
@@ -525,13 +524,13 @@ function localeIsEditable(locale: string) {
     >
       <template #actions>
         <span class="save-state">{{ saveState }}</span>
-        <VButton :disabled="!post" @click="toggleRevisions">{{ t("editorPage.revisions") }}</VButton
-        ><VButton @click="preview">{{ t("editorPage.preview") }}</VButton
-        ><VButton :disabled="!sourceEditable" :loading="saving" @click="save()">{{ t("editorPage.save") }}</VButton
-        ><VButton @click="toggleSettings">{{ t("editorPage.settings") }}</VButton>
-        <VButton type="secondary" :loading="publishing" @click="publish">{{ t("editorPage.publish") }}</VButton>
+        <MButton :disabled="!post" @click="toggleRevisions">{{ t("editorPage.revisions") }}</MButton
+        ><MButton @click="preview">{{ t("editorPage.preview") }}</MButton
+        ><MButton :disabled="!sourceEditable" :loading="saving" @click="save()">{{ t("editorPage.save") }}</MButton
+        ><MButton @click="toggleSettings">{{ t("editorPage.settings") }}</MButton>
+        <MButton variant="tonal" :loading="publishing" @click="publish">{{ t("editorPage.publish") }}</MButton>
       </template>
-    </VPageHeader>
+    </MPageHeader>
     <p class="editor-translation-policy">{{ t("editorPage.translationPolicy") }}</p>
     <div class="editor-header">
       <div class="editor-fields">
@@ -606,10 +605,10 @@ function localeIsEditable(locale: string) {
               ><template v-if="revision.isRelease"> · {{ t("revisionPointers.release") }}</template></span
             >
           </div>
-          <VButton size="sm" @click="compareRevision(revision)">{{ t("revisionCompare.compare") }}</VButton
-          ><VButton size="sm" :disabled="!sourceEditable" @click="restoreRevision(revision)">{{
+          <MButton size="sm" @click="compareRevision(revision)">{{ t("revisionCompare.compare") }}</MButton
+          ><MButton size="sm" :disabled="!sourceEditable" @click="restoreRevision(revision)">{{
             t("editorPage.restoreRevision")
-          }}</VButton>
+          }}</MButton>
         </article>
         <section v-if="revisionComparison" class="revision-comparison">
           <header>
@@ -800,10 +799,10 @@ function localeIsEditable(locale: string) {
             <div v-if="error" class="form-alert">{{ error }}</div>
           </div>
           <footer class="content-settings-footer">
-            <VButton type="secondary" :loading="settingsSaving" @click="saveSettings">{{
+            <MButton variant="tonal" :loading="settingsSaving" @click="saveSettings">{{
               t("editorPage.saveSettings")
-            }}</VButton>
-            <VButton @click="settingsOpen = false">{{ t("common.dismiss") }}</VButton>
+            }}</MButton>
+            <MButton @click="settingsOpen = false">{{ t("common.dismiss") }}</MButton>
           </footer>
         </section>
       </div>

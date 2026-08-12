@@ -1,0 +1,42 @@
+/* Shared, low-specificity foundations for the self-owned Material UI layer. */
+:where(html) {
+  background: var(--m-sys-color-background);
+  font-family: var(--m-sys-font-family-plain);
+  color: var(--m-sys-color-on-background);
+  text-size-adjust: 100%;
+}
+
+:where(body) {
+  min-width: 20rem;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--m-sys-color-background);
+  color: var(--m-sys-color-on-background);
+}
+
+:where(*, *::before, *::after) {
+  box-sizing: border-box;
+}
+
+:where(button, input, select, textarea) {
+  font: inherit;
+}
+
+:where(button, [role="button"], a, input, select, textarea, summary):focus-visible {
+  outline: 3px solid var(--m-sys-color-primary);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: var(--m-sys-color-primary-container);
+  color: var(--m-sys-color-on-primary-container);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(*, *::before, *::after) {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

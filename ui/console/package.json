@@ -13,7 +13,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@halo-dev/components": "2.25.0",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.8",

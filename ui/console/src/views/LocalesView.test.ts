@@ -18,17 +18,6 @@ vi.mock("@/api/client", () => ({
   },
 }));
 
-vi.mock("@halo-dev/components", () => ({
-  VButton: {
-    props: ["loading"],
-    emits: ["click"],
-    template: '<button :disabled="loading" @click="$emit(\'click\')"><slot /></button>',
-  },
-  VCard: { template: "<section><slot /></section>" },
-  VPageHeader: { template: '<header><slot /><slot name="actions" /></header>' },
-  VTag: { template: "<span><slot /></span>" },
-}));
-
 vi.mock("@/components/TaskProgress.vue", () => ({
   default: {
     name: "TaskProgress",
@@ -74,6 +63,14 @@ function mountView() {
     global: {
       plugins: [pinia, i18n],
       stubs: {
+        MButton: {
+          props: ["loading"],
+          emits: ["click"],
+          template: '<button :disabled="loading" @click="$emit(\'click\')"><slot /></button>',
+        },
+        MSurface: { template: "<section><slot /></section>" },
+        MPageHeader: { template: '<header><slot /><slot name="actions" /></header>' },
+        MChip: { template: "<span><slot /></span>" },
         RouterLink: { props: ["to"], template: "<a><slot /></a>" },
       },
     },

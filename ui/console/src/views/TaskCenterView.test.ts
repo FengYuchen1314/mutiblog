@@ -20,13 +20,6 @@ vi.mock("@/api/client", () => {
   return { ApiError: MockApiError, api: { tasks: vi.fn() } };
 });
 
-vi.mock("@halo-dev/components", () => ({
-  VCard: { template: "<section><slot /></section>" },
-  VEmpty: { props: ["title"], template: "<p>{{ title }}</p>" },
-  VPageHeader: { template: "<header><slot /><slot name='actions' /></header>" },
-  VTag: { template: "<span><slot /></span>" },
-}));
-
 vi.mock("vue-router", () => ({
   useRoute: () => ({ query: {} }),
 }));
@@ -52,6 +45,10 @@ function mountView() {
     global: {
       plugins: [i18n],
       stubs: {
+        MSurface: { template: "<section><slot /></section>" },
+        MEmptyState: { props: ["title"], template: "<p>{{ title }}</p>" },
+        MPageHeader: { template: "<header><slot /><slot name='actions' /></header>" },
+        MChip: { template: "<span><slot /></span>" },
         RouterLink: { props: ["to"], template: "<a><slot /></a>" },
       },
     },

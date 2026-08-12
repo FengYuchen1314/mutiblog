@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import type { RouteLocationRaw } from "vue-router";
 import { useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
 import { ApiError, api, type TaskRelationRole, type TaskStatus, type UnifiedTask } from "@/api/client";
 import { buildTaskTree, type TaskTreeNode } from "@/composables/taskTree";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
@@ -110,11 +109,11 @@ function relationLabel(role?: TaskRelationRole) {
   return t(`taskCenter.relationships.${role}`);
 }
 
-function taskTagTheme(status: string): "default" | "primary" | "secondary" | "danger" {
-  if (status === "succeeded") return "primary";
+function taskChipTone(status: string): "neutral" | "success" | "warning" | "danger" {
+  if (status === "succeeded") return "success";
   if (status === "failed" || status === "needs-review") return "danger";
-  if (status === "queued" || status === "running") return "secondary";
-  return "default";
+  if (status === "queued" || status === "running") return "warning";
+  return "neutral";
 }
 
 function formatTime(value?: string) {
@@ -198,10 +197,10 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('taskCenter.title')" />
+    <MPageHeader :title="t('taskCenter.title')" />
     <div class="page-body">
       <div v-if="error" class="form-alert">{{ error }}</div>
-      <VCard>
+      <MSurface>
         <div class="filter-bar task-center-filter-bar">
           <span class="task-center-guidance">{{ t("taskCenter.guidance") }}</span>
           <label class="task-center-sr-only" for="task-kind-filter">{{ t("taskCenter.typeFilter") }}</label>
@@ -272,13 +271,13 @@ onBeforeUnmount(() => {
                 <code>{{ row.node.task.id }}</code>
               </div>
               <div class="task-center-status">
-                <VTag :theme="taskTagTheme(row.node.task.status)">{{ codeLabel(row.node.task.status) }}</VTag>
-                <VTag
+                <MChip :tone="taskChipTone(row.node.task.status)">{{ codeLabel(row.node.task.status) }}</MChip>
+                <MChip
                   v-if="outcomeLabel(row.node.task)"
-                  :theme="row.node.task.outcome === 'published-with-warning' ? 'secondary' : 'primary'"
+                  :tone="row.node.task.outcome === 'published-with-warning' ? 'warning' : 'success'"
                 >
                   {{ outcomeLabel(row.node.task) }}
-                </VTag>
+                </MChip>
                 <time>{{
                   formatTime(row.node.task.completedAt ?? row.node.task.startedAt ?? row.node.task.createdAt)
                 }}</time>
@@ -318,7 +317,7 @@ onBeforeUnmount(() => {
               :aria-label="t('taskCenter.targetResults')"
             >
               <div v-for="target in row.node.task.targets" :key="target.locale" class="task-center-target">
-                <VTag :theme="taskTagTheme(target.status)">{{ target.locale }} · {{ codeLabel(target.status) }}</VTag>
+                <MChip :tone="taskChipTone(target.status)">{{ target.locale }} · {{ codeLabel(target.status) }}</MChip>
                 <span>{{ progressPercent(target.progress?.percent) }}%</span>
                 <span v-if="target.attempts">{{ t("taskCenter.attempts", { count: target.attempts }) }}</span>
                 <time v-if="target.completedAt">{{ formatTime(target.completedAt) }}</time>
@@ -349,8 +348,8 @@ onBeforeUnmount(() => {
             </RouterLink>
           </article>
         </div>
-        <div v-else class="empty-resource"><VEmpty :title="t('taskCenter.empty')" /></div>
-      </VCard>
+        <div v-else class="empty-resource"><MEmptyState :title="t('taskCenter.empty')" /></div>
+      </MSurface>
     </div>
   </div>
 </template>
@@ -361,12 +360,12 @@ onBeforeUnmount(() => {
 }
 .task-center-guidance {
   margin-right: auto;
-  color: #687386;
+  color: var(--m-sys-color-on-surface-variant);
   font-size: 0.74rem;
 }
 .task-center-summary {
   margin: 0.25rem 1rem 0.75rem;
-  color: #687386;
+  color: var(--m-sys-color-on-surface-variant);
   font-size: 0.72rem;
 }
 .task-center-sr-only {

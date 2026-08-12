@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
 import { api, type AIProvider, type AIProviderInput, type AIProviderKind } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 import {
@@ -160,13 +159,13 @@ onMounted(load);
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('providersPage.title')"
+    <MPageHeader :title="t('providersPage.title')"
       ><template #actions
-        ><VButton type="secondary" @click="resetForm">{{ t("providersPage.new") }}</VButton></template
-      ></VPageHeader
+        ><MButton variant="tonal" @click="resetForm">{{ t("providersPage.new") }}</MButton></template
+      ></MPageHeader
     >
     <div class="page-body provider-layout">
-      <VCard class="provider-list-card">
+      <MSurface class="provider-list-card">
         <div class="settings-section-title">
           <div>
             <strong>{{ t("providersPage.provider") }}</strong
@@ -185,13 +184,13 @@ onMounted(load);
               <strong>{{ provider.name }}</strong
               ><span>{{ t(`providersPage.kinds.${provider.kind}`) }} · {{ provider.model }}</span>
             </div>
-            <VTag v-if="provider.default">{{ t("providersPage.default") }}</VTag
-            ><VTag v-if="provider.kind === 'openai-compatible' && provider.hasKey">{{ provider.maskedKey }}</VTag>
+            <MChip v-if="provider.default">{{ t("providersPage.default") }}</MChip
+            ><MChip v-if="provider.kind === 'openai-compatible' && provider.hasKey">{{ provider.maskedKey }}</MChip>
           </button>
         </div>
-        <div v-else class="provider-empty"><VEmpty :title="t('providersPage.empty')" /></div>
-      </VCard>
-      <VCard>
+        <div v-else class="provider-empty"><MEmptyState :title="t('providersPage.empty')" /></div>
+      </MSurface>
+      <MSurface>
         <div class="settings-section-title">
           <div>
             <strong>{{ selected ? t("providersPage.edit") : t("providersPage.new") }}</strong
@@ -251,7 +250,7 @@ onMounted(load);
             ><input v-model="form.enabled" type="checkbox" />{{ t("providersPage.enabled") }}</label
           >
           <div v-if="selectedProvider?.default" class="provider-check field--wide">
-            <VTag>{{ t("providersPage.default") }}</VTag
+            <MChip>{{ t("providersPage.default") }}</MChip
             ><span>{{ t("providersPage.defaultLocked") }}</span>
           </div>
           <label v-if="selected && usesAPIKey" class="provider-check text-danger"
@@ -259,25 +258,25 @@ onMounted(load);
           >
         </div>
         <div class="provider-actions">
-          <VButton :disabled="Boolean(promoting)" :loading="saving" @click="save">{{
+          <MButton :disabled="Boolean(promoting)" :loading="saving" @click="save">{{
             t("providersPage.save")
-          }}</VButton>
-          <VButton
+          }}</MButton>
+          <MButton
             v-if="selectedProvider && !selectedProvider.default"
-            type="secondary"
+            variant="tonal"
             :disabled="saving"
             :loading="promoting === selectedProvider.id"
             @click="promoteDefault"
-            >{{ t("providersPage.setDefault") }}</VButton
+            >{{ t("providersPage.setDefault") }}</MButton
           >
-          <VButton :disabled="!selected" :loading="testing" @click="testConnection">{{
+          <MButton :disabled="!selected" :loading="testing" @click="testConnection">{{
             t("providersPage.test")
-          }}</VButton>
+          }}</MButton>
           <button v-if="selected" class="text-danger" type="button" @click="remove">
             {{ t("providersPage.delete") }}
           </button>
         </div>
-      </VCard>
+      </MSurface>
     </div>
   </div>
 </template>

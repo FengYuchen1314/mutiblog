@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { Icon } from "@iconify/vue";
-import { VButton, VCard, VEmpty, VPageHeader, VStatusDot, VTag } from "@halo-dev/components";
 import { api, type Post, type UnifiedTask } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 import { useCodeLabel } from "@/i18n/useCodeLabel";
@@ -267,16 +266,16 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('navigation.pages')"
+    <MPageHeader :title="t('navigation.pages')"
       ><template #actions
-        ><VButton @click="toggleRecycleMode">{{
+        ><MButton @click="toggleRecycleMode">{{
           recycleMode ? t("contentList.returnPages") : t("common.recycleBin")
-        }}</VButton
-        ><VButton type="secondary" route="/pages/editor">{{ t("common.new") }}</VButton></template
-      ></VPageHeader
+        }}</MButton
+        ><MButton variant="tonal" to="/pages/editor">{{ t("common.new") }}</MButton></template
+      ></MPageHeader
     >
     <div class="page-body">
-      <VCard>
+      <MSurface>
         <div class="filter-bar">
           <input v-model="query" :placeholder="t('contentList.keyword')" /><select
             v-if="!recycleMode"
@@ -342,16 +341,16 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
                 <strong>{{ sourceTitle(page) }}</strong
                 ><span>{{ page.meta.id }}</span>
                 <div class="post-row-tags">
-                  <VTag v-if="page.meta.hasUnpublishedChanges">{{ t("contentList.unpublishedChanges") }}</VTag
-                  ><VTag v-for="(locale, code) in page.meta.locales" :key="code"
-                    >{{ code }} · {{ codeLabel(locale.state) }}</VTag
+                  <MChip v-if="page.meta.hasUnpublishedChanges">{{ t("contentList.unpublishedChanges") }}</MChip
+                  ><MChip v-for="(locale, code) in page.meta.locales" :key="code"
+                    >{{ code }} · {{ codeLabel(locale.state) }}</MChip
                   >
                 </div>
               </div></RouterLink
             >
             <div class="post-row-meta">
               <span
-                ><VStatusDot :state="page.meta.status === 'published' ? 'success' : 'default'" />
+                ><MStatus :tone="page.meta.status === 'published' ? 'success' : 'neutral'" />
                 {{ codeLabel(page.meta.status) }}</span
               ><time>{{ new Date(page.meta.updatedAt).toLocaleString() }}</time>
             </div>
@@ -368,7 +367,7 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
             </div>
           </article>
         </div>
-        <div v-else class="empty-resource"><VEmpty :title="t('contentList.noPages')" /></div>
+        <div v-else class="empty-resource"><MEmptyState :title="t('contentList.noPages')" /></div>
         <nav v-if="visiblePages.length" class="pagination-bar" :aria-label="t('contentList.pagination')">
           <button :disabled="currentPage <= 1" @click="page = currentPage - 1">{{ t("contentList.previous") }}</button
           ><span>{{
@@ -378,7 +377,7 @@ async function bulkAction(action: "publish" | "unpublish" | "recycle" | "restore
             {{ t("contentList.next") }}
           </button>
         </nav>
-      </VCard>
+      </MSurface>
     </div>
   </div>
 </template>

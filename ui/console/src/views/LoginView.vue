@@ -2,7 +2,6 @@
 import { reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
-import { VButton } from "@halo-dev/components";
 import { ApiError } from "@/api/client";
 import { useSessionStore } from "@/stores/session";
 
@@ -50,7 +49,7 @@ async function submit() {
           ><input v-model="form.password" type="password" autocomplete="current-password"
         /></label>
         <div v-if="error" class="form-alert">{{ error }}</div>
-        <VButton type="secondary" block :loading="submitting" @click="submit">{{ t("login.submit") }}</VButton>
+        <MButton variant="tonal" block :loading="submitting" @click="submit">{{ t("login.submit") }}</MButton>
       </form>
     </div>
   </div>

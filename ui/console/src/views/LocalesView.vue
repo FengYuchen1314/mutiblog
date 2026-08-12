@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VPageHeader, VTag } from "@halo-dev/components";
 import { api, type LocalesConfig, type UnifiedTask } from "@/api/client";
 import TaskProgress from "@/components/TaskProgress.vue";
 import { useBuildTasks } from "@/composables/useBuildTasks";
@@ -126,17 +125,17 @@ onMounted(load);
 
 <template>
   <div class="page">
-    <VPageHeader :title="t('localesPage.title')">
+    <MPageHeader :title="t('localesPage.title')">
       <template #actions>
-        <VButton type="secondary" :loading="saving" @click="save">
+        <MButton variant="tonal" :loading="saving" @click="save">
           {{ t("localesPage.saveAndTranslate") }}
-        </VButton>
+        </MButton>
       </template>
-    </VPageHeader>
+    </MPageHeader>
     <div class="page-body settings-stack">
       <div v-if="message" class="form-success">{{ message }}</div>
       <div v-if="error" class="form-alert">{{ error }}</div>
-      <VCard>
+      <MSurface>
         <div class="settings-section-title">
           <div>
             <strong>{{ t("localesPage.siteLanguages") }}</strong
@@ -153,14 +152,14 @@ onMounted(load);
               <strong>{{ entry.label }}</strong
               ><span>{{ entry.code }}</span>
             </div>
-            <VTag v-if="entry.code === SOURCE_LOCALE">{{ t("localesPage.source") }}</VTag>
-            <VTag v-else>{{ t("localesPage.target") }}</VTag>
-            <VTag>{{
+            <MChip v-if="entry.code === SOURCE_LOCALE">{{ t("localesPage.source") }}</MChip>
+            <MChip v-else>{{ t("localesPage.target") }}</MChip>
+            <MChip>{{
               t(persistedLocaleCodes.has(entry.code) ? "localesPage.permanent" : "localesPage.pendingSave")
-            }}</VTag>
-            <VTag v-if="persistedLocaleCodes.has(entry.code)">
+            }}</MChip>
+            <MChip v-if="persistedLocaleCodes.has(entry.code)">
               {{ t("localesPage.status." + (entry.status ?? "legacy")) }}
-            </VTag>
+            </MChip>
           </article>
         </div>
         <TaskProgress
@@ -176,8 +175,8 @@ onMounted(load);
         >
           {{ t("localesPage.viewTaskCenter") }}
         </RouterLink>
-      </VCard>
-      <VCard>
+      </MSurface>
+      <MSurface>
         <div class="settings-section-title">
           <div>
             <strong>{{ t("localesPage.addTarget") }}</strong
@@ -198,17 +197,17 @@ onMounted(load);
             ><span>{{ t("localesPage.displayName") }}</span
             ><input v-model="label" placeholder="Japanese"
           /></label>
-          <VButton @click="addLocale">{{ t("localesPage.add") }}</VButton>
+          <MButton @click="addLocale">{{ t("localesPage.add") }}</MButton>
         </div>
-      </VCard>
-      <VCard>
+      </MSurface>
+      <MSurface>
         <div class="settings-section-title">
           <div>
             <strong>{{ t("localesPage.translationWorkflow") }}</strong
             ><span>{{ t("localesPage.translationWorkflowHelp") }}</span>
           </div>
         </div>
-      </VCard>
+      </MSurface>
     </div>
   </div>
 </template>

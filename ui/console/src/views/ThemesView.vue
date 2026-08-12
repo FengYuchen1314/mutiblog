@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { VButton, VCard, VEmpty, VPageHeader, VTag } from "@halo-dev/components";
 import { useRoute, useRouter } from "vue-router";
 import { api, type ThemeRecord, type ThemeSettings, type ThemeSettingsSchema } from "@/api/client";
 import TaskProgress from "@/components/TaskProgress.vue";
@@ -299,17 +298,17 @@ onMounted(load);
 
 <template>
   <div class="page">
-    <VPageHeader :title="t(managingThemes ? 'themesPage.themeManagement' : 'themesPage.currentTheme')">
+    <MPageHeader :title="t(managingThemes ? 'themesPage.themeManagement' : 'themesPage.currentTheme')">
       <template #actions>
         <input ref="picker" class="visually-hidden" type="file" accept=".zip,application/zip" @change="install" />
-        <VButton v-if="managingThemes" type="secondary" :loading="busy === 'install'" @click="picker?.click()">{{
+        <MButton v-if="managingThemes" variant="tonal" :loading="busy === 'install'" @click="picker?.click()">{{
           t("themesPage.install")
-        }}</VButton>
-        <VButton v-else type="secondary" @click="router.push({ name: 'themes' })">{{
+        }}</MButton>
+        <MButton v-else variant="tonal" @click="router.push({ name: 'themes' })">{{
           t("dashboard.manageThemes")
-        }}</VButton>
+        }}</MButton>
       </template>
-    </VPageHeader>
+    </MPageHeader>
     <div class="page-body">
       <div v-if="managingThemes" class="form-success theme-guidance">{{ t("themesPage.guidance") }}</div>
       <div v-if="error" class="form-alert theme-message">{{ error }}</div>
@@ -318,7 +317,7 @@ onMounted(load);
       <TaskProgress v-for="taskId in themeTaskIds" :key="taskId" :task-id="taskId" />
       <section v-if="!managingThemes && activeTheme" class="theme-section">
         <h2>{{ t("themesPage.currentTheme") }}</h2>
-        <VCard class="theme-card current-theme-card">
+        <MSurface class="theme-card" body-class="current-theme-card" padding="none">
           <div class="theme-preview">
             <img v-if="activeTheme.screenshotUrl" :src="activeTheme.screenshotUrl" :alt="activeTheme.name" /><span
               v-else
@@ -328,40 +327,40 @@ onMounted(load);
           <div class="theme-copy">
             <div class="theme-title">
               <strong>{{ activeTheme.name }}</strong
-              ><VTag>{{ t("themesPage.active") }}</VTag
-              ><VTag v-if="activeTheme.builtIn">{{ t("themesPage.builtIn") }}</VTag
-              ><VTag>{{ t(`codes.${activeTheme.status}`) }}</VTag>
+              ><MChip>{{ t("themesPage.active") }}</MChip
+              ><MChip v-if="activeTheme.builtIn">{{ t("themesPage.builtIn") }}</MChip
+              ><MChip>{{ t(`codes.${activeTheme.status}`) }}</MChip>
             </div>
             <span>{{ activeTheme.id }} · v{{ activeTheme.version }} · {{ activeTheme.engine }}</span>
             <p>{{ t("themesPage.currentThemeHelp") }}</p>
           </div>
           <div class="theme-actions">
-            <VButton
-              type="secondary"
+            <MButton
+              variant="tonal"
               size="sm"
               :loading="busy === `preview-${activeTheme.id}`"
               @click="preview(activeTheme)"
-              >{{ t("themePreview.open") }}</VButton
-            ><VButton
-              type="secondary"
+              >{{ t("themePreview.open") }}</MButton
+            ><MButton
+              variant="tonal"
               size="sm"
               :loading="busy === `settings-${activeTheme.id}`"
               @click="openSettings(activeTheme)"
-              >{{ t("themesPage.settings") }}</VButton
-            ><VButton
-              type="secondary"
+              >{{ t("themesPage.settings") }}</MButton
+            ><MButton
+              variant="tonal"
               size="sm"
               :loading="busy === `reload-${activeTheme.id}`"
               @click="reload(activeTheme)"
-              >{{ t("themesPage.reload") }}</VButton
+              >{{ t("themesPage.reload") }}</MButton
             >
           </div>
-        </VCard>
+        </MSurface>
       </section>
-      <VCard v-else-if="!managingThemes"><VEmpty :title="t('themesPage.empty')" /></VCard>
+      <MSurface v-else-if="!managingThemes"><MEmptyState :title="t('themesPage.empty')" /></MSurface>
       <section v-if="managingThemes" class="theme-section">
         <h2>{{ t("themesPage.themeManagement") }}</h2>
-        <VCard
+        <MSurface
           ><div class="filter-bar">
             <input v-model="remoteURL" type="url" :placeholder="t('themesPage.remoteUrlPlaceholder')" /><button
               type="button"
@@ -371,10 +370,10 @@ onMounted(load);
               {{ busy === "install-url" ? t("common.loading") : t("themesPage.installFromUrl") }}
             </button>
           </div>
-          <p class="theme-guidance">{{ t("themesPage.remoteUrlHelp") }}</p></VCard
+          <p class="theme-guidance">{{ t("themesPage.remoteUrlHelp") }}</p></MSurface
         >
         <div v-if="installedThemes.length" class="theme-grid theme-grid--managed">
-          <VCard v-for="theme in installedThemes" :key="theme.id" class="theme-card">
+          <MSurface v-for="theme in installedThemes" :key="theme.id" class="theme-card">
             <div class="theme-preview">
               <img v-if="theme.screenshotUrl" :src="theme.screenshotUrl" :alt="theme.name" loading="lazy" /><span
                 v-else
@@ -384,8 +383,8 @@ onMounted(load);
             <div class="theme-copy">
               <div class="theme-title">
                 <strong>{{ theme.name }}</strong
-                ><VTag v-if="theme.builtIn">{{ t("themesPage.builtIn") }}</VTag
-                ><VTag>{{ t(`codes.${theme.status}`) }}</VTag>
+                ><MChip v-if="theme.builtIn">{{ t("themesPage.builtIn") }}</MChip
+                ><MChip>{{ t(`codes.${theme.status}`) }}</MChip>
               </div>
               <span
                 >{{ theme.id }} · v{{ theme.version }} · {{ theme.engine
@@ -393,31 +392,31 @@ onMounted(load);
               >
             </div>
             <div class="theme-actions">
-              <VButton
-                type="secondary"
+              <MButton
+                variant="tonal"
                 size="sm"
                 :loading="busy === `settings-${theme.id}`"
                 @click="openSettings(theme)"
-                >{{ t("themesPage.settings") }}</VButton
+                >{{ t("themesPage.settings") }}</MButton
               >
-              <VButton type="secondary" size="sm" :loading="busy === `reload-${theme.id}`" @click="reload(theme)">{{
+              <MButton variant="tonal" size="sm" :loading="busy === `reload-${theme.id}`" @click="reload(theme)">{{
                 t("themesPage.reload")
-              }}</VButton>
-              <VButton
-                type="secondary"
+              }}</MButton>
+              <MButton
+                variant="tonal"
                 size="sm"
                 :loading="busy === `preview-${theme.id}`"
                 :disabled="theme.status !== 'ready'"
                 @click="preview(theme)"
-                >{{ t("themePreview.open") }}</VButton
+                >{{ t("themePreview.open") }}</MButton
               >
-              <VButton
-                type="secondary"
+              <MButton
+                variant="tonal"
                 size="sm"
                 :loading="busy === theme.id"
                 :disabled="theme.status !== 'ready'"
                 @click="activate(theme)"
-                >{{ t("themesPage.enable") }}</VButton
+                >{{ t("themesPage.enable") }}</MButton
               >
               <button v-if="!theme.builtIn" class="text-danger" :disabled="busy === theme.id" @click="uninstall(theme)">
                 {{ t("themesPage.uninstall") }}
@@ -431,11 +430,11 @@ onMounted(load);
                 {{ t("themesPage.uninstallSettings") }}
               </button>
             </div>
-          </VCard>
+          </MSurface>
         </div>
-        <VCard v-else><VEmpty :title="t('themesPage.noOtherThemes')" /></VCard>
+        <MSurface v-else><MEmptyState :title="t('themesPage.noOtherThemes')" /></MSurface>
       </section>
-      <VCard v-if="selectedSettings" class="theme-settings-card">
+      <MSurface v-if="selectedSettings" class="theme-settings-card">
         <div class="settings-section-title">
           <div>
             <strong>{{
@@ -469,15 +468,15 @@ onMounted(load);
           </section>
         </div>
         <div class="provider-actions">
-          <VButton :loading="busy === 'settings-save'" @click="saveSettings">{{ t("themesPage.saveSettings") }}</VButton
-          ><VButton type="secondary" @click="settingsPicker?.click()">{{ t("themesPage.importSettings") }}</VButton
-          ><VButton type="secondary" @click="exportSettings">{{ t("themesPage.exportSettings") }}</VButton
+          <MButton :loading="busy === 'settings-save'" @click="saveSettings">{{ t("themesPage.saveSettings") }}</MButton
+          ><MButton variant="tonal" @click="settingsPicker?.click()">{{ t("themesPage.importSettings") }}</MButton
+          ><MButton variant="tonal" @click="exportSettings">{{ t("themesPage.exportSettings") }}</MButton
           ><button class="text-danger" :disabled="busy === 'settings-reset'" @click="resetSettings">
             {{ t("themesPage.reset") }}
           </button>
         </div>
         <TaskProgress v-for="taskId in settingsTaskIds" :key="taskId" :task-id="taskId" />
-      </VCard>
+      </MSurface>
     </div>
   </div>
 </template>
