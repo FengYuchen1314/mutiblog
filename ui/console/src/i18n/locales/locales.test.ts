@@ -65,7 +65,7 @@ describe("console dictionaries", () => {
     expect(source).not.toContain("api.updateDictionary");
   });
 
-  test("presents durable whole-site localization and its final build child", async () => {
+  test("presents durable whole-site localization in the unified task tree", async () => {
     const taskCenter = await viewSource("TaskCenterView.vue");
     const progress = await sourceFile("components/TaskProgress.vue");
     const client = await sourceFile("api/client.ts");
@@ -74,8 +74,10 @@ describe("console dictionaries", () => {
     expect(client).toContain('localization: { status: "queued" | "idle"; taskId?: string }');
     expect(client).toContain('build: { status: "deferred" | "skipped" }');
     expect(taskCenter).toContain('<option value="LocaleProvision">');
-    expect(taskCenter).toContain('t("taskCenter.buildChild")');
-    expect(taskCenter).toContain('t("taskCenter.parentTask")');
+    expect(taskCenter).toContain("buildTaskTree(tasks.value)");
+    expect(taskCenter).toContain("taskCenter.expandTask");
+    expect(taskCenter).toContain("taskCenter.targetResults");
+    expect(taskCenter).toContain("taskCenter.openLocales");
     expect(progress).toContain("statusLabel");
     expect(progress).toContain("taskFailure");
   });

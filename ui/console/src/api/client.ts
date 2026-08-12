@@ -373,6 +373,13 @@ export interface TranslationTask {
 export type TaskKind =
   "Translation" | "StaticBuild" | "Backup" | "ScheduledPublish" | "IndexRebuild" | "LocaleProvision";
 
+export type TaskRelationRole = "parent" | "static-build" | "translation";
+
+export interface TaskRelation {
+  id: string;
+  role: TaskRelationRole;
+}
+
 // Tasks outside the per-content translation worker can still report progress
 // for each target locale. Keep the task-center shape intentionally small so
 // the durable task API is not coupled to translation-only receipt fields.
@@ -380,7 +387,11 @@ export interface TaskTarget {
   locale: string;
   status: string;
   progress?: TaskProgress;
+  attempts?: number;
+  expectedRevision?: number;
   error?: string;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export interface UnifiedTask {
@@ -406,6 +417,7 @@ export interface UnifiedTask {
   translationTaskId?: string;
   outcome?: string;
   targets?: TaskTarget[];
+  relations?: TaskRelation[];
   report?: StaticBuildReport;
 }
 
@@ -459,7 +471,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...init,
       headers,
     });
-  } catch {
+  } catch (caught) {
+    if (caught instanceof Error && caught.name === "AbortError") throw caught;
     throw new ApiError(0, "network_unavailable", String(i18n.global.t("apiErrors.network_unavailable")));
   }
   if (!response.ok) {
@@ -789,16 +802,17 @@ export const api = {
         headers: { "X-CSRF-Token": csrfToken },
       },
     ),
-  tasks: (query: { kind?: UnifiedTask["kind"]; status?: TaskStatus; limit?: number } = {}) => {
+  tasks: (query: { kind?: UnifiedTask["kind"]; status?: TaskStatus; limit?: number } = {}, signal?: AbortSignal) => {
     const parameters = new URLSearchParams();
     if (query.kind) parameters.set("kind", query.kind);
     if (query.status) parameters.set("status", query.status);
     if (query.limit) parameters.set("limit", String(query.limit));
     const serialized = parameters.toString();
     const suffix = serialized ? `?${serialized}` : "";
-    return request<{ items: UnifiedTask[]; total: number; active: number }>(`/api/v1/admin/tasks${suffix}`);
+    return request<{ items: UnifiedTask[]; total: number; active: number }>(`/api/v1/admin/tasks${suffix}`, { signal });
   },
-  task: (id: string) => request<UnifiedTask>(`/api/v1/admin/tasks/${encodeURIComponent(id)}`),
+  task: (id: string, signal?: AbortSignal) =>
+    request<UnifiedTask>(`/api/v1/admin/tasks/${encodeURIComponent(id)}`, { signal }),
   comments: (query: { status?: string; kind?: string; q?: string; page?: number; size?: number } = {}) => {
     const parameters = new URLSearchParams();
     for (const [key, value] of Object.entries(query))

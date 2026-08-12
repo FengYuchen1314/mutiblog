@@ -24,6 +24,9 @@ const missingTaskPollLimit = 30;
 const pollIntervalMilliseconds = 700;
 let missingTaskPolls = 0;
 let timer: number | undefined;
+let controller: AbortController | undefined;
+let requestSequence = 0;
+let disposed = false;
 
 const terminal = computed(() => task.value && !["queued", "running"].includes(task.value.status));
 const percent = computed(() => progressPercent(task.value?.progress.percent));
@@ -38,14 +41,31 @@ const statusLabel = computed(() => (task.value ? codeLabel(task.value.status) : 
 const taskFailure = computed(() =>
   task.value?.error ? taskErrorLabel(task.value.error, "taskCenter.taskFailed") : "",
 );
+const progressValueText = computed(() => `${label.value} ${percent.value}%`);
+
+function stopPolling() {
+  window.clearTimeout(timer);
+  controller?.abort();
+  controller = undefined;
+  requestSequence++;
+}
+
+function pollDelay() {
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return 5000;
+  return pollIntervalMilliseconds;
+}
 
 async function load() {
   window.clearTimeout(timer);
-  if (!props.taskId) return;
+  if (!props.taskId || disposed) return;
   const requestedTaskId = props.taskId;
+  controller?.abort();
+  const requestController = new AbortController();
+  controller = requestController;
+  const sequence = ++requestSequence;
   try {
-    const loaded = await api.task(requestedTaskId);
-    if (props.taskId !== requestedTaskId) return;
+    const loaded = await api.task(requestedTaskId, requestController.signal);
+    if (disposed || sequence !== requestSequence || props.taskId !== requestedTaskId) return;
     task.value = loaded;
     missingTaskPolls = 0;
     waiting.value = false;
@@ -56,7 +76,13 @@ async function load() {
       return;
     }
   } catch (caught) {
-    if (props.taskId !== requestedTaskId) return;
+    if (
+      disposed ||
+      sequence !== requestSequence ||
+      props.taskId !== requestedTaskId ||
+      (caught instanceof Error && caught.name === "AbortError")
+    )
+      return;
     if (caught instanceof ApiError && caught.status === 404) {
       missingTaskPolls++;
       if (missingTaskPolls >= missingTaskPollLimit) {
@@ -75,13 +101,14 @@ async function load() {
             : String(t("taskProgress.unavailable"));
     }
   }
-  timer = window.setTimeout(load, pollIntervalMilliseconds);
+  if (!disposed && sequence === requestSequence && props.taskId === requestedTaskId)
+    timer = window.setTimeout(load, pollDelay());
 }
 
 watch(
   () => props.taskId,
   () => {
-    window.clearTimeout(timer);
+    stopPolling();
     missingTaskPolls = 0;
     task.value = undefined;
     waiting.value = Boolean(props.taskId);
@@ -91,7 +118,10 @@ watch(
   { immediate: true },
 );
 
-onBeforeUnmount(() => window.clearTimeout(timer));
+onBeforeUnmount(() => {
+  disposed = true;
+  stopPolling();
+});
 </script>
 
 <template>
@@ -111,7 +141,15 @@ onBeforeUnmount(() => window.clearTimeout(timer));
         <strong>{{ percent }}%</strong>
       </div>
     </div>
-    <div class="task-progress__track" role="progressbar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100">
+    <div
+      class="task-progress__track"
+      role="progressbar"
+      :aria-label="label"
+      :aria-valuetext="progressValueText"
+      :aria-valuenow="percent"
+      aria-valuemin="0"
+      aria-valuemax="100"
+    >
       <span :style="{ width: `${percent}%` }" />
     </div>
     <div v-if="!compact && task" class="task-progress__meta">
@@ -121,6 +159,9 @@ onBeforeUnmount(() => window.clearTimeout(timer));
     <p v-for="warning in warnings" :key="warning" class="task-progress__warning">{{ warning }}</p>
     <p v-if="taskFailure" class="task-progress__error">{{ taskFailure }}</p>
     <p v-if="error" class="task-progress__error">{{ error }}</p>
+    <p v-if="terminal && (taskFailure || warnings.length)" class="task-progress__live" aria-live="polite">
+      {{ taskFailure || warnings[0] }}
+    </p>
   </section>
 </template>
 
@@ -188,6 +229,14 @@ onBeforeUnmount(() => window.clearTimeout(timer));
   margin: 0;
   color: #b91c1c;
   font-size: 0.7rem;
+}
+.task-progress__live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .task-progress--compact {
   border: 0;

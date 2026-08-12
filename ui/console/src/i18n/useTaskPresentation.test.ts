@@ -7,6 +7,7 @@ const dictionary: Record<string, string> = {
   "taskProgress.kinds.StaticBuild": "static build",
   "taskProgress.kinds.LocaleProvision": "whole-site localization",
   "taskProgress.operations.publish": "publish",
+  "taskProgress.operations.publish-translate": "publish and translate",
   "taskProgress.operations.localize-site": "localize site",
   "taskProgress.messages.render": "rendering",
   "taskProgress.messages.localizing-site": "localizing site",
@@ -46,6 +47,7 @@ describe("task presentation", () => {
     expect(labels.kindLabel("LocaleProvision")).toBe("whole-site localization");
     expect(labels.kindLabel("FutureTask")).toBe("FutureTask");
     expect(labels.operationLabel("publish")).toBe("publish");
+    expect(labels.operationLabel("publish-translate")).toBe("publish and translate");
     expect(labels.operationLabel("localize-site")).toBe("localize site");
     expect(labels.progressLabel("translated-chunk-2-of-5")).toBe("chunk 2/5");
     expect(labels.progressLabel("preparing-search-index")).toBe("preparing index");

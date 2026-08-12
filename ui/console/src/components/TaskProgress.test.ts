@@ -61,4 +61,22 @@ describe("TaskProgress", () => {
     expect(wrapper.emitted("terminal")).toEqual([[durableTask]]);
     wrapper.unmount();
   });
+
+  test("ignores an older request after the tracked task changes", async () => {
+    let resolveFirst!: (value: UnifiedTask) => void;
+    const first = new Promise<UnifiedTask>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const newer = task({ id: "new-task", status: "succeeded", error: undefined });
+    taskMock.mockImplementationOnce(() => first).mockResolvedValueOnce(newer);
+
+    const wrapper = mountProgress("old-task");
+    await wrapper.setProps({ taskId: "new-task" });
+    await flushPromises();
+    resolveFirst(task({ id: "old-task" }));
+    await flushPromises();
+
+    expect(wrapper.emitted("update")).toEqual([[newer]]);
+    wrapper.unmount();
+  });
 });

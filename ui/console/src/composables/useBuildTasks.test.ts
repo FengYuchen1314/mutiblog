@@ -89,6 +89,25 @@ describe("useBuildTasks", () => {
     });
   });
 
+  test("tracks every forward relation without duplicating legacy child fields", () => {
+    const tracker = useBuildTasks();
+    tracker.track("scheduled-parent", "Scheduled article");
+
+    expect(
+      tracker.trackTaskChildren({
+        id: "scheduled-parent",
+        buildTaskId: "build-child",
+        translationTaskId: "translation-child",
+        relations: [
+          { id: "build-child", role: "static-build" },
+          { id: "translation-child", role: "translation" },
+          { id: "upstream-parent", role: "parent" },
+        ],
+      }),
+    ).toEqual(["build-child", "translation-child"]);
+    expect(tracker.taskIds.value).toEqual(["scheduled-parent", "build-child", "translation-child"]);
+  });
+
   test("discardIfMissing removes only an HTTP 404 task", async () => {
     createTaskIdMock.mockReturnValueOnce("missing-task");
     const tracker = useBuildTasks();
