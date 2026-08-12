@@ -100,10 +100,12 @@ function unlockPageScroll() {
 
 async function openNavigation() {
   if (!isMobile.value || mobileOpen.value) return;
-  previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const activeElement = document.activeElement;
+  previousFocus.value =
+    activeElement instanceof HTMLElement && activeElement !== document.body ? activeElement : menuButtonRef.value;
   mobileOpen.value = true;
   await nextTick();
-  closeButtonRef.value?.focus();
+  if (mobileOpen.value && isMobile.value) closeButtonRef.value?.focus();
 }
 
 async function closeNavigation({ restoreFocus = true }: { restoreFocus?: boolean } = {}) {

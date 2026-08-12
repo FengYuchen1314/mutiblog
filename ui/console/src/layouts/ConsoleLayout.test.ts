@@ -57,6 +57,7 @@ function installMediaQuery() {
 function mountLayout() {
   const i18n = createI18n({ legacy: false, locale: "en", messages: { en } });
   return mount(ConsoleLayout, {
+    attachTo: document.body,
     global: {
       plugins: [i18n],
       stubs: {
