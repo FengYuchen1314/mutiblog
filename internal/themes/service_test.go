@@ -402,7 +402,7 @@ func TestEarthSettingsUseDefaultsValidateAndReset(t *testing.T) {
 	style := settings.Values["style"].(map[string]any)
 	sidebar := settings.Values["sidebar"].(map[string]any)
 	widgets, widgetsOK := sidebar["widgets"].([]any)
-	if style["accentColor"] != "#4ccba0" || !widgetsOK || len(widgets) != 3 || widgets[0] != "popular-posts" || widgets[1] != "categories" || widgets[2] != "tags" {
+	if style["visualPreset"] != "material-glass" || style["accentColor"] != "#4ccba0" || !widgetsOK || len(widgets) != 3 || widgets[0] != "popular-posts" || widgets[1] != "categories" || widgets[2] != "tags" {
 		t.Fatalf("default settings = %#v", settings.Values)
 	}
 	if _, err := service.SaveSettings("earth", map[string]any{"unknown": true}); !errors.Is(err, ErrInvalid) {
@@ -417,6 +417,13 @@ func TestEarthSettingsUseDefaultsValidateAndReset(t *testing.T) {
 	}
 	if updated.Values["style"].(map[string]any)["accentColor"] != "#ff0000" || updated.Values["layout"] == nil {
 		t.Fatalf("updated settings did not merge defaults: %#v", updated.Values)
+	}
+	updated, err = service.SaveSettings("earth", map[string]any{"style": map[string]any{"visualPreset": "earth-classic"}})
+	if err != nil || updated.Values["style"].(map[string]any)["visualPreset"] != "earth-classic" {
+		t.Fatalf("save visual preset = %#v, %v", updated.Values, err)
+	}
+	if _, err := service.SaveSettings("earth", map[string]any{"style": map[string]any{"visualPreset": "unsupported"}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid visual preset error = %v, want ErrInvalid", err)
 	}
 	updated, err = service.SaveSettings("earth", map[string]any{"sidebar": map[string]any{"widgets": []any{"tags", "profile"}, "socialLinks": []any{map[string]any{"name": "Example", "url": "https://example.com", "kind": "link"}}}})
 	if err != nil || len(updated.Values["sidebar"].(map[string]any)["widgets"].([]any)) != 2 {
@@ -433,7 +440,7 @@ func TestEarthSettingsUseDefaultsValidateAndReset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reset.Values["style"].(map[string]any)["accentColor"] != "#4ccba0" {
+	if reset.Values["style"].(map[string]any)["visualPreset"] != "material-glass" || reset.Values["style"].(map[string]any)["accentColor"] != "#4ccba0" {
 		t.Fatalf("reset settings = %#v", reset.Values)
 	}
 }

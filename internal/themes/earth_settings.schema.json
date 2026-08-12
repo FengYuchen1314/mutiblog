@@ -68,6 +68,7 @@
       "x-i18n": { "en": "Style", "zh-CN": "样式" },
       "type": "object",
       "properties": {
+        "visualPreset": { "title": "Visual preset", "x-i18n": { "en": "Visual preset", "zh-CN": "视觉预设" }, "type": "string", "enum": ["material-glass", "earth-classic"], "x-enum-i18n": { "en": { "material-glass": "Material glass (default)", "earth-classic": "Earth classic" }, "zh-CN": { "material-glass": "Material 玻璃拟态（默认）", "earth-classic": "Earth 经典风格" } }, "default": "material-glass" },
         "accentColor": { "title": "Accent color", "x-i18n": { "en": "Accent color", "zh-CN": "强调色" }, "type": "string", "format": "color", "default": "#4ccba0" },
         "defaultColorScheme": { "title": "Default color scheme", "x-i18n": { "en": "Default color scheme", "zh-CN": "默认颜色模式" }, "type": "string", "enum": ["system", "light", "dark"], "x-enum-i18n": { "en": { "system": "Follow system", "light": "Light", "dark": "Dark" }, "zh-CN": { "system": "跟随系统", "light": "浅色", "dark": "深色" } }, "default": "system" },
         "cardRadius": { "title": "Card corners", "x-i18n": { "en": "Card corners", "zh-CN": "卡片圆角" }, "type": "string", "enum": ["square", "soft", "round"], "x-enum-i18n": { "en": { "square": "Square", "soft": "Soft", "round": "Round" }, "zh-CN": { "square": "直角", "soft": "柔和", "round": "大圆角" } }, "default": "soft" },
